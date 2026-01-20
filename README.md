@@ -1,13 +1,13 @@
-[contributors-shield]: https://img.shields.io/github/contributors/yourusername/LindenEngine.svg?style=for-the-badge
-[contributors-url]: https://github.com/yourusername/LindenEngine/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/yourusername/LindenEngine.svg?style=for-the-badge
-[forks-url]: https://github.com/yourusername/LindenEngine/network/members
-[stars-shield]: https://img.shields.io/github/stars/yourusername/LindenEngine.svg?style=for-the-badge
-[stars-url]: https://github.com/yourusername/LindenEngine/stargazers
-[issues-shield]: https://img.shields.io/github/issues/yourusername/LindenEngine.svg?style=for-the-badge
-[issues-url]: https://github.com/yourusername/LindenEngine/issues
-[license-shield]: https://img.shields.io/github/license/yourusername/LindenEngine.svg?style=for-the-badge
-[license-url]: https://github.com/yourusername/LindenEngine/blob/main/LICENSE
+[contributors-shield]: https://img.shields.io/github/contributors/AlStartlight/LindenEngine.svg?style=for-the-badge
+[contributors-url]: https://github.com/AlStartlight/LindenEngine/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/AlStartlight/LindenEngine.svg?style=for-the-badge
+[forks-url]: https://github.com/AlStartlight/LindenEngine/network/members
+[stars-shield]: https://img.shields.io/github/stars/AlStartlight/LindenEngine.svg?style=for-the-badge
+[stars-url]: https://github.com/AlStartlight/LindenEngine/stargazers
+[issues-shield]: https://img.shields.io/github/issues/AlStartlight/LindenEngine.svg?style=for-the-badge
+[issues-url]: https://github.com/AlStartlight/LindenEngine/issues
+[license-shield]: https://img.shields.io/github/license/AlStartlight/LindenEngine.svg?style=for-the-badge
+[license-url]: https://github.com/AlStartlight/LindenEngine/blob/main/LICENSE
 
 <div align="center">
 
@@ -170,7 +170,7 @@ Optional but recommended:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/LindenEngine.git
+git clone https://github.com/AlStartlight/LindenEngine.git
 cd LindenEngine
 ```
 
