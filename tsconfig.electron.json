@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "outDir": "./dist-electron",
+    "noEmit": false,
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": false
+  },
+  "include": ["electron"],
+  "exclude": ["node_modules", "dist"]
+}

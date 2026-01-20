@@ -1,0 +1,44 @@
+node_modules/
+dist/
+dist-electron/
+.DS_Store
+.env
+.env.local
+.env.*.local
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+out/
+build/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.cache/
+
+# Development
+.eslintcache
+*.tsbuildinfo
+.turbo/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.temp
