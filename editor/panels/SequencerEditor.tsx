@@ -13,6 +13,7 @@ import {
   PlaybackState,
   PropertyTrack,
 } from '../../engine/cinematic'
+import { useHistory, useUndoRedoShortcuts } from '../hooks/useHistory'
 
 // ==================== TYPES ====================
 
@@ -527,7 +528,7 @@ const KeyframeProperties: React.FC<KeyframePropertiesProps> = ({
 
 export const SequencerEditor: React.FC = () => {
   // Create sample sequence
-  const [sequence] = useState(() => {
+  const initializeSequence = useCallback(() => {
     const seq = new Sequence('CinematicSequence_01')
     seq.duration = 10
 
@@ -592,8 +593,33 @@ export const SequencerEditor: React.FC = () => {
     audioTrack.addKeyframe(8, { volume: 0.3 })
     seq.addTrack(audioTrack)
 
-    return seq
-  })
+    return JSON.stringify(seq.serialize())
+  }, [])
+
+  const { state: sequenceState, setState: setSequenceState, undo, redo, canUndo, canRedo } = useHistory(
+    initializeSequence()
+  )
+
+  const sequenceRef = useRef<Sequence>(new Sequence('temp'))
+
+  // Update sequence from history
+  useEffect(() => {
+    const data = JSON.parse(sequenceState)
+    sequenceRef.current.name = data.name
+    sequenceRef.current.duration = data.duration
+    sequenceRef.current.tracks = data.tracks
+    forceUpdate({})
+  }, [sequenceState])
+
+  // Register undo/redo keyboard shortcuts
+  useUndoRedoShortcuts(undo, redo, canUndo, canRedo)
+
+  const sequence = sequenceRef.current
+
+  // Helper to save state to history
+  const saveHistory = useCallback(() => {
+    setSequenceState(JSON.stringify(sequence.serialize()))
+  }, [sequence, setSequenceState])
 
   const [player] = useState(() => {
     const p = new SequencerPlayer()
@@ -804,6 +830,30 @@ export const SequencerEditor: React.FC = () => {
       <div className="flex items-center gap-2 px-4 py-2 bg-gray-850 border-b border-gray-700">
         <span className="text-sm text-gray-300">{sequence.name}</span>
         <div className="flex-1" />
+        
+        <button
+          className={`w-6 h-6 text-xs rounded ${
+            canUndo ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+          }`}
+          onClick={undo}
+          disabled={!canUndo}
+          title="Undo (Ctrl+Z)"
+        >
+          ↶
+        </button>
+        <button
+          className={`w-6 h-6 text-xs rounded ${
+            canRedo ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+          }`}
+          onClick={redo}
+          disabled={!canRedo}
+          title="Redo (Ctrl+Shift+Z)"
+        >
+          ↷
+        </button>
+        
+        <div className="w-px h-4 bg-gray-600" />
+        
         <span className="text-xs text-gray-500">Zoom:</span>
         <button
           className="w-6 h-6 text-xs bg-gray-700 rounded hover:bg-gray-600"

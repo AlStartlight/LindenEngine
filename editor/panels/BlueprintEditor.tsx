@@ -10,6 +10,7 @@ import {
   BlueprintPinType,
   NodeCategory,
 } from '../../engine/blueprints'
+import { useHistory, useUndoRedoShortcuts } from '../hooks/useHistory'
 
 // ==================== TYPES ====================
 
@@ -333,32 +334,32 @@ const NodePalette: React.FC<NodePaletteProps> = ({
     {
       name: 'Events',
       color: '#e53e3e',
-      nodes: ['BeginPlay', 'Tick', 'OnOverlap', 'OnHit', 'OnInput'],
+      nodes: ['EventBeginPlay', 'EventTick', 'EventInputAction', 'EventOnOverlapBegin'],
     },
     {
       name: 'Flow Control',
       color: '#718096',
-      nodes: ['Branch', 'Sequence', 'ForLoop', 'WhileLoop', 'Delay', 'Gate', 'Switch'],
+      nodes: ['Branch', 'Sequence', 'ForLoop', 'WhileLoop', 'Delay', 'Gate'],
     },
     {
       name: 'Variables',
       color: '#48bb78',
-      nodes: ['Get', 'Set', 'Array Get', 'Array Set', 'Array Add'],
+      nodes: ['GetVariable', 'SetVariable'],
     },
     {
       name: 'Math',
       color: '#38b2ac',
-      nodes: ['Add', 'Subtract', 'Multiply', 'Divide', 'Random', 'Clamp', 'Lerp', 'Sin', 'Cos'],
+      nodes: ['Add', 'Subtract', 'Multiply', 'Divide', 'RandomFloat', 'Clamp', 'Lerp'],
     },
     {
       name: 'Actions',
       color: '#9f7aea',
-      nodes: ['Print', 'SetActorLocation', 'SetActorRotation', 'AddForce', 'Spawn', 'Destroy'],
+      nodes: ['PrintString', 'SetActorLocation', 'GetActorLocation', 'SpawnActor', 'DestroyActor'],
     },
     {
       name: 'Input',
       color: '#f6e05e',
-      nodes: ['IsKeyPressed', 'GetMousePosition', 'GetAxisValue'],
+      nodes: ['IsInputKeyDown', 'GetAxisValue'],
     },
   ]
 
@@ -422,7 +423,7 @@ const NodePalette: React.FC<NodePaletteProps> = ({
         <div className="flex gap-1">
           <button
             className="flex-1 px-2 py-1 text-xs bg-red-900 text-red-300 rounded hover:bg-red-800"
-            onClick={() => onCreateNode('BeginPlay')}
+            onClick={() => onCreateNode('EventBeginPlay')}
           >
             Event
           </button>
@@ -434,7 +435,7 @@ const NodePalette: React.FC<NodePaletteProps> = ({
           </button>
           <button
             className="flex-1 px-2 py-1 text-xs bg-purple-900 text-purple-300 rounded hover:bg-purple-800"
-            onClick={() => onCreateNode('Print')}
+            onClick={() => onCreateNode('PrintString')}
           >
             Print
           </button>
@@ -532,7 +533,7 @@ const VariablesPanel: React.FC<VariablesPanelProps> = ({
 // ==================== MAIN BLUEPRINT EDITOR ====================
 
 export const BlueprintEditor: React.FC = () => {
-  const [graph] = useState(() => {
+  const initialGraph = useCallback(() => {
     const g = new BlueprintGraph('PlayerController')
     
     // Create some sample nodes
@@ -560,8 +561,25 @@ export const BlueprintEditor: React.FC = () => {
     g.addVariable('PlayerName', BlueprintPinType.STRING, 'Player1')
     g.addVariable('IsAlive', BlueprintPinType.BOOLEAN, true)
     
-    return g
-  })
+    return JSON.stringify(g.serialize())
+  }, [])
+
+  const { state: graphState, setState: setGraphState, undo, redo, canUndo, canRedo } = useHistory(
+    initialGraph()
+  )
+
+  const graphRef = useRef<BlueprintGraph>(BlueprintGraph.deserialize(JSON.parse(graphState)))
+
+  // Update graph from history
+  useEffect(() => {
+    graphRef.current = BlueprintGraph.deserialize(JSON.parse(graphState))
+    forceUpdate({})
+  }, [graphState])
+
+  // Register undo/redo keyboard shortcuts
+  useUndoRedoShortcuts(undo, redo, canUndo, canRedo)
+
+  const graph = graphRef.current
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -582,6 +600,11 @@ export const BlueprintEditor: React.FC = () => {
 
   const canvasRef = useRef<HTMLDivElement>(null)
 
+  // Save current state to history
+  const saveHistory = useCallback(() => {
+    setGraphState(JSON.stringify(graph.serialize()))
+  }, [graph, setGraphState])
+
   // Create node
   const handleCreateNode = useCallback((nodeType: string) => {
     const node = graph.createNode(nodeType)
@@ -590,9 +613,9 @@ export const BlueprintEditor: React.FC = () => {
         x: 200 + Math.random() * 300,
         y: 100 + Math.random() * 200,
       }
-      forceUpdate({})
+      saveHistory()
     }
-  }, [graph])
+  }, [graph, saveHistory])
 
   // Node drag
   const handleNodeDragStart = useCallback((nodeId: string, e: React.MouseEvent) => {
@@ -674,20 +697,25 @@ export const BlueprintEditor: React.FC = () => {
 
   // Mouse up
   const handleMouseUp = useCallback(() => {
+    if (dragState.isDragging) {
+      saveHistory()
+    }
+    if (wireDrag.isDragging) {
+      setWireDrag({
+        isDragging: false,
+        sourceNodeId: null,
+        sourcePinId: null,
+        isExecPin: false,
+        mousePos: { x: 0, y: 0 },
+      })
+    }
     setDragState({
       isDragging: false,
       nodeId: null,
       startPos: { x: 0, y: 0 },
       offset: { x: 0, y: 0 },
     })
-    setWireDrag({
-      isDragging: false,
-      sourceNodeId: null,
-      sourcePinId: null,
-      isExecPin: false,
-      mousePos: { x: 0, y: 0 },
-    })
-  }, [])
+  }, [dragState.isDragging, wireDrag.isDragging, saveHistory])
 
   // Create variable
   const handleCreateVariable = useCallback((name: string, type: string) => {
@@ -809,7 +837,7 @@ export const BlueprintEditor: React.FC = () => {
       {/* Canvas */}
       <div
         ref={canvasRef}
-        className="flex-1 relative overflow-hidden"
+        className="flex-1 relative overflow-auto"
         style={{
           backgroundImage: `
             linear-gradient(to right, #1f2937 1px, transparent 1px),
@@ -838,6 +866,27 @@ export const BlueprintEditor: React.FC = () => {
             onClick={() => console.log('Blueprint validated:', graph.name)}
           >
             Validate
+          </button>
+          <div className="w-px bg-gray-600" />
+          <button
+            className={`px-3 py-1.5 text-sm rounded ${
+              canUndo ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            }`}
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (Ctrl+Z)"
+          >
+            ↶ Undo
+          </button>
+          <button
+            className={`px-3 py-1.5 text-sm rounded ${
+              canRedo ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            }`}
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            ↷ Redo
           </button>
           <div className="w-px bg-gray-600" />
           <span className="px-2 py-1.5 text-gray-400 text-sm">

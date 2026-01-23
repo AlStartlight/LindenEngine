@@ -12,6 +12,7 @@ import {
   PinDirection,
   createBasicLitMaterial,
 } from '../../engine/materials'
+import { useHistory, useUndoRedoShortcuts } from '../hooks/useHistory'
 
 // ==================== TYPES ====================
 
@@ -359,7 +360,30 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 // ==================== MAIN MATERIAL EDITOR ====================
 
 export const MaterialEditor: React.FC = () => {
-  const [graph, setGraph] = useState<MaterialGraph>(() => createBasicLitMaterial())
+  const initialGraph = useCallback(() => JSON.stringify(createBasicLitMaterial().serialize()), [])
+  
+  const { state: graphState, setState: setGraphState, undo, redo, canUndo, canRedo } = useHistory(
+    initialGraph()
+  )
+
+  const graphRef = useRef<MaterialGraph>(MaterialGraph.deserialize(JSON.parse(graphState)))
+
+  // Update graph from history
+  useEffect(() => {
+    graphRef.current = MaterialGraph.deserialize(JSON.parse(graphState))
+    forceUpdate({})
+  }, [graphState])
+
+  // Register undo/redo keyboard shortcuts
+  useUndoRedoShortcuts(undo, redo, canUndo, canRedo)
+
+  const graph = graphRef.current
+
+  // Helper to save state to history
+  const saveHistory = useCallback(() => {
+    setGraphState(JSON.stringify(graph.serialize()))
+  }, [graph, setGraphState])
+
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [dragState, setDragState] = useState<DragState>({
     isDragging: false,
@@ -570,7 +594,7 @@ export const MaterialEditor: React.FC = () => {
       {/* Canvas */}
       <div
         ref={canvasRef}
-        className="flex-1 relative overflow-hidden"
+        className="flex-1 relative overflow-auto"
         style={{
           backgroundImage: 'radial-gradient(circle, #374151 1px, transparent 1px)',
           backgroundSize: '20px 20px',
@@ -593,11 +617,32 @@ export const MaterialEditor: React.FC = () => {
           <button
             className="px-3 py-1 bg-gray-700 text-white text-sm rounded hover:bg-gray-600"
             onClick={() => {
-              setGraph(createBasicLitMaterial())
+              setGraphState(JSON.stringify(createBasicLitMaterial().serialize()))
               setSelectedNodeId(null)
             }}
           >
             New
+          </button>
+          <div className="w-px bg-gray-600" />
+          <button
+            className={`px-3 py-1 text-sm rounded ${
+              canUndo ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            }`}
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (Ctrl+Z)"
+          >
+            ↶
+          </button>
+          <button
+            className={`px-3 py-1 text-sm rounded ${
+              canRedo ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            }`}
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            ↷
           </button>
           <span className="px-2 py-1 bg-gray-800 text-gray-400 text-sm rounded">
             {graph.name}

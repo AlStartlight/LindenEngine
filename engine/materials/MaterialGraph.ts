@@ -698,15 +698,72 @@ ${nodeCode}
     // Clear default nodes
     graph.nodes.clear()
 
+    // Map class names to node type names
+    const classNameToType: Record<string, string> = {
+      // Output
+      'MaterialOutputNode': 'MaterialOutput',
+      
+      // Input nodes
+      'TextureSampleNode': 'TextureSample',
+      'UVNode': 'UV',
+      'VertexColorNode': 'VertexColor',
+      'WorldPositionNode': 'WorldPosition',
+      'NormalNode': 'Normal',
+      'TimeNode': 'Time',
+      
+      // Constant nodes
+      'ConstantNode': 'Constant',
+      'Constant2Node': 'Constant2',
+      'Constant3Node': 'Constant3',
+      'Constant4Node': 'Constant4',
+      'ParameterNode': 'Parameter',
+      
+      // Math nodes
+      'AddNode': 'Add',
+      'SubtractNode': 'Subtract',
+      'MultiplyNode': 'Multiply',
+      'DivideNode': 'Divide',
+      'PowerNode': 'Power',
+      'LerpNode': 'Lerp',
+      'ClampNode': 'Clamp',
+      'SinNode': 'Sin',
+      'CosNode': 'Cos',
+      'AbsNode': 'Abs',
+      'FloorNode': 'Floor',
+      'FracNode': 'Frac',
+      'OneMinusNode': 'OneMinus',
+      
+      // Vector nodes
+      'NormalizeNode': 'Normalize',
+      'DotNode': 'Dot',
+      'CrossNode': 'Cross',
+      'ComponentMaskNode': 'ComponentMask',
+      'AppendNode': 'Append',
+      
+      // Utility nodes
+      'FresnelNode': 'Fresnel',
+      'PannerNode': 'Panner',
+      'RotatorNode': 'Rotator',
+    }
+
     // Recreate nodes
     for (const nodeData of data.nodes) {
-      const node = graph.createNode(nodeData.type)
-      if (node) {
-        node.id = nodeData.id
-        node.position = nodeData.position
-        
-        if (node instanceof MaterialOutputNode) {
-          graph.outputNode = node
+      // Convert class name to node type if needed
+      const nodeType = classNameToType[nodeData.type] || nodeData.type
+      
+      // Special handling for MaterialOutput
+      if (nodeType === 'MaterialOutput') {
+        // Create a MaterialOutputNode directly since it's not in createNode
+        const outputNode = new MaterialOutputNode()
+        outputNode.id = nodeData.id
+        outputNode.position = nodeData.position
+        graph.nodes.set(outputNode.id, outputNode)
+        graph.outputNode = outputNode
+      } else {
+        const node = graph.createNode(nodeType)
+        if (node) {
+          node.id = nodeData.id
+          node.position = nodeData.position
         }
       }
     }

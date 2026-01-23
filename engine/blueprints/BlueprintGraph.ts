@@ -630,9 +630,61 @@ export class BlueprintGraph {
     graph.id = data.id
     graph.description = data.description || ''
 
+    // Map class names to node type names
+    const classNameToType: Record<string, string> = {
+      // Event nodes
+      'EventBeginPlay': 'EventBeginPlay',
+      'EventTick': 'EventTick',
+      'Tick': 'EventTick', // Backwards compatibility
+      'EventInputAction': 'EventInputAction',
+      'EventOnOverlapBegin': 'EventOnOverlapBegin',
+      
+      // Flow control nodes
+      'BranchNode': 'Branch',
+      'SequenceNode': 'Sequence',
+      'ForLoopNode': 'ForLoop',
+      'ForEachLoopNode': 'ForEachLoop',
+      'WhileLoopNode': 'WhileLoop',
+      'DelayNode': 'Delay',
+      'GateNode': 'Gate',
+      
+      // Variable nodes
+      'GetVariableNode': 'GetVariable',
+      'SetVariableNode': 'SetVariable',
+      
+      // Math nodes
+      'MathAddNode': 'Add',
+      'MathSubtractNode': 'Subtract',
+      'MathMultiplyNode': 'Multiply',
+      'MathDivideNode': 'Divide',
+      'MathClampNode': 'Clamp',
+      'MathLerpNode': 'Lerp',
+      'RandomFloatNode': 'RandomFloat',
+      
+      // Comparison nodes
+      'CompareEqualNode': 'Equal',
+      'CompareGreaterNode': 'Greater',
+      'CompareLessNode': 'Less',
+      
+      // Action nodes
+      'PrintStringNode': 'PrintString',
+      'SpawnActorNode': 'SpawnActor',
+      'DestroyActorNode': 'DestroyActor',
+      'SetActorLocationNode': 'SetActorLocation',
+      'GetActorLocationNode': 'GetActorLocation',
+      'AddMovementInputNode': 'AddMovementInput',
+      'PlaySoundNode': 'PlaySound',
+      
+      // Input nodes
+      'GetAxisValueNode': 'GetAxisValue',
+      'IsInputKeyDownNode': 'IsInputKeyDown',
+    }
+
     // Recreate nodes
     for (const nodeData of data.nodes) {
-      const node = graph.createNode(nodeData.type)
+      // Convert class name to node type if needed
+      const nodeType = classNameToType[nodeData.type] || nodeData.type
+      const node = graph.createNode(nodeType)
       if (node) {
         node.id = nodeData.id
         node.position = nodeData.position

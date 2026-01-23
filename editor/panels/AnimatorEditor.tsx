@@ -14,6 +14,7 @@ import {
   MotionType,
   createLocomotionController,
 } from '../../engine/animation'
+import { useHistory, useUndoRedoShortcuts } from '../hooks/useHistory'
 
 // ==================== TYPES ====================
 
@@ -528,8 +529,29 @@ const InspectorPanel: React.FC<InspectorPanelProps> = ({
 // ==================== MAIN ANIMATOR EDITOR ====================
 
 export const AnimatorEditor: React.FC = () => {
-  // Create sample controller
-  const [controller] = useState(() => createLocomotionController())
+  const initialController = useCallback(() => JSON.stringify(createLocomotionController().serialize()), [])
+  
+  const { state: controllerState, setState: setControllerState, undo, redo, canUndo, canRedo } = useHistory(
+    initialController()
+  )
+
+  const controllerRef = useRef<AnimatorController>(AnimatorController.deserialize(JSON.parse(controllerState)))
+
+  // Update controller from history
+  useEffect(() => {
+    controllerRef.current = AnimatorController.deserialize(JSON.parse(controllerState))
+    forceUpdate({})
+  }, [controllerState])
+
+  // Register undo/redo keyboard shortcuts
+  useUndoRedoShortcuts(undo, redo, canUndo, canRedo)
+
+  const controller = controllerRef.current
+
+  // Helper to save state to history
+  const saveHistory = useCallback(() => {
+    setControllerState(JSON.stringify(controller.serialize()))
+  }, [controller, setControllerState])
 
   const [selectedLayer, setSelectedLayer] = useState(0)
   const [selectedStateId, setSelectedStateId] = useState<string | null>(null)
@@ -787,12 +809,35 @@ export const AnimatorEditor: React.FC = () => {
           >
             + State
           </button>
+          
+          <div className="w-px bg-gray-600" />
+          
+          <button
+            className={`px-3 py-1 text-xs rounded ${
+              canUndo ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            }`}
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (Ctrl+Z)"
+          >
+            ↶
+          </button>
+          <button
+            className={`px-3 py-1 text-xs rounded ${
+              canRedo ? 'bg-gray-700 text-white hover:bg-gray-600' : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            }`}
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            ↷
+          </button>
         </div>
 
         {/* Canvas */}
         <div
           ref={canvasRef}
-          className="flex-1 relative overflow-hidden"
+          className="flex-1 relative overflow-auto"
           style={{
             backgroundImage: `
               radial-gradient(circle, #374151 1.5px, transparent 1.5px)
