@@ -1,0 +1,10 @@
+{
+  "format": "linden-scene",
+  "version": 2,
+  "name": "Empty",
+  "settings": {
+    "ambientColor": "#666666",
+    "skybox": null
+  },
+  "entities": []
+}
