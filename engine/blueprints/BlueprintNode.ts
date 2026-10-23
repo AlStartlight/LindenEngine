@@ -303,6 +303,98 @@ export class EventOnOverlapBegin extends BlueprintNode {
   }
 }
 
+/**
+ * Custom Event - Callable from Inspector events, other components, or scripts
+ */
+export class EventCustom extends BlueprintNode {
+  public eventName: string = 'CustomEvent'
+  public paramType?: 'number' | 'string' | 'boolean' | 'entity'
+  public currentArg: any = undefined
+
+  constructor(eventName: string = 'CustomEvent', paramType?: 'number' | 'string' | 'boolean' | 'entity') {
+    super('EventCustom', `Event ${eventName}`, NodeCategory.EVENT)
+    this.eventName = eventName
+    this.paramType = paramType
+    this.color = '#e53e3e'
+    this.description = 'Custom event callable from components, Inspector events or code'
+    this.addExecOutput()
+    if (paramType) {
+      const pinType =
+        paramType === 'number'
+          ? BlueprintPinType.FLOAT
+          : paramType === 'string'
+          ? BlueprintPinType.STRING
+          : paramType === 'boolean'
+          ? BlueprintPinType.BOOLEAN
+          : BlueprintPinType.ACTOR
+      this.addOutputPin('Param', pinType)
+    }
+  }
+
+  setParamType(type?: 'number' | 'string' | 'boolean' | 'entity') {
+    this.paramType = type
+    this.outputPins = []
+    this.addExecOutput()
+    if (type) {
+      const pinType =
+        type === 'number'
+          ? BlueprintPinType.FLOAT
+          : type === 'string'
+          ? BlueprintPinType.STRING
+          : type === 'boolean'
+          ? BlueprintPinType.BOOLEAN
+          : BlueprintPinType.ACTOR
+      this.addOutputPin('Param', pinType)
+    }
+  }
+
+  execute(_context: ExecutionContext, _inputs: Map<string, any>): Map<string, any> {
+    const outputs = new Map<string, any>()
+    if (this.paramType && this.currentArg !== undefined) {
+      outputs.set('Param', this.currentArg)
+    }
+    return outputs
+  }
+}
+
+/**
+ * Invoke Event Node - Invokes an EventField on self entity
+ */
+export class InvokeEventNode extends BlueprintNode {
+  public eventName: string = 'onTimeout'
+  public componentName: string = ''
+
+  constructor() {
+    super('InvokeEventNode', 'Invoke Event', NodeCategory.EVENT)
+    this.color = '#4299e1'
+    this.description = 'Invokes an EventField on self entity'
+    this.addExecInput()
+    this.addExecOutput()
+    this.addInputPin('Component', BlueprintPinType.STRING, '')
+    this.addInputPin('Event', BlueprintPinType.STRING, '')
+  }
+
+  execute(context: ExecutionContext, inputs: Map<string, any>): Map<string, any> {
+    const compName = inputs.get('Component') || this.componentName
+    const evtName = inputs.get('Event') || this.eventName
+    const actor = context.currentActor
+    const entity = actor?.getEntity ? actor.getEntity() : actor?.entity || actor
+    if (entity) {
+      const comp = compName ? entity.getComponent?.(compName) : null
+      const targetObj = comp || entity
+      const evt = targetObj ? targetObj[evtName] : undefined
+      if (evt && typeof evt.emit === 'function') {
+        evt.emit()
+      } else if (typeof evt === 'function') {
+        evt.call(targetObj)
+      } else {
+        console.warn(`[InvokeEventNode] Event ${evtName} not found on entity`)
+      }
+    }
+    return new Map()
+  }
+}
+
 // ==================== FLOW CONTROL NODES ====================
 
 /**
@@ -947,6 +1039,32 @@ export class PlaySoundNode extends BlueprintNode {
   }
 }
 
+/**
+ * Rotate Node - Rotates actor around an axis
+ */
+export class RotateNode extends BlueprintNode {
+  constructor() {
+    super('Rotate', 'Rotate', NodeCategory.ACTOR)
+    this.color = '#4299e1'
+    this.addExecInput()
+    this.addInputPin('Speed', BlueprintPinType.FLOAT, 90.0)
+    this.addInputPin('Axis', BlueprintPinType.STRING, 'Y')
+    this.addExecOutput()
+  }
+
+  execute(context: ExecutionContext, inputs: Map<string, any>): Map<string, any> {
+    const speed = inputs.get('Speed') ?? 90.0
+    const axis = inputs.get('Axis') ?? 'Y'
+    if (context.currentActor && context.currentActor.transform) {
+      const rot = context.currentActor.transform.rotation
+      if (axis === 'Y') rot.y += speed * context.deltaTime
+      else if (axis === 'X') rot.x += speed * context.deltaTime
+      else if (axis === 'Z') rot.z += speed * context.deltaTime
+    }
+    return new Map()
+  }
+}
+
 // ==================== INPUT NODES ====================
 
 /**
@@ -1002,6 +1120,8 @@ export const BlueprintNodeTypes = {
   EventTick,
   EventInputAction,
   EventOnOverlapBegin,
+  EventCustom,
+  InvokeEventNode,
   // Flow Control Nodes
   BranchNode,
   SequenceNode,

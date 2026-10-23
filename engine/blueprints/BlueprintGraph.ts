@@ -18,6 +18,8 @@ import {
   EventTick,
   EventInputAction,
   EventOnOverlapBegin,
+  EventCustom,
+  InvokeEventNode,
   // Flow Control Nodes
   BranchNode,
   SequenceNode,
@@ -48,6 +50,7 @@ import {
   SetActorLocationNode,
   GetActorLocationNode,
   AddMovementInputNode,
+  RotateNode,
   PlaySoundNode,
   // Input Nodes
   GetAxisValueNode,
@@ -183,6 +186,7 @@ export class BlueprintGraph {
       'SetActorLocation': SetActorLocationNode,
       'GetActorLocation': GetActorLocationNode,
       'AddMovementInput': AddMovementInputNode,
+      'Rotate': RotateNode,
       'PlaySound': PlaySoundNode,
       
       // Input
@@ -399,6 +403,10 @@ export class BlueprintGraph {
 
   // ==================== EXECUTION ENGINE ====================
 
+  getExecutionContext(): ExecutionContext | null {
+    return this.executionContext
+  }
+
   /**
    * Initialize execution context
    */
@@ -447,6 +455,43 @@ export class BlueprintGraph {
     for (const node of tickNodes) {
       this.executeFromNode(node)
     }
+  }
+
+  /**
+   * Get all custom events defined in this graph (for Inspector function dropdown)
+   */
+  getCustomEvents(): { name: string; paramType?: string }[] {
+    const customNodes = this.getAllNodes().filter(n => n instanceof EventCustom) as EventCustom[]
+    return customNodes.map(node => ({
+      name: node.eventName,
+      paramType: node.paramType,
+    }))
+  }
+
+  /**
+   * Execute custom event by name
+   */
+  executeCustomEvent(name: string, arg?: unknown): boolean {
+    if (!this.executionContext) {
+      this.initializeContext({}, {})
+    }
+
+    const customNodes = this.getAllNodes().filter(
+      n => n instanceof EventCustom && (n as EventCustom).eventName === name
+    ) as EventCustom[]
+
+    if (customNodes.length === 0) {
+      console.warn(`[BlueprintGraph] Custom event "${name}" not found in graph "${this.name}"`)
+      return false
+    }
+
+    for (const node of customNodes) {
+      node.currentArg = arg
+      this.executeFromNode(node)
+      node.currentArg = undefined
+    }
+
+    return true
   }
 
   /**
