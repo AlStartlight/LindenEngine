@@ -14,6 +14,8 @@ pnpm-debug.log*
 # Build outputs
 out/
 build/
+release/
+release-artifacts/
 *.exe
 *.dmg
 *.AppImage
@@ -42,3 +44,11 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+
+# Generated test output (rebuilt by the test tooling)
+test-results/
+playwright-report/
+docs/test-case/report/
+docs/test-case-1m/report/
+docs/test-case-1m/specs/
+docs/test-case-1m/ui/ui-bundle.mjs
