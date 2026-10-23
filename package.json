@@ -90,7 +90,8 @@
       ],
       "maintainer": "Linden Engine Contributors",
       "icon": "resources/icon.png"
-    }
+    },
+    "afterSign": "scripts/adhoc-sign.cjs"
   },
   "author": "Linden Engine Contributors"
 }
