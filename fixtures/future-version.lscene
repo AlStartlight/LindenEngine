@@ -1,0 +1,10 @@
+{
+  "format": "linden-scene",
+  "version": 2,
+  "name": "FutureScene",
+  "camera": {
+    "position": [10, 10, 10],
+    "target": [0, 0, 0]
+  },
+  "objects": []
+}

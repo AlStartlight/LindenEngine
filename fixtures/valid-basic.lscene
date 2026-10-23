@@ -1,0 +1,71 @@
+{
+  "format": "linden-scene",
+  "version": 1,
+  "name": "Level01",
+  "camera": {
+    "position": [15, 12, 18],
+    "target": [0, 1, 0]
+  },
+  "objects": [
+    {
+      "id": "cube-1",
+      "name": "Red Cube",
+      "parentId": null,
+      "kind": "primitive",
+      "primitive": "box",
+      "transform": {
+        "position": [0, 1, 0],
+        "rotation": [0, 45, 0],
+        "scale": [1, 1, 1]
+      },
+      "material": {
+        "color": "#ff3333",
+        "roughness": 0.4,
+        "metalness": 0.6
+      },
+      "castShadow": true,
+      "receiveShadow": true,
+      "visible": true
+    },
+    {
+      "id": "sphere-1",
+      "name": "Green Sphere",
+      "parentId": null,
+      "kind": "primitive",
+      "primitive": "sphere",
+      "transform": {
+        "position": [5, 1, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1.5, 1.5, 1.5]
+      },
+      "material": {
+        "color": "#33ff33",
+        "roughness": 0.2,
+        "metalness": 0.8
+      },
+      "castShadow": true,
+      "receiveShadow": true,
+      "visible": true
+    },
+    {
+      "id": "cylinder-1",
+      "name": "Blue Cylinder",
+      "parentId": null,
+      "kind": "primitive",
+      "primitive": "cylinder",
+      "transform": {
+        "position": [-5, 1.5, 0],
+        "rotation": [15, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "material": {
+        "color": "#3366ff",
+        "roughness": 0.5,
+        "metalness": 0.5
+      },
+      "castShadow": true,
+      "receiveShadow": true,
+      "visible": true
+    }
+  ]
+}
