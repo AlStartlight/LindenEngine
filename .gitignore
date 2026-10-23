@@ -12,10 +12,11 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Build outputs
-out/
-build/
-release/
-release-artifacts/
+# Anchored to the repo root so source folders like engine/godot/build/ are not ignored
+/out/
+/build/
+/release/
+/release-artifacts/
 *.exe
 *.dmg
 *.AppImage

@@ -18,7 +18,7 @@ Rilis dibagi tiga fase. **Fase 0–1 (v0.2–v0.3)** adalah komitmen PRD ini. Fa
 | Hierarchy / Inspector | Hierarchy kini berbasis daftar objek viewport; Inspector hanya transform. Belum ada komponen yang bisa ditambah/dihapus. |
 | Physics | `PhysicsSystem.updateEntity()` dan `checkCollisions()` masih kosong (placeholder). Komponen `RigidBody` dan `Collider` hanya data. |
 | Undo/Redo | Hook `editor/hooks/useHistory.ts` ada, tetapi belum dipakai untuk operasi scene. |
-| Save/Open | Spec Open Scene + format `.lscene` v1 ada (`docs/Spec.PRD: File -> /`); Save belum ada. |
+| Save/Open | Spec Open Scene + format `.lscene` v1 ada (`docs/specs/PRD-Open-Scene-Ctrl-O.md`); Save belum ada. |
 | Visual scripting, Material graph, Animator, Sequencer | Ada sebagai editor terpisah (`engine/blueprints`, `engine/materials`, `engine/animation`, `engine/cinematic`). |
 | Input | `InputManager` hanya interface di `engine/scripting/ScriptSystem.ts`. |
 
