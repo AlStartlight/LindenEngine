@@ -65,28 +65,31 @@
       "package.json"
     ],
     "directories": {
-      "buildResources": "public",
+      "buildResources": "resources",
       "output": "release"
     },
     "win": {
       "target": [
         "nsis",
         "msi"
-      ]
+      ],
+      "icon": "resources/icon.ico"
     },
     "mac": {
       "target": [
         "dmg",
         "zip"
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "icon": "resources/icon.icns"
     },
     "linux": {
       "target": [
         "AppImage",
         "deb"
       ],
-      "maintainer": "Linden Engine Contributors"
+      "maintainer": "Linden Engine Contributors",
+      "icon": "resources/icon.png"
     }
   },
   "author": "Linden Engine Contributors"
