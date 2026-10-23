@@ -1,0 +1,6 @@
+{
+  "format": "linden-scene",
+  "version": 1,
+  "name": "Broken",
+  "camera": {
+    "position": [10, 10, 10],

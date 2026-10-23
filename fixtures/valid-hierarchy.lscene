@@ -1,0 +1,51 @@
+{
+  "format": "linden-scene",
+  "version": 1,
+  "name": "HierarchyDemo",
+  "camera": {
+    "position": [10, 10, 10],
+    "target": [0, 0, 0]
+  },
+  "objects": [
+    {
+      "id": "parent-box",
+      "name": "Parent Box",
+      "parentId": null,
+      "kind": "primitive",
+      "primitive": "box",
+      "transform": {
+        "position": [0, 1, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "material": {
+        "color": "#ffffff",
+        "roughness": 0.5,
+        "metalness": 0.5
+      },
+      "castShadow": true,
+      "receiveShadow": true,
+      "visible": true
+    },
+    {
+      "id": "child-sphere",
+      "name": "Child Sphere",
+      "parentId": "parent-box",
+      "kind": "primitive",
+      "primitive": "sphere",
+      "transform": {
+        "position": [0, 2, 0],
+        "rotation": [0, 0, 0],
+        "scale": [0.5, 0.5, 0.5]
+      },
+      "material": {
+        "color": "#ffaa00",
+        "roughness": 0.3,
+        "metalness": 0.7
+      },
+      "castShadow": true,
+      "receiveShadow": true,
+      "visible": true
+    }
+  ]
+}

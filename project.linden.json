@@ -1,0 +1,56 @@
+{
+  "name": "Linden Project",
+  "version": "0.1.0",
+  "tags": ["Player", "Enemy", "Pickup", "Coin", "Ground", "Flying"],
+  "layers": [
+    "Default",
+    "TransparentFX",
+    "Ignore Raycast",
+    "",
+    "Water",
+    "UI",
+    "Player",
+    "Enemy"
+  ],
+  "collisionMatrix": [
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+    [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]
+  ],
+  "input": {
+    "actions": [
+      {
+        "name": "Jump",
+        "type": "button",
+        "bindings": ["Keyboard/Space", "Gamepad/ButtonSouth"]
+      },
+      {
+        "name": "Move",
+        "type": "vector2",
+        "composite": {
+          "up": "Keyboard/KeyW",
+          "down": "Keyboard/KeyS",
+          "left": "Keyboard/KeyA",
+          "right": "Keyboard/KeyD"
+        },
+        "bindings": ["Gamepad/LeftStick"],
+        "deadzone": 0.2
+      }
+    ]
+  },
+  "services": [],
+  "scenesInBuild": ["scenes/Level01.lscene"]
+}

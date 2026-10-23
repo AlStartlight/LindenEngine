@@ -1,0 +1,51 @@
+{
+  "format": "linden-scene",
+  "version": 1,
+  "name": "DuplicateIDScene",
+  "camera": {
+    "position": [10, 10, 10],
+    "target": [0, 0, 0]
+  },
+  "objects": [
+    {
+      "id": "cube-1",
+      "name": "First Cube",
+      "parentId": null,
+      "kind": "primitive",
+      "primitive": "box",
+      "transform": {
+        "position": [0, 1, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "material": {
+        "color": "#ff0000",
+        "roughness": 0.5,
+        "metalness": 0.5
+      },
+      "castShadow": true,
+      "receiveShadow": true,
+      "visible": true
+    },
+    {
+      "id": "cube-1",
+      "name": "Second Cube",
+      "parentId": null,
+      "kind": "primitive",
+      "primitive": "box",
+      "transform": {
+        "position": [2, 1, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "material": {
+        "color": "#00ff00",
+        "roughness": 0.5,
+        "metalness": 0.5
+      },
+      "castShadow": true,
+      "receiveShadow": true,
+      "visible": true
+    }
+  ]
+}

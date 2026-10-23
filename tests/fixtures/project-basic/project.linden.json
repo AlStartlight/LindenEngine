@@ -1,0 +1,24 @@
+{
+  "name": "project-basic",
+  "version": "0.1.0",
+  "tags": ["Player", "Enemy", "Pickup", "Coin", "Ground", "Flying"],
+  "layers": [
+    "Default",
+    "TransparentFX",
+    "Ignore Raycast",
+    "",
+    "Water",
+    "UI",
+    "Player",
+    "Enemy"
+  ],
+  "collisionMatrix": [],
+  "input": {
+    "actions": [
+      { "name": "Jump", "type": "button", "bindings": ["Keyboard/Space"] },
+      { "name": "Move", "type": "vector2", "composite": { "up": "Keyboard/W", "down": "Keyboard/S", "left": "Keyboard/A", "right": "Keyboard/D" }, "bindings": ["Gamepad/LeftStick"], "deadzone": 0.2 }
+    ]
+  },
+  "services": [],
+  "scenesInBuild": []
+}

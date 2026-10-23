@@ -15,17 +15,28 @@
     "build:all": "npm run build && npm run build:electron && npm run electron-builder",
     "electron-builder": "electron-builder",
     "preview": "vite preview",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:cases": "playwright test -c docs/test-case/playwright.config.ts",
+    "test:cases:1m": "bash docs/test-case-1m/tools/run-all.sh",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
   },
   "dependencies": {
     "@babylonjs/core": "^6.30.0",
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "@types/ws": "^8.18.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "three": "^0.158.0",
+    "ws": "^8.22.0",
     "zod": "^3.22.4",
     "zustand": "^4.4.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/node": "^20.10.6",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
@@ -41,6 +52,7 @@
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3",
     "vite": "^5.0.8",
+    "vitest": "^2.1.9",
     "wait-on": "^7.1.0"
   },
   "build": {
@@ -53,7 +65,8 @@
       "package.json"
     ],
     "directories": {
-      "buildResources": "public"
+      "buildResources": "public",
+      "output": "release"
     },
     "win": {
       "target": [
