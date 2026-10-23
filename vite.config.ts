@@ -4,6 +4,8 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  // Relative asset URLs: the packaged app loads dist/index.html over file://, where /assets/... would point at the disk root
+  base: './',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
