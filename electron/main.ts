@@ -25,9 +25,12 @@ function createWindow(): BrowserWindow {
     icon: join(__dirname, isDev ? '../public/icon.png' : '../dist/icon.png'),
   })
 
-  const startUrl = isDev ? 'http://localhost:5173' : `file://${join(__dirname, '../dist/index.html')}`
-
-  mainWindow.loadURL(startUrl)
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:5173')
+  } else {
+    // loadFile builds a correct file:// URL on every OS (spaces in "Linden Engine.app", C:\ paths)
+    mainWindow.loadFile(join(__dirname, '../dist/index.html'))
+  }
 
   if (isDev) {
     mainWindow.webContents.openDevTools()
