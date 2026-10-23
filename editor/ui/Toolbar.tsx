@@ -2,23 +2,50 @@ import React, { useState } from 'react'
 
 interface ToolbarProps {
   isPlaying: boolean
+  isPaused?: boolean
   onPlay: () => void
   onStop: () => void
   onPause: () => void
+  onStep?: () => void
+  onNewScene?: () => void
+  onOpenScene?: () => void
+  onSaveScene?: () => void
+  onSaveSceneAs?: () => void
+  onUndo?: () => void
+  onRedo?: () => void
+  sceneName?: string
+  isDirty?: boolean
   onOpenBlueprintEditor?: () => void
   onOpenMaterialEditor?: () => void
   onOpenAnimatorEditor?: () => void
   onOpenSequencerEditor?: () => void
+  onOpenInputActions?: () => void
+  onOpenProjectSettings?: () => void
+  onCreate3DObject?: (type: 'Cube' | 'Sphere' | 'Capsule' | 'Cylinder' | 'Plane') => void
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   isPlaying,
+  isPaused = false,
   onPlay,
   onStop,
+  onPause,
+  onStep,
+  onNewScene,
+  onOpenScene,
+  onSaveScene,
+  onSaveSceneAs,
+  onUndo,
+  onRedo,
+  sceneName = 'Untitled',
+  isDirty = false,
   onOpenBlueprintEditor,
   onOpenMaterialEditor,
   onOpenAnimatorEditor,
   onOpenSequencerEditor,
+  onOpenInputActions,
+  onOpenProjectSettings,
+  onCreate3DObject,
 }) => {
   const [showFileMenu, setShowFileMenu] = useState(false)
   const [showEditMenu, setShowEditMenu] = useState(false)
@@ -26,9 +53,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const [showWindowMenu, setShowWindowMenu] = useState(false)
 
   return (
-    <div className="bg-[#0f3460] border-b border-gray-700/50">
+    <div className="bg-[#0f3460] border-b border-gray-700/50 select-none">
       {/* Menu Bar */}
       <div className="flex items-center h-8 px-2 text-sm border-b border-gray-700/30">
+        {/* File Menu */}
         <div className="relative">
           <button
             className="px-3 py-1 hover:bg-white/10 rounded"
@@ -37,20 +65,52 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             File
           </button>
           {showFileMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-40">
-              <MenuItem label="New Scene" shortcut="Ctrl+N" />
-              <MenuItem label="Open Scene" shortcut="Ctrl+O" />
-              <MenuItem label="Save Scene" shortcut="Ctrl+S" />
-              <MenuItem label="Save Scene As..." shortcut="Ctrl+Shift+S" />
+            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-44 py-1">
+              <MenuItem
+                label="New Scene"
+                shortcut="Ctrl+N"
+                onClick={() => {
+                  onNewScene?.()
+                  setShowFileMenu(false)
+                }}
+              />
+              <MenuItem
+                label="Open Scene"
+                shortcut="Ctrl+O"
+                onClick={() => {
+                  onOpenScene?.()
+                  setShowFileMenu(false)
+                }}
+              />
+              <MenuItem
+                label="Save Scene"
+                shortcut="Ctrl+S"
+                onClick={() => {
+                  onSaveScene?.()
+                  setShowFileMenu(false)
+                }}
+              />
+              <MenuItem
+                label="Save Scene As..."
+                shortcut="Ctrl+Shift+S"
+                onClick={() => {
+                  onSaveSceneAs?.()
+                  setShowFileMenu(false)
+                }}
+              />
               <MenuDivider />
-              <MenuItem label="Build Settings" shortcut="Ctrl+Shift+B" />
-              <MenuItem label="Build and Run" shortcut="Ctrl+B" />
-              <MenuDivider />
-              <MenuItem label="Exit" />
+              <MenuItem
+                label="Project Settings"
+                onClick={() => {
+                  onOpenProjectSettings?.()
+                  setShowFileMenu(false)
+                }}
+              />
             </div>
           )}
         </div>
 
+        {/* Edit Menu */}
         <div className="relative">
           <button
             className="px-3 py-1 hover:bg-white/10 rounded"
@@ -59,22 +119,36 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             Edit
           </button>
           {showEditMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-40">
-              <MenuItem label="Undo" shortcut="Ctrl+Z" />
-              <MenuItem label="Redo" shortcut="Ctrl+Y" />
+            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-44 py-1">
+              <MenuItem
+                label="Undo"
+                shortcut="Ctrl+Z"
+                onClick={() => {
+                  onUndo?.()
+                  setShowEditMenu(false)
+                }}
+              />
+              <MenuItem
+                label="Redo"
+                shortcut="Ctrl+Y"
+                onClick={() => {
+                  onRedo?.()
+                  setShowEditMenu(false)
+                }}
+              />
               <MenuDivider />
-              <MenuItem label="Cut" shortcut="Ctrl+X" />
-              <MenuItem label="Copy" shortcut="Ctrl+C" />
-              <MenuItem label="Paste" shortcut="Ctrl+V" />
-              <MenuItem label="Duplicate" shortcut="Ctrl+D" />
-              <MenuItem label="Delete" shortcut="Del" />
-              <MenuDivider />
-              <MenuItem label="Project Settings" />
-              <MenuItem label="Preferences" />
+              <MenuItem
+                label="Project Settings"
+                onClick={() => {
+                  onOpenProjectSettings?.()
+                  setShowEditMenu(false)
+                }}
+              />
             </div>
           )}
         </div>
 
+        {/* GameObject Menu */}
         <div className="relative">
           <button
             className="px-3 py-1 hover:bg-white/10 rounded"
@@ -83,41 +157,49 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             GameObject
           </button>
           {showGameObjectMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-48">
-              <MenuItem label="Create Empty" shortcut="Ctrl+Shift+N" />
-              <MenuDivider />
+            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-44 py-1">
               <SubMenu label="3D Object">
-                <MenuItem label="Cube" />
-                <MenuItem label="Sphere" />
-                <MenuItem label="Cylinder" />
-                <MenuItem label="Capsule" />
-                <MenuItem label="Plane" />
-                <MenuItem label="Quad" />
+                <MenuItem
+                  label="Cube"
+                  onClick={() => {
+                    onCreate3DObject?.('Cube')
+                    setShowGameObjectMenu(false)
+                  }}
+                />
+                <MenuItem
+                  label="Sphere"
+                  onClick={() => {
+                    onCreate3DObject?.('Sphere')
+                    setShowGameObjectMenu(false)
+                  }}
+                />
+                <MenuItem
+                  label="Capsule"
+                  onClick={() => {
+                    onCreate3DObject?.('Capsule')
+                    setShowGameObjectMenu(false)
+                  }}
+                />
+                <MenuItem
+                  label="Cylinder"
+                  onClick={() => {
+                    onCreate3DObject?.('Cylinder')
+                    setShowGameObjectMenu(false)
+                  }}
+                />
+                <MenuItem
+                  label="Plane"
+                  onClick={() => {
+                    onCreate3DObject?.('Plane')
+                    setShowGameObjectMenu(false)
+                  }}
+                />
               </SubMenu>
-              <SubMenu label="Light">
-                <MenuItem label="Directional Light" />
-                <MenuItem label="Point Light" />
-                <MenuItem label="Spot Light" />
-                <MenuItem label="Area Light" />
-              </SubMenu>
-              <SubMenu label="Audio">
-                <MenuItem label="Audio Source" />
-                <MenuItem label="Audio Listener" />
-              </SubMenu>
-              <SubMenu label="Effects">
-                <MenuItem label="Particle System" />
-                <MenuItem label="Trail" />
-                <MenuItem label="Line" />
-              </SubMenu>
-              <MenuItem label="Camera" />
             </div>
           )}
         </div>
 
-        <button className="px-3 py-1 hover:bg-white/10 rounded">
-          Component
-        </button>
-
+        {/* Window Menu */}
         <div className="relative">
           <button
             className="px-3 py-1 hover:bg-white/10 rounded"
@@ -126,55 +208,61 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             Window
           </button>
           {showWindowMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-48">
-              <MenuItem 
-                label="📝 Blueprint Editor" 
-                shortcut="Ctrl+B"
+            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-48 py-1">
+              <MenuItem
+                label="Input Actions"
+                onClick={() => {
+                  onOpenInputActions?.()
+                  setShowWindowMenu(false)
+                }}
+              />
+              <MenuItem
+                label="Project Settings"
+                onClick={() => {
+                  onOpenProjectSettings?.()
+                  setShowWindowMenu(false)
+                }}
+              />
+              <MenuDivider />
+              <MenuItem
+                label="📝 Blueprint Editor"
                 onClick={() => {
                   onOpenBlueprintEditor?.()
                   setShowWindowMenu(false)
                 }}
               />
-              <MenuItem 
-                label="🎨 Material Editor" 
-                shortcut="Ctrl+M"
+              <MenuItem
+                label="🎨 Material Editor"
                 onClick={() => {
                   onOpenMaterialEditor?.()
                   setShowWindowMenu(false)
                 }}
               />
-              <MenuItem 
-                label="🎬 Animator Editor" 
-                shortcut="Ctrl+A"
+              <MenuItem
+                label="🎬 Animator Editor"
                 onClick={() => {
                   onOpenAnimatorEditor?.()
                   setShowWindowMenu(false)
                 }}
               />
-              <MenuItem 
-                label="🎥 Sequencer Editor" 
-                shortcut="Ctrl+Shift+S"
+              <MenuItem
+                label="🎥 Sequencer Editor"
                 onClick={() => {
                   onOpenSequencerEditor?.()
                   setShowWindowMenu(false)
                 }}
               />
-              <MenuDivider />
-              <MenuItem label="Hierarchy" />
-              <MenuItem label="Inspector" />
-              <MenuItem label="Console" />
-              <MenuItem label="Asset Browser" />
             </div>
           )}
         </div>
 
-        <button className="px-3 py-1 hover:bg-white/10 rounded">
-          Help
-        </button>
-
         <div className="flex-1" />
 
-        <span className="text-xs text-gray-400">Linden Engine</span>
+        {/* Scene Title with dirty indicator */}
+        <span className="text-xs text-gray-300 font-medium">
+          {sceneName}
+          {isDirty ? ' *' : ''}
+        </span>
       </div>
 
       {/* Tool Bar */}
@@ -184,128 +272,97 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <ToolButton icon="↔" title="Move Tool (W)" active />
           <ToolButton icon="↻" title="Rotate Tool (E)" />
           <ToolButton icon="⤢" title="Scale Tool (R)" />
-          <ToolButton icon="⊞" title="Rect Tool (T)" />
-        </div>
-
-        <div className="w-px h-6 bg-gray-700/50" />
-
-        {/* Pivot/Center Toggle */}
-        <div className="flex items-center gap-1 bg-black/30 rounded p-1">
-          <button className="px-2 py-1 text-xs bg-blue-600/50 rounded">Pivot</button>
-          <button className="px-2 py-1 text-xs hover:bg-white/10 rounded">Center</button>
-        </div>
-
-        <div className="flex items-center gap-1 bg-black/30 rounded p-1">
-          <button className="px-2 py-1 text-xs bg-blue-600/50 rounded">Local</button>
-          <button className="px-2 py-1 text-xs hover:bg-white/10 rounded">Global</button>
         </div>
 
         <div className="flex-1" />
 
-        {/* Play Controls */}
+        {/* Play Controls in Center */}
         <div className="flex items-center gap-1 bg-black/30 rounded p-1">
           <button
             onClick={onPlay}
-            className={`px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1 ${
+            className={`px-3 py-1 rounded text-xs font-semibold transition-colors flex items-center gap-1.5 ${
               isPlaying
-                ? 'bg-blue-600 text-white'
-                : 'hover:bg-white/10'
+                ? 'bg-blue-600 text-white shadow'
+                : 'hover:bg-white/10 text-gray-200'
             }`}
-            title="Play (Ctrl+P)"
+            title="Play / Stop (Ctrl+P)"
           >
-            <span>{isPlaying ? '⏸' : '▶'}</span>
-            <span>{isPlaying ? 'Pause' : 'Play'}</span>
+            <span>▶</span>
+            <span>{isPlaying ? 'Playing' : 'Play'}</span>
           </button>
-          
+
           <button
-            onClick={onStop}
-            className="px-3 py-1.5 rounded text-sm hover:bg-white/10 transition-colors"
-            title="Stop"
+            onClick={onPause}
+            disabled={!isPlaying}
+            className={`px-2.5 py-1 rounded text-xs transition-colors ${
+              isPaused
+                ? 'bg-amber-600 text-white'
+                : isPlaying
+                ? 'hover:bg-white/10 text-gray-200'
+                : 'opacity-40 cursor-not-allowed text-gray-500'
+            }`}
+            title="Pause (Ctrl+Shift+P)"
           >
-            ⏹
+            ⏸
           </button>
-          
+
           <button
-            className="px-3 py-1.5 rounded text-sm hover:bg-white/10 transition-colors"
-            title="Step Frame"
+            onClick={onStep}
+            disabled={!isPlaying}
+            className={`px-2.5 py-1 rounded text-xs transition-colors ${
+              isPlaying ? 'hover:bg-white/10 text-gray-200' : 'opacity-40 cursor-not-allowed text-gray-500'
+            }`}
+            title="Step Frame (Ctrl+Alt+P)"
           >
             ⏭
           </button>
         </div>
 
         <div className="flex-1" />
-
-        {/* Right side tools */}
-        <div className="flex items-center gap-2">
-          <button className="px-3 py-1.5 rounded text-sm hover:bg-white/10 transition-colors">
-            👤 Account
-          </button>
-          <button className="px-3 py-1.5 rounded text-sm hover:bg-white/10 transition-colors">
-            ☁️ Cloud
-          </button>
-          <button className="w-8 h-8 rounded hover:bg-white/10 transition-colors flex items-center justify-center">
-            ⚙
-          </button>
-        </div>
       </div>
     </div>
   )
 }
 
-// Helper Components
-const MenuItem: React.FC<{ label: string; shortcut?: string; onClick?: () => void }> = ({ 
-  label, 
+const MenuItem: React.FC<{ label: string; shortcut?: string; onClick?: () => void }> = ({
+  label,
   shortcut,
-  onClick 
+  onClick,
 }) => (
   <button
-    className="w-full px-3 py-1.5 text-left text-sm hover:bg-blue-600/50 flex justify-between items-center"
+    className="w-full px-3 py-1.5 text-left hover:bg-blue-600/50 flex items-center justify-between text-xs text-gray-200"
     onClick={onClick}
   >
     <span>{label}</span>
-    {shortcut && <span className="text-xs text-gray-400 ml-4">{shortcut}</span>}
+    {shortcut && <span className="text-[10px] text-gray-400 font-mono ml-4">{shortcut}</span>}
   </button>
 )
 
-const MenuDivider: React.FC = () => (
-  <div className="h-px bg-gray-700/50 my-1" />
+const SubMenu: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="relative group">
+    <button className="w-full px-3 py-1.5 text-left hover:bg-blue-600/50 flex items-center justify-between text-xs text-gray-200">
+      <span>{label}</span>
+      <span>▶</span>
+    </button>
+    <div className="hidden group-hover:block absolute left-full top-0 bg-[#16213e] border border-gray-700/50 rounded shadow-xl min-w-36 py-1">
+      {children}
+    </div>
+  </div>
 )
 
-const SubMenu: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => {
-  const [showSubMenu, setShowSubMenu] = useState(false)
-  
-  return (
-    <div 
-      className="relative"
-      onMouseEnter={() => setShowSubMenu(true)}
-      onMouseLeave={() => setShowSubMenu(false)}
-    >
-      <button className="w-full px-3 py-1.5 text-left text-sm hover:bg-blue-600/50 flex justify-between items-center">
-        <span>{label}</span>
-        <span className="text-xs">▶</span>
-      </button>
-      {showSubMenu && (
-        <div className="absolute left-full top-0 ml-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl min-w-40">
-          {children}
-        </div>
-      )}
-    </div>
-  )
-}
+const MenuDivider: React.FC = () => <div className="border-t border-gray-700/40 my-1" />
 
-const ToolButton: React.FC<{ icon: string; title: string; active?: boolean }> = ({ 
-  icon, 
-  title, 
-  active 
+const ToolButton: React.FC<{ icon: string; title: string; active?: boolean }> = ({
+  icon,
+  title,
+  active = false,
 }) => (
   <button
-    className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${
-      active ? 'bg-blue-600/50 text-white' : 'hover:bg-white/10 text-gray-400'
+    className={`w-7 h-7 flex items-center justify-center rounded text-sm transition-colors ${
+      active ? 'bg-blue-600 text-white' : 'hover:bg-white/10 text-gray-300'
     }`}
     title={title}
   >
     {icon}
   </button>
 )
-
-export default Toolbar

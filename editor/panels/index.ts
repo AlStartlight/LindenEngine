@@ -8,6 +8,9 @@ export { MaterialEditor } from './MaterialEditor'
 export { BlueprintEditor } from './BlueprintEditor'
 export { SequencerEditor } from './SequencerEditor'
 export { AnimatorEditor } from './AnimatorEditor'
+export { GodotPanel } from './GodotPanel'
+export { TransmuterWizard } from './TransmuterWizard'
+export { FidelityReportView } from './FidelityReportView'
 
 // Panel Registry for dynamic loading
 export const EditorPanels = {
