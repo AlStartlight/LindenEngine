@@ -11,7 +11,7 @@
     "electron-dev": "npm run build:electron && concurrently \"npm run dev\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "tsc && vite build",
     "build:electron": "tsc -p tsconfig.electron.json && npm run rename:electron",
-    "rename:electron": "cd dist-electron && for f in *.js; do mv \"$f\" \"${f%.js}.cjs\"; done",
+    "rename:electron": "node scripts/rename-electron.mjs",
     "build:all": "npm run build && npm run build:electron && npm run electron-builder",
     "electron-builder": "electron-builder",
     "preview": "vite preview",
@@ -85,7 +85,9 @@
       "target": [
         "AppImage",
         "deb"
-      ]
+      ],
+      "maintainer": "Linden Engine Contributors"
     }
-  }
+  },
+  "author": "Linden Engine Contributors"
 }

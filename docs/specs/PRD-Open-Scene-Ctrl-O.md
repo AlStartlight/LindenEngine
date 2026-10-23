@@ -1,6 +1,6 @@
 # PRD & Spec: File → Open Scene (Ctrl+O)
 
-23 Okt 2026 · Status: Draft · Bergantung pada [PRD New Scene](../Spec.PRD:%20File%20→%20New%20Scene%20(Ctrl+N)/PRD%20File%20→%20New%20Scene%20(Ctrl+N).md)
+23 Okt 2026 · Status: Draft · Bergantung pada [PRD New Scene](./PRD-New-Scene-Ctrl-N.md)
 
 File → Open Scene dan Ctrl+O (Cmd+O di macOS) harus membuka file scene `.lscene` dari disk dan menggantikan scene aktif. Saat ini menu dan shortcut sudah tampil, tetapi tidak melakukan apa-apa, dan engine belum punya format file scene sama sekali. Dokumen ini berisi PRD (bagian 1–7) dan spesifikasi teknis (bagian 8–14).
 
