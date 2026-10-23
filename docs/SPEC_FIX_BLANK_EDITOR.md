@@ -206,7 +206,7 @@ Effect init membangun ulang seluruh scene setiap kali `includeSampleObjects`, `i
 | `editor/viewport/SceneViewport.tsx` | Listener `webglcontextlost` + prop `onContextLost`. | P1 |
 | `editor/viewport/SceneViewport.tsx` | Dependency effect init distabilkan (§4.4). | P1 |
 | `editor/EditorLayout.tsx` | `ErrorBoundary` untuk panel editor lain. | P1 |
-| `docs/Spec.PRD: File → New Scene (Ctrl+N)/…md` | Koreksi rekomendasi `forceContextLoss()` (lihat §6). | P0 |
+| `docs/specs/PRD-New-Scene-Ctrl-N.md` | Koreksi rekomendasi `forceContextLoss()` (lihat §6). | P0 |
 
 ## 6. Koreksi untuk PRD New Scene
 

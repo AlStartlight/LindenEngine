@@ -21,7 +21,8 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
     },
-    icon: join(__dirname, '../public/icon.png'),
+    // Vite copies public/ into dist/, which is what ships in the packaged app
+    icon: join(__dirname, isDev ? '../public/icon.png' : '../dist/icon.png'),
   })
 
   const startUrl = isDev ? 'http://localhost:5173' : `file://${join(__dirname, '../dist/index.html')}`
