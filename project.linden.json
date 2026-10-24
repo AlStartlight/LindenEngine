@@ -52,5 +52,61 @@
     ]
   },
   "services": [],
-  "scenesInBuild": ["scenes/Level01.lscene"]
+  "scenesInBuild": ["scenes/Level01.lscene"],
+  "exportPresets": [
+    {
+      "id": "preset-windows-desktop",
+      "name": "Windows Desktop",
+      "platform": "windows",
+      "backend": "linden",
+      "arch": ["x64"],
+      "output": "build/windows/LindenProject.exe",
+      "mode": "release"
+    },
+    {
+      "id": "preset-macos-desktop",
+      "name": "macOS",
+      "platform": "macos",
+      "backend": "linden",
+      "arch": ["universal"],
+      "output": "build/mac/LindenProject.dmg",
+      "mode": "release"
+    },
+    {
+      "id": "preset-linux-desktop",
+      "name": "Linux",
+      "platform": "linux",
+      "backend": "linden",
+      "arch": ["x64"],
+      "output": "build/linux/LindenProject.AppImage",
+      "mode": "release"
+    },
+    {
+      "id": "preset-web-html5",
+      "name": "Web",
+      "platform": "web",
+      "backend": "linden",
+      "arch": ["wasm"],
+      "output": "build/web/index.html",
+      "mode": "release"
+    },
+    {
+      "id": "preset-android",
+      "name": "Android",
+      "platform": "android",
+      "backend": "godot",
+      "arch": ["arm64"],
+      "output": "build/android/LindenProject.apk",
+      "mode": "debug"
+    },
+    {
+      "id": "preset-ios",
+      "name": "iOS",
+      "platform": "ios",
+      "backend": "godot",
+      "arch": ["arm64"],
+      "output": "build/ios/LindenProject.ipa",
+      "mode": "debug"
+    }
+  ]
 }
