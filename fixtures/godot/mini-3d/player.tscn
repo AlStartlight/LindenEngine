@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[node name="Player" type="RigidBody3D"]
+mass = 2.0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
