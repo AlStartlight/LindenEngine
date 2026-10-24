@@ -3,7 +3,8 @@
  * Parses text-based scene and resource files into an AST.
  */
 
-import { parseVariant } from './Variant'
+import { parseVariant, GodotExtResource, GodotSubResource } from './Variant'
+import type { GodotSceneIR, GodotNodeIR, GodotValue } from '../../../shared/godotBridgeTypes'
 
 export interface TscnDescriptor {
   type: 'gd_scene' | 'gd_resource'
@@ -28,6 +29,8 @@ export interface TscnNode {
   type?: string
   parent?: string
   instance?: any
+  instancePath?: string
+  scriptPath?: string
   groups?: string[]
   properties: Record<string, any>
 }
@@ -53,6 +56,32 @@ export class TscnParserError extends Error {
     super(`Line ${line}: ${message}`)
     this.name = 'TscnParserError'
   }
+}
+
+/**
+ * True when a property value has no open string literal and balanced brackets,
+ * i.e. the value does not continue on the next line.
+ */
+export function isValueComplete(value: string): boolean {
+  let inString = false
+  let depth = 0
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i]
+    if (inString) {
+      if (ch === '\\') {
+        i++
+      } else if (ch === '"') {
+        inString = false
+      }
+    } else if (ch === '"') {
+      inString = true
+    } else if (ch === '(' || ch === '[' || ch === '{') {
+      depth++
+    } else if (ch === ')' || ch === ']' || ch === '}') {
+      depth--
+    }
+  }
+  return !inString && depth <= 0
 }
 
 export class TscnParser {
@@ -167,9 +196,18 @@ export class TscnParser {
 
       // Property line: key = value
       const eqIdx = line.indexOf('=')
-      if (eqIdx !== -1 && currentSection) {
+      if (eqIdx !== -1) {
         const key = line.slice(0, eqIdx).trim()
-        const rawVal = line.slice(eqIdx + 1).trim()
+        let rawVal = line.slice(eqIdx + 1).trim()
+
+        // Values may span several lines (multi-line strings, arrays, dictionaries).
+        // Continuation lines are raw value text, never section headers, even when they start with "[".
+        while (!isValueComplete(rawVal) && i + 1 < lines.length) {
+          i++
+          rawVal += '\n' + lines[i]
+        }
+
+        if (!currentSection) continue
         const parsedVal = parseVariant(rawVal)
 
         if (currentSection.type === 'node') {
@@ -182,6 +220,21 @@ export class TscnParser {
 
     if (!doc.descriptor || !doc.descriptor.type) {
       throw new TscnParserError(`Missing [gd_scene] or [gd_resource] header`, 1)
+    }
+
+    // Resolve ext_resources for instance and script
+    const extMap = new Map<string, string>()
+    for (const r of doc.extResources) {
+      extMap.set(r.id, r.path)
+    }
+
+    for (const node of doc.nodes) {
+      if (node.instance && node.instance instanceof GodotExtResource) {
+        node.instancePath = extMap.get(node.instance.id)
+      }
+      if (node.properties['script'] && node.properties['script'] instanceof GodotExtResource) {
+        node.scriptPath = extMap.get(node.properties['script'].id)
+      }
     }
 
     return doc
@@ -210,3 +263,127 @@ export class TscnParser {
     return attrs
   }
 }
+
+function variantToGodotValue(val: any, extMap: Map<string, string>): GodotValue {
+  if (val === null || val === undefined) return null
+  if (typeof val === 'boolean' || typeof val === 'number' || typeof val === 'string') return val
+
+  if (val instanceof GodotExtResource) {
+    return {
+      $t: 'Resource',
+      type: 'Resource',
+      path: extMap.get(val.id) || val.id,
+    }
+  }
+
+  if (val instanceof GodotSubResource) {
+    return {
+      $t: 'Resource',
+      type: 'SubResource',
+      path: val.id,
+    }
+  }
+
+  if (val.basis && val.origin) {
+    return {
+      $t: 'Transform3D',
+      basis: val.basis,
+      origin: [val.origin.x ?? 0, val.origin.y ?? 0, val.origin.z ?? 0],
+    }
+  }
+
+  if (typeof val.x === 'number' && typeof val.y === 'number' && typeof val.z === 'number') {
+    return { $t: 'Vector3', v: [val.x, val.y, val.z] }
+  }
+
+  if (typeof val.x === 'number' && typeof val.y === 'number') {
+    return { $t: 'Vector2', v: [val.x, val.y] }
+  }
+
+  if (typeof val.r === 'number' && typeof val.g === 'number' && typeof val.b === 'number') {
+    return { $t: 'Color', v: [val.r, val.g, val.b, val.a ?? 1] }
+  }
+
+  if (Array.isArray(val)) {
+    return val.map((item) => variantToGodotValue(item, extMap))
+  }
+
+  if (typeof val === 'object') {
+    const res: Record<string, GodotValue> = {}
+    for (const [k, v] of Object.entries(val)) {
+      res[k] = variantToGodotValue(v, extMap)
+    }
+    return res
+  }
+
+  return String(val)
+}
+
+export function tscnDocumentToSceneIR(doc: TscnDocument, scenePath: string): GodotSceneIR {
+  const extMap = new Map<string, string>()
+  for (const r of doc.extResources) {
+    extMap.set(r.id, r.path)
+  }
+
+  const nodes: GodotNodeIR[] = []
+  for (let idx = 0; idx < doc.nodes.length; idx++) {
+    const n = doc.nodes[idx]
+    let nodePath = '.'
+    if (idx > 0) {
+      if (!n.parent || n.parent === '.') {
+        nodePath = n.name
+      } else {
+        nodePath = `${n.parent}/${n.name}`
+      }
+    }
+
+    let instancePath = n.instancePath
+    if (!instancePath && n.instance) {
+      if (typeof n.instance === 'string') {
+        instancePath = n.instance
+      } else if (n.instance instanceof GodotExtResource && extMap.has(n.instance.id)) {
+        instancePath = extMap.get(n.instance.id)
+      }
+    }
+
+    let scriptPath = n.scriptPath
+    if (!scriptPath && n.properties['script']) {
+      const s = n.properties['script']
+      if (typeof s === 'string') {
+        scriptPath = s
+      } else if (s instanceof GodotExtResource && extMap.has(s.id)) {
+        scriptPath = extMap.get(s.id)
+      }
+    }
+
+    const props: Record<string, GodotValue> = {}
+    for (const [k, v] of Object.entries(n.properties)) {
+      props[k] = variantToGodotValue(v, extMap)
+    }
+
+    nodes.push({
+      path: nodePath,
+      name: n.name,
+      type: n.type || 'Node',
+      instance: instancePath,
+      script: scriptPath,
+      groups: n.groups || [],
+      props,
+    })
+  }
+
+  return {
+    path: scenePath,
+    inheritsFrom: null,
+    nodes,
+    connections: doc.connections.map((c) => ({
+      from: c.from,
+      signal: c.signal,
+      to: c.to,
+      method: c.method,
+      flags: c.flags || 0,
+    })),
+    source: 'ts-parser',
+  }
+}
+
