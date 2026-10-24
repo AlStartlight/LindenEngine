@@ -1,22 +1,70 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { IpcInvokeChannel } from '../shared/ipcChannels'
+
+function invoke(channel: IpcInvokeChannel, ...args: any[]) {
+  return ipcRenderer.invoke(channel, ...args)
+}
 
 /**
  * Expose APIs to renderer process
  */
 contextBridge.exposeInMainWorld('electronAPI', {
   // App management
-  getVersion: () => ipcRenderer.invoke('app:getVersion'),
-  getProjectPath: () => ipcRenderer.invoke('app:getProjectPath'),
-  getUserDataPath: () => ipcRenderer.invoke('app:getUserDataPath'),
+  getVersion: () => invoke('app:getVersion'),
+  getProjectPath: () => invoke('app:getProjectPath'),
+  getUserDataPath: () => invoke('app:getUserDataPath'),
+  setWindowTitle: (title: string) => invoke('window:setTitle', title),
+  getIpcChannels: () => invoke('app:ipcChannels'),
+  relaunchApp: () => invoke('app:relaunch'),
 
   // File operations
-  saveFile: (data: any) => ipcRenderer.invoke('file:save', data),
-  loadFile: (path: string) => ipcRenderer.invoke('file:load', path),
-  openSceneDialog: (opts?: { defaultDir?: string }) => ipcRenderer.invoke('scene:open', opts),
+  saveFile: (data: any) => invoke('file:save', data),
+  loadFile: (path: string) => invoke('file:load', path),
+  openSceneDialog: (opts?: { defaultDir?: string }) => invoke('scene:open', opts),
   saveSceneDialog: (opts?: { defaultPath?: string; content?: string }) =>
-    ipcRenderer.invoke('scene:save', opts),
+    invoke('scene:save', opts),
+  pickSceneSavePath: (opts?: { defaultPath?: string }) => invoke('scene:pickSavePath', opts),
+  writeSceneFile: (opts: { path: string; content: string }) => invoke('scene:write', opts),
+
+  // Project operations
+  createProject: (opts: any) => invoke('project:create', opts),
+  openProject: (opts?: any) => invoke('project:open', opts),
+  saveProjectSettings: (opts: any) => invoke('project:saveSettings', opts),
+  getRecentProjects: () => invoke('project:recent:list'),
+  addRecentProject: (project: any) => invoke('project:recent:add', project),
+  removeRecentProject: (path: string) => invoke('project:recent:remove', path),
+  clearRecentProjects: () => invoke('project:recent:clear'),
+
+  // Dialog & Shell operations
+  showOpenDialog: (opts: any) => invoke('dialog:showOpenDialog', opts),
+  showItemInFolder: (filePath: string) => invoke('shell:showItemInFolder', filePath),
 
   // Menu events
+  onMenuNewProject: (callback: () => void) => {
+    const sub = () => callback()
+    ipcRenderer.on('menu:newProject', sub)
+    return () => ipcRenderer.removeListener('menu:newProject', sub)
+  },
+  onMenuOpenProject: (callback: () => void) => {
+    const sub = () => callback()
+    ipcRenderer.on('menu:openProject', sub)
+    return () => ipcRenderer.removeListener('menu:openProject', sub)
+  },
+  onMenuOpenRecent: (callback: (path: string) => void) => {
+    const sub = (_: any, path: string) => callback(path)
+    ipcRenderer.on('menu:openRecent', sub)
+    return () => ipcRenderer.removeListener('menu:openRecent', sub)
+  },
+  onMenuCloseProject: (callback: () => void) => {
+    const sub = () => callback()
+    ipcRenderer.on('menu:closeProject', sub)
+    return () => ipcRenderer.removeListener('menu:closeProject', sub)
+  },
+  onMenuExport: (callback: () => void) => {
+    const sub = () => callback()
+    ipcRenderer.on('menu:export', sub)
+    return () => ipcRenderer.removeListener('menu:export', sub)
+  },
   onMenuNewScene: (callback: () => void) => {
     const subscription = () => callback()
     ipcRenderer.on('menu:newScene', subscription)
@@ -47,15 +95,72 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onMenuBuild: (callback: Function) => ipcRenderer.on('menu:build', () => callback()),
   onMenuAbout: (callback: Function) => ipcRenderer.on('menu:about', () => callback()),
+  onMenuProjectSettings: (callback: () => void) => {
+    const sub = () => callback()
+    ipcRenderer.on('menu:projectSettings', sub)
+    return () => ipcRenderer.removeListener('menu:projectSettings', sub)
+  },
+  onMenuOpenBridge: (callback: () => void) => {
+    const sub = () => callback()
+    ipcRenderer.on('menu:openBridge', sub)
+    return () => ipcRenderer.removeListener('menu:openBridge', sub)
+  },
+  onMenuInputActions: (callback: () => void) => {
+    const sub = () => callback()
+    ipcRenderer.on('menu:inputActions', sub)
+    return () => ipcRenderer.removeListener('menu:inputActions', sub)
+  },
 
-  // Build operations
-  buildExport: (options: any) => ipcRenderer.invoke('build:export', options),
-  detectGodot: (customPath?: string) => ipcRenderer.invoke('godot:detect', customPath),
-  buildGodot: (options: any) => ipcRenderer.invoke('godot:build', options),
+  // Build & Export operations
+  buildExport: (options: any) => invoke('build:export', options),
+  runExport: (options: any) => invoke('export:run', options),
+  detectGodot: (customPath?: string) => invoke('godot:detect', customPath),
+  buildGodot: (options: any) => invoke('godot:build', options),
+  onExportLog: (callback: (data: { presetId: string; log: string }) => void) => {
+    const sub = (_: any, data: any) => callback(data)
+    ipcRenderer.on('export:log', sub)
+    return () => ipcRenderer.removeListener('export:log', sub)
+  },
+  onExportProgress: (callback: (data: any) => void) => {
+    const sub = (_: any, data: any) => callback(data)
+    ipcRenderer.on('export:progress', sub)
+    return () => ipcRenderer.removeListener('export:progress', sub)
+  },
 
   // System operations
-  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
-  getSystemInfo: () => ipcRenderer.invoke('system:getInfo'),
+  openExternal: (url: string) => invoke('shell:openExternal', url),
+  getSystemInfo: () => invoke('system:getInfo'),
+
+  // Godot Bridge operations
+  bridgeValidateGodot: (customPath?: string) => invoke('bridge:godot:validate', customPath),
+  bridgeDetectGodotProject: (dir: string) => invoke('bridge:import:detect', dir),
+  bridgeRunImport: (options: any) => invoke('bridge:import:run', options),
+  bridgeCancelImport: (jobId: string) => invoke('bridge:import:cancel', jobId),
+  bridgeImportScene: (opts?: { tscnPath?: string }) => invoke('bridge:scene:import', opts),
+  bridgeStartSync: (opts?: { port?: number }) => invoke('bridge:sync:start', opts),
+  bridgeStopSync: () => invoke('bridge:sync:stop'),
+  bridgeGetSyncStatus: () => invoke('bridge:sync:status'),
+  bridgeSendSync: (data: any) => invoke('bridge:sync:send', data),
+  onBridgeImportProgress: (callback: (data: any) => void) => {
+    const sub = (_: any, data: any) => callback(data)
+    ipcRenderer.on('bridge:import:progress', sub)
+    return () => ipcRenderer.removeListener('bridge:import:progress', sub)
+  },
+  onBridgeImportLog: (callback: (data: { jobId: string; line: string }) => void) => {
+    const sub = (_: any, data: any) => callback(data)
+    ipcRenderer.on('bridge:import:log', sub)
+    return () => ipcRenderer.removeListener('bridge:import:log', sub)
+  },
+  onBridgeSyncMessage: (callback: (data: any) => void) => {
+    const sub = (_: any, data: any) => callback(data)
+    ipcRenderer.on('bridge:sync:message', sub)
+    return () => ipcRenderer.removeListener('bridge:sync:message', sub)
+  },
+  onMenuImportGodotProject: (callback: () => void) => {
+    const sub = () => callback()
+    ipcRenderer.on('menu:importGodotProject', sub)
+    return () => ipcRenderer.removeListener('menu:importGodotProject', sub)
+  },
 
   // Development
   onDevScriptsReloaded: (callback: Function) => ipcRenderer.on('dev:scriptsReloaded', () => callback()),
@@ -70,6 +175,9 @@ declare global {
       getVersion: () => Promise<string>
       getProjectPath: () => Promise<string>
       getUserDataPath: () => Promise<string>
+      setWindowTitle: (title: string) => Promise<void>
+      getIpcChannels?: () => Promise<string[]>
+      relaunchApp?: () => Promise<void>
       saveFile: (data: any) => Promise<any>
       loadFile: (path: string) => Promise<any>
       openSceneDialog: (opts?: { defaultDir?: string }) => Promise<{
@@ -85,15 +193,44 @@ declare global {
         path?: string
         message?: string
       }>
+      pickSceneSavePath?: (opts?: { defaultPath?: string }) => Promise<{
+        status: 'canceled' | 'ok' | 'error'
+        path?: string
+        message?: string
+      }>
+      writeSceneFile?: (opts: { path: string; content: string }) => Promise<{
+        status: 'ok' | 'error'
+        message?: string
+      }>
+      createProject?: (opts: any) => Promise<any>
+      openProject?: (opts?: any) => Promise<any>
+      saveProjectSettings?: (opts: any) => Promise<any>
+      getRecentProjects?: () => Promise<any[]>
+      addRecentProject?: (project: any) => Promise<any>
+      removeRecentProject?: (path: string) => Promise<any>
+      clearRecentProjects?: () => Promise<any>
+      showOpenDialog?: (opts: any) => Promise<any>
+      showItemInFolder?: (filePath: string) => Promise<any>
+      onMenuNewProject?: (callback: () => void) => () => void
+      onMenuOpenProject?: (callback: () => void) => () => void
+      onMenuOpenRecent?: (callback: (path: string) => void) => () => void
+      onMenuCloseProject?: (callback: () => void) => () => void
+      onMenuExport?: (callback: () => void) => () => void
       onMenuNewScene: (callback: () => void) => () => void
       onMenuOpenScene: (callback: () => void) => () => void
       onMenuSaveScene: (callback: Function) => () => void
       onMenuSaveSceneAs: (callback: Function) => () => void
       onMenuBuild: (callback: Function) => void
       onMenuAbout: (callback: Function) => void
+      onMenuProjectSettings?: (callback: () => void) => () => void
+      onMenuOpenBridge?: (callback: () => void) => () => void
+      onMenuInputActions?: (callback: () => void) => () => void
       buildExport: (options: any) => Promise<any>
+      runExport?: (options: any) => Promise<any>
       detectGodot: (customPath?: string) => Promise<string | null>
       buildGodot: (options: any) => Promise<any>
+      onExportLog?: (callback: (data: { presetId: string; log: string }) => void) => () => void
+      onExportProgress?: (callback: (data: any) => void) => () => void
       openExternal: (url: string) => Promise<void>
       getSystemInfo: () => Promise<any>
       onDevScriptsReloaded: (callback: Function) => void
