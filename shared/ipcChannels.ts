@@ -1,0 +1,43 @@
+/**
+ * Single source of truth for Electron IPC invoke channels.
+ */
+export const IPC_INVOKE_CHANNELS = [
+  'app:getVersion',
+  'app:ipcChannels',
+  'app:relaunch',
+  'app:getProjectPath',
+  'app:getUserDataPath',
+  'window:setTitle',
+  'scene:open',
+  'scene:save',
+  'scene:pickSavePath',
+  'scene:write',
+  'project:create',
+  'project:open',
+  'project:saveSettings',
+  'project:recent:list',
+  'project:recent:add',
+  'project:recent:remove',
+  'project:recent:clear',
+  'dialog:showOpenDialog',
+  'shell:showItemInFolder',
+  'shell:openExternal',
+  'file:save',
+  'file:load',
+  'godot:detect',
+  'godot:build',
+  'export:run',
+  'build:export',
+  'system:getInfo',
+  'bridge:godot:validate',
+  'bridge:import:detect',
+  'bridge:import:run',
+  'bridge:import:cancel',
+  'bridge:scene:import',
+  'bridge:sync:start',
+  'bridge:sync:stop',
+  'bridge:sync:status',
+  'bridge:sync:send',
+] as const
+
+export type IpcInvokeChannel = (typeof IPC_INVOKE_CHANNELS)[number]

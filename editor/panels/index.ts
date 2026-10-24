@@ -9,6 +9,7 @@ export { BlueprintEditor } from './BlueprintEditor'
 export { SequencerEditor } from './SequencerEditor'
 export { AnimatorEditor } from './AnimatorEditor'
 export { GodotPanel } from './GodotPanel'
+export { BridgePanel } from './BridgePanel'
 export { TransmuterWizard } from './TransmuterWizard'
 export { FidelityReportView } from './FidelityReportView'
 

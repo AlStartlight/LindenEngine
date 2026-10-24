@@ -12,6 +12,6 @@
     "resolveJsonModule": true,
     "declaration": false
   },
-  "include": ["electron"],
+  "include": ["electron", "shared"],
   "exclude": ["node_modules", "dist"]
 }

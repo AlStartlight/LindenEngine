@@ -18,7 +18,7 @@ import { CompatReport } from '../../engine/godot/report/CompatReport'
 
 const TEST_DIR = path.join(process.cwd(), 'tests', 'godot', 'temp_proj')
 
-describe('Godot Bridge - Integration Tests (IT-01 to IT-09)', () => {
+describe('Bridge (Godot) - Integration Tests (IT-01 to IT-09)', () => {
   beforeEach(() => {
     if (fs.existsSync(TEST_DIR)) {
       fs.rmSync(TEST_DIR, { recursive: true, force: true })

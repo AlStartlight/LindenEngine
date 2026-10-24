@@ -8,7 +8,7 @@ import { TscnParser } from '../../engine/godot/tscn/TscnParser'
 import { GodotBuildRunner } from '../../engine/godot/build/GodotBuildRunner'
 import { CompatReport } from '../../engine/godot/report/CompatReport'
 
-describe('Godot Bridge - Performance and E2E Tests (PC-01, PC-02, E2E-08)', () => {
+describe('Bridge (Godot) - Performance and E2E Tests (PC-01, PC-02, E2E-08)', () => {
   // PC-01: Export 1,000 entities in <= 5 seconds
   it('PC-01: exports 1,000 entities in <= 5.0 seconds', () => {
     const world = new World()

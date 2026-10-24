@@ -264,7 +264,8 @@ export function parseVariant(input: string): any {
   // String
   if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
     try {
-      return JSON.parse(trimmed)
+      // Godot writes multi-line strings with raw newlines, which JSON does not allow
+      return JSON.parse(trimmed.replace(/\r?\n/g, '\\n').replace(/\t/g, '\\t'))
     } catch {
       return trimmed.slice(1, -1)
     }

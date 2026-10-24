@@ -111,6 +111,68 @@ export async function pickAndReadScene(defaultDir?: string): Promise<PickResult>
   })
 }
 
+/**
+ * Opens save dialog to choose destination path without writing content yet.
+ */
+export async function pickSceneSavePath(
+  defaultPath?: string
+): Promise<{ status: 'ok'; path: string } | { status: 'canceled' } | { status: 'error'; message: string }> {
+  if (typeof window !== 'undefined' && window.electronAPI?.pickSceneSavePath) {
+    try {
+      const res = await window.electronAPI.pickSceneSavePath({ defaultPath })
+      if (res.status === 'canceled') return { status: 'canceled' }
+      if (res.status === 'error') return { status: 'error', message: res.message || 'Gagal memilih lokasi penyimpanan.' }
+      if (!res.path) return { status: 'canceled' }
+      return { status: 'ok', path: res.path }
+    } catch (err: any) {
+      return { status: 'error', message: err.message || String(err) }
+    }
+  }
+
+  // Browser fallback: returns defaultPath or Scene.lscene
+  return { status: 'ok', path: defaultPath || 'Scene.lscene' }
+}
+
+/**
+ * Writes scene content to a verified path.
+ */
+export async function writeSceneFile(
+  path: string,
+  content: string
+): Promise<{ status: 'ok' } | { status: 'error'; message: string }> {
+  if (typeof window !== 'undefined' && window.electronAPI?.writeSceneFile) {
+    try {
+      const res = await window.electronAPI.writeSceneFile({ path, content })
+      if (res.status === 'error') {
+        return { status: 'error', message: res.message || 'Gagal menyimpan file.' }
+      }
+      return { status: 'ok' }
+    } catch (err: any) {
+      return { status: 'error', message: err.message || String(err) }
+    }
+  }
+
+  // Browser download fallback
+  try {
+    const fileName = path.split(/[/\\]/).filter(Boolean).pop() || 'Scene.lscene'
+    const blob = new Blob([content], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName.endsWith('.lscene') ? fileName : `${fileName}.lscene`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    return { status: 'ok' }
+  } catch (err: any) {
+    return { status: 'error', message: err.message || String(err) }
+  }
+}
+
+/**
+ * @deprecated Gunakan pickSceneSavePath dan writeSceneFile agar konten diserialisasi setelah path final diketahui.
+ */
 export async function saveSceneFile(
   content: string,
   defaultName: string = 'Scene.lscene',

@@ -8,6 +8,8 @@ import { RapierBackend } from '../../engine/physics/RapierBackend'
 import { Input } from '../../engine/input/InputActions'
 import { Tween } from '../../engine/time/Tween'
 import { LayerMask } from '../../engine/scene/LayerMask'
+import { ExportPreset, RecentProject } from '../../shared/types/project'
+import { getSceneNameFromPath } from '../ui/windowTitle'
 
 export interface ProjectSettingsState {
   tags: string[]
@@ -29,9 +31,17 @@ export interface EditorState {
   currentScenePath: string | null
   isDirty: boolean
   activeWindow: string | null
-  activeEditorPanel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'godot'
+  activeEditorPanel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'bridge' | 'godot'
   projectSettings: ProjectSettingsState
   physicsBackend: RapierBackend | null
+
+  // Project state
+  projectPath: string | null
+  projectName: string
+  isProjectOpen: boolean
+  exportPresets: ExportPreset[]
+  recentProjects: RecentProject[]
+  openLastProjectOnStartup: boolean
 
   // Actions
   selectEntity: (id: string | null, multi?: boolean) => void
@@ -43,21 +53,96 @@ export interface EditorState {
   pausePlay: () => void
   stepPlay: () => void
   stopPlay: () => void
-  newScene: () => void
-  saveScene: (path?: string) => string
+  newScene: (name?: string) => void
+  saveScene: (path?: string, name?: string) => string
   openScene: (jsonString: string, path?: string) => void
   setActiveWindow: (windowName: string | null) => void
-  setActiveEditorPanel: (panel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'godot') => void
+  setActiveEditorPanel: (panel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'bridge' | 'godot') => void
   setProjectSettings: (settings: Partial<ProjectSettingsState>) => void
   addProjectTag: (tag: string) => void
   removeProjectTag: (tag: string) => void
   setProjectLayers: (layers: string[]) => void
   setCollisionMatrixCell: (layer1: number, layer2: number, collides: boolean) => void
+
+  // Project Actions
+  setProject: (
+    path: string | null,
+    settings?: Partial<ProjectSettingsState>,
+    name?: string,
+    presets?: ExportPreset[]
+  ) => void
+  closeProject: () => void
+  setRecentProjects: (projects: RecentProject[]) => void
+  addRecentProject: (project: RecentProject) => void
+  removeRecentProject: (path: string) => void
+  clearRecentProjects: () => void
+  setExportPresets: (presets: ExportPreset[]) => void
+  addExportPreset: (preset: ExportPreset) => void
+  updateExportPreset: (preset: ExportPreset) => void
+  removeExportPreset: (id: string) => void
+  setOpenLastProjectOnStartup: (value: boolean) => void
 }
 
 const initialWorld = new World()
 const initialBridge = new SceneBridge(initialWorld)
 const initialCommandStack = new CommandStack(initialWorld)
+
+export const defaultExportPresets: ExportPreset[] = [
+  {
+    id: 'preset-windows-desktop',
+    name: 'Windows Desktop',
+    platform: 'windows',
+    backend: 'linden',
+    arch: ['x64'],
+    output: 'build/windows/LindenProject.exe',
+    mode: 'release',
+  },
+  {
+    id: 'preset-macos-desktop',
+    name: 'macOS',
+    platform: 'macos',
+    backend: 'linden',
+    arch: ['universal'],
+    output: 'build/mac/LindenProject.dmg',
+    mode: 'release',
+  },
+  {
+    id: 'preset-linux-desktop',
+    name: 'Linux',
+    platform: 'linux',
+    backend: 'linden',
+    arch: ['x64'],
+    output: 'build/linux/LindenProject.AppImage',
+    mode: 'release',
+  },
+  {
+    id: 'preset-web-html5',
+    name: 'Web',
+    platform: 'web',
+    backend: 'linden',
+    arch: ['wasm'],
+    output: 'build/web/index.html',
+    mode: 'release',
+  },
+  {
+    id: 'preset-android',
+    name: 'Android',
+    platform: 'android',
+    backend: 'godot',
+    arch: ['arm64'],
+    output: 'build/android/LindenProject.apk',
+    mode: 'debug',
+  },
+  {
+    id: 'preset-ios',
+    name: 'iOS',
+    platform: 'ios',
+    backend: 'godot',
+    arch: ['arm64'],
+    output: 'build/ios/LindenProject.ipa',
+    mode: 'debug',
+  },
+]
 
 export const useEditorStore = create<EditorState>((set, get) => ({
   world: initialWorld,
@@ -72,6 +157,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeWindow: null,
   activeEditorPanel: 'viewport',
   physicsBackend: null,
+
+  // Project state
+  projectPath: null,
+  projectName: 'Untitled Project',
+  isProjectOpen: false,
+  exportPresets: defaultExportPresets,
+  recentProjects: [],
+  openLastProjectOnStartup: false,
   projectSettings: {
     tags: ['Player', 'Enemy', 'Pickup', 'Coin', 'Ground', 'Flying'],
     layers: [
@@ -262,23 +355,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })
   },
 
-  newScene: () => {
+  newScene: (name?: string) => {
     const { world, commandStack } = get()
     world.clear()
     commandStack.clear()
     set({
-      sceneName: 'Untitled',
+      sceneName: name || 'Untitled',
       currentScenePath: null,
       selectedEntityIds: [],
       isDirty: false,
     })
   },
 
-  saveScene: (path?: string) => {
-    const { world, commandStack, sceneName } = get()
-    const json = SceneSerializer.serialize(world, sceneName)
+  saveScene: (path?: string, name?: string) => {
+    const { world, commandStack } = get()
+    const finalName = name || (path ? getSceneNameFromPath(path) : get().sceneName)
+    const json = SceneSerializer.serialize(world, finalName)
     commandStack.markSaved()
     set({
+      sceneName: finalName,
       isDirty: false,
       currentScenePath: path || get().currentScenePath,
     })
@@ -290,8 +385,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { name } = SceneSerializer.deserialize(jsonString, world)
     commandStack.clear()
     commandStack.markSaved()
+    const finalName = path ? getSceneNameFromPath(path) : (name || 'Untitled')
     set({
-      sceneName: name || 'Untitled',
+      sceneName: finalName,
       currentScenePath: path || null,
       selectedEntityIds: [],
       isDirty: false,
@@ -302,14 +398,100 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ activeWindow: windowName })
   },
 
-  setActiveEditorPanel: (panel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'godot') => {
-    set({ activeEditorPanel: panel })
+  setActiveEditorPanel: (panel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'bridge' | 'godot') => {
+    const normalized = (panel as string) === 'godot' ? 'bridge' : panel
+    set({ activeEditorPanel: normalized as any })
   },
 
   setProjectSettings: (settings: Partial<ProjectSettingsState>) => {
     set((state) => ({
       projectSettings: { ...state.projectSettings, ...settings },
     }))
+  },
+
+  setProject: (
+    path: string | null,
+    settings?: Partial<ProjectSettingsState>,
+    name?: string,
+    presets?: ExportPreset[]
+  ) => {
+    set((state) => {
+      const pName =
+        name ||
+        (path ? path.split(/[\/\\]/).filter(Boolean).pop() : undefined) ||
+        'Linden Project'
+      return {
+        projectPath: path,
+        projectName: pName,
+        isProjectOpen: Boolean(path),
+        projectSettings: settings ? { ...state.projectSettings, ...settings } : state.projectSettings,
+        exportPresets: presets && presets.length > 0 ? presets : state.exportPresets,
+      }
+    })
+  },
+
+  closeProject: () => {
+    const { world, commandStack } = get()
+    world.clear()
+    commandStack.clear()
+    set({
+      projectPath: null,
+      projectName: 'Untitled Project',
+      isProjectOpen: false,
+      sceneName: 'Untitled',
+      currentScenePath: null,
+      selectedEntityIds: [],
+      isDirty: false,
+    })
+  },
+
+  setRecentProjects: (projects: RecentProject[]) => {
+    set({ recentProjects: projects.slice(0, 10) })
+  },
+
+  addRecentProject: (project: RecentProject) => {
+    set((state) => {
+      const filtered = state.recentProjects.filter((p) => p.path !== project.path)
+      return {
+        recentProjects: [project, ...filtered].slice(0, 10),
+      }
+    })
+  },
+
+  removeRecentProject: (path: string) => {
+    set((state) => ({
+      recentProjects: state.recentProjects.filter((p) => p.path !== path),
+    }))
+  },
+
+  clearRecentProjects: () => {
+    set({ recentProjects: [] })
+  },
+
+  setExportPresets: (presets: ExportPreset[]) => {
+    set({ exportPresets: presets })
+  },
+
+  addExportPreset: (preset: ExportPreset) => {
+    set((state) => ({
+      exportPresets: [...state.exportPresets, preset],
+    }))
+  },
+
+  updateExportPreset: (preset: ExportPreset) => {
+    set((state) => ({
+      exportPresets: state.exportPresets.map((p) => (p.id === preset.id ? preset : p)),
+    }))
+  },
+
+  removeExportPreset: (id: string) => {
+    set((state) => ({
+      exportPresets: state.exportPresets.filter((p) => p.id !== id),
+    }))
+  },
+
+  setOpenLastProjectOnStartup: (value: boolean) => {
+    set({ openLastProjectOnStartup: value })
   },
 
   addProjectTag: (tag: string) => {

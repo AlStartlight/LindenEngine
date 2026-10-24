@@ -1,0 +1,8 @@
+[gd_scene format=3]
+
+[node name="HUD" type="Control"]
+
+[node name="CreditsLabel" type="RichTextLabel" parent="."]
+text = "Created by [font_size=20]Author[/font_size]
+[font_size=16]Special Thanks[/font_size]
+"

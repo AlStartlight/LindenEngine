@@ -124,7 +124,7 @@ export class GodotBuildRunner {
     const execPath = GodotBuildRunner.findGodotExecutable(this.customExecutable)
     if (!execPath) {
       const err =
-        'Godot executable not found. Please install Godot 4.3+ or configure the executable path in Godot Bridge settings.'
+        'Godot executable not found. Please install Godot 4.3+ or configure the executable path in Bridge → Godot settings.'
       return {
         success: false,
         outputPath,

@@ -349,6 +349,13 @@ export class ComponentMap {
     const entity = world.createEntity(lindenName, parentId, undefined, typeof lindenId === 'string' ? lindenId : undefined)
     nodeMap.set(node.name, entity)
 
+    if (node.instancePath || (node.instance && typeof node.instance === 'string')) {
+      const src = (node.instancePath || node.instance) as string
+      ;(entity as any).prefab = {
+        source: src.replace(/^res:\/\//, 'scenes/').replace(/\.tscn$/, '.lscene'),
+      }
+    }
+
     // Transform
     const transformProp = node.properties['transform']
     if (transformProp && transformProp.basis && transformProp.origin) {
@@ -454,6 +461,56 @@ export class ComponentMap {
         if (node.properties['mass'] !== undefined) rb.mass = Number(node.properties['mass'])
         if (node.properties['gravity_scale'] !== undefined) rb.useGravity = Number(node.properties['gravity_scale']) > 0
         entity.addComponent(rb)
+        break
+      }
+
+      case 'StaticBody3D': {
+        const rb = new Rigidbody()
+        rb.mass = 0
+        rb.useGravity = false
+        entity.addComponent(rb)
+        break
+      }
+
+      case 'CSGBox3D': {
+        const meshRenderer = new MeshRenderer()
+        ;(meshRenderer as any).primitive = 'box'
+        if (node.properties['size'] && typeof node.properties['size'] === 'object') {
+          const s = node.properties['size']
+          const t = entity.getTransform()
+          t.setScale(s.x ?? 1, s.y ?? 1, s.z ?? 1)
+        }
+        if (node.properties['material'] instanceof GodotSubResource) {
+          const matSub = subResMap.get(node.properties['material'].id)
+          if (matSub && matSub.type === 'StandardMaterial3D') {
+            const matData = MaterialMap.fromGodotStandardMaterial(matSub.properties)
+            ;(meshRenderer as any).color = matData.color
+            ;(meshRenderer as any).roughness = matData.roughness
+            ;(meshRenderer as any).metalness = matData.metallic
+          }
+        }
+        entity.addComponent(meshRenderer)
+        break
+      }
+
+      case 'CSGSphere3D': {
+        const meshRenderer = new MeshRenderer()
+        ;(meshRenderer as any).primitive = 'sphere'
+        if (node.properties['radius'] !== undefined) {
+          const r = Number(node.properties['radius']) * 2
+          entity.getTransform().setScale(r, r, r)
+        }
+        entity.addComponent(meshRenderer)
+        break
+      }
+
+      case 'CSGCylinder3D': {
+        const meshRenderer = new MeshRenderer()
+        ;(meshRenderer as any).primitive = 'cylinder'
+        const r = Number(node.properties['radius'] ?? 0.5) * 2
+        const h = Number(node.properties['height'] ?? 2)
+        entity.getTransform().setScale(r, h, r)
+        entity.addComponent(meshRenderer)
         break
       }
 
