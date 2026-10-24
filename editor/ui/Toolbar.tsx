@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { getSceneStatusSuffix } from './windowTitle'
 
 interface ToolbarProps {
   isPlaying: boolean
@@ -7,14 +8,24 @@ interface ToolbarProps {
   onStop: () => void
   onPause: () => void
   onStep?: () => void
+  onNewProject?: () => void
+  onOpenProject?: () => void
+  onCloseProject?: () => void
+  onExport?: () => void
+  onOpenBridge?: () => void
   onNewScene?: () => void
   onOpenScene?: () => void
   onSaveScene?: () => void
   onSaveSceneAs?: () => void
   onUndo?: () => void
   onRedo?: () => void
+  projectName?: string
   sceneName?: string
   isDirty?: boolean
+  isSaved?: boolean
+  recentProjects?: Array<{ name: string; path: string }>
+  onOpenRecent?: (path: string) => void
+  onClearRecent?: () => void
   onOpenBlueprintEditor?: () => void
   onOpenMaterialEditor?: () => void
   onOpenAnimatorEditor?: () => void
@@ -22,6 +33,7 @@ interface ToolbarProps {
   onOpenInputActions?: () => void
   onOpenProjectSettings?: () => void
   onCreate3DObject?: (type: 'Cube' | 'Sphere' | 'Capsule' | 'Cylinder' | 'Plane') => void
+  onExit?: () => void
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -31,14 +43,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onStop,
   onPause,
   onStep,
+  onNewProject,
+  onOpenProject,
+  onCloseProject,
+  onExport,
+  onOpenBridge,
   onNewScene,
   onOpenScene,
   onSaveScene,
   onSaveSceneAs,
   onUndo,
   onRedo,
+  projectName,
   sceneName = 'Untitled',
   isDirty = false,
+  isSaved = true,
+  recentProjects = [],
+  onOpenRecent,
+  onClearRecent,
   onOpenBlueprintEditor,
   onOpenMaterialEditor,
   onOpenAnimatorEditor,
@@ -46,11 +68,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenInputActions,
   onOpenProjectSettings,
   onCreate3DObject,
+  onExit,
 }) => {
   const [showFileMenu, setShowFileMenu] = useState(false)
   const [showEditMenu, setShowEditMenu] = useState(false)
   const [showGameObjectMenu, setShowGameObjectMenu] = useState(false)
   const [showWindowMenu, setShowWindowMenu] = useState(false)
+
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
+  const mod = isMac ? 'Cmd' : 'Ctrl'
 
   return (
     <div className="bg-[#0f3460] border-b border-gray-700/50 select-none">
@@ -60,23 +86,71 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="relative">
           <button
             className="px-3 py-1 hover:bg-white/10 rounded"
-            onClick={() => setShowFileMenu(!showFileMenu)}
+            onClick={() => {
+              setShowFileMenu(!showFileMenu)
+              setShowEditMenu(false)
+              setShowGameObjectMenu(false)
+              setShowWindowMenu(false)
+            }}
           >
             File
           </button>
           {showFileMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-44 py-1">
+            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-56 py-1">
+              <MenuItem
+                label="New Project…"
+                shortcut={`${mod}+Shift+N`}
+                onClick={() => {
+                  onNewProject?.()
+                  setShowFileMenu(false)
+                }}
+              />
+              <MenuItem
+                label="Open Project…"
+                shortcut={`${mod}+Shift+O`}
+                onClick={() => {
+                  onOpenProject?.()
+                  setShowFileMenu(false)
+                }}
+              />
+              <SubMenu label="Open Recent">
+                {recentProjects.length > 0 ? (
+                  <>
+                    {recentProjects.map((proj) => (
+                      <MenuItem
+                        key={proj.path}
+                        label={proj.name}
+                        onClick={() => {
+                          onOpenRecent?.(proj.path)
+                          setShowFileMenu(false)
+                        }}
+                      />
+                    ))}
+                    <MenuDivider />
+                    <MenuItem
+                      label="Clear Recent"
+                      onClick={() => {
+                        onClearRecent?.()
+                        setShowFileMenu(false)
+                      }}
+                    />
+                  </>
+                ) : (
+                  <div className="px-3 py-1.5 text-xs text-gray-400 italic">No Recent Projects</div>
+                )}
+              </SubMenu>
+              <MenuDivider />
               <MenuItem
                 label="New Scene"
-                shortcut="Ctrl+N"
+                shortcut={`${mod}+N`}
                 onClick={() => {
                   onNewScene?.()
                   setShowFileMenu(false)
                 }}
               />
               <MenuItem
-                label="Open Scene"
-                shortcut="Ctrl+O"
+                label="Open Scene…"
+                shortcut={`${mod}+O`}
                 onClick={() => {
                   onOpenScene?.()
                   setShowFileMenu(false)
@@ -84,15 +158,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               />
               <MenuItem
                 label="Save Scene"
-                shortcut="Ctrl+S"
+                shortcut={`${mod}+S`}
                 onClick={() => {
                   onSaveScene?.()
                   setShowFileMenu(false)
                 }}
               />
               <MenuItem
-                label="Save Scene As..."
-                shortcut="Ctrl+Shift+S"
+                label="Save Scene As…"
+                shortcut={`${mod}+Shift+S`}
                 onClick={() => {
                   onSaveSceneAs?.()
                   setShowFileMenu(false)
@@ -100,9 +174,34 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               />
               <MenuDivider />
               <MenuItem
-                label="Project Settings"
+                label="Project Settings…"
                 onClick={() => {
                   onOpenProjectSettings?.()
+                  setShowFileMenu(false)
+                }}
+              />
+              <MenuItem
+                label="Export…"
+                shortcut={`${mod}+Shift+E`}
+                onClick={() => {
+                  onExport?.()
+                  setShowFileMenu(false)
+                }}
+              />
+              <MenuItem
+                label="Close Project"
+                onClick={() => {
+                  onCloseProject?.()
+                  setShowFileMenu(false)
+                }}
+              />
+              <MenuDivider />
+              <MenuItem
+                label="Exit"
+                shortcut={`${mod}+Q`}
+                onClick={() => {
+                  if (onExit) onExit()
+                  else if (typeof window !== 'undefined' && (window as any).close) (window as any).close()
                   setShowFileMenu(false)
                 }}
               />
@@ -114,7 +213,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="relative">
           <button
             className="px-3 py-1 hover:bg-white/10 rounded"
-            onClick={() => setShowEditMenu(!showEditMenu)}
+            onClick={() => {
+              setShowEditMenu(!showEditMenu)
+              setShowFileMenu(false)
+              setShowGameObjectMenu(false)
+              setShowWindowMenu(false)
+            }}
           >
             Edit
           </button>
@@ -122,7 +226,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-44 py-1">
               <MenuItem
                 label="Undo"
-                shortcut="Ctrl+Z"
+                shortcut={`${mod}+Z`}
                 onClick={() => {
                   onUndo?.()
                   setShowEditMenu(false)
@@ -130,7 +234,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               />
               <MenuItem
                 label="Redo"
-                shortcut="Ctrl+Y"
+                shortcut={`${mod}+Y`}
                 onClick={() => {
                   onRedo?.()
                   setShowEditMenu(false)
@@ -152,7 +256,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="relative">
           <button
             className="px-3 py-1 hover:bg-white/10 rounded"
-            onClick={() => setShowGameObjectMenu(!showGameObjectMenu)}
+            onClick={() => {
+              setShowGameObjectMenu(!showGameObjectMenu)
+              setShowFileMenu(false)
+              setShowEditMenu(false)
+              setShowWindowMenu(false)
+            }}
           >
             GameObject
           </button>
@@ -203,12 +312,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="relative">
           <button
             className="px-3 py-1 hover:bg-white/10 rounded"
-            onClick={() => setShowWindowMenu(!showWindowMenu)}
+            onClick={() => {
+              setShowWindowMenu(!showWindowMenu)
+              setShowFileMenu(false)
+              setShowEditMenu(false)
+              setShowGameObjectMenu(false)
+            }}
           >
             Window
           </button>
           {showWindowMenu && (
             <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-48 py-1">
+              <MenuItem
+                label="Bridge"
+                onClick={() => {
+                  onOpenBridge?.()
+                  setShowWindowMenu(false)
+                }}
+              />
+              <MenuDivider />
               <MenuItem
                 label="Input Actions"
                 onClick={() => {
@@ -225,28 +347,28 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               />
               <MenuDivider />
               <MenuItem
-                label="📝 Blueprint Editor"
+                label="Blueprint Editor"
                 onClick={() => {
                   onOpenBlueprintEditor?.()
                   setShowWindowMenu(false)
                 }}
               />
               <MenuItem
-                label="🎨 Material Editor"
+                label="Material Editor"
                 onClick={() => {
                   onOpenMaterialEditor?.()
                   setShowWindowMenu(false)
                 }}
               />
               <MenuItem
-                label="🎬 Animator Editor"
+                label="Animator Editor"
                 onClick={() => {
                   onOpenAnimatorEditor?.()
                   setShowWindowMenu(false)
                 }}
               />
               <MenuItem
-                label="🎥 Sequencer Editor"
+                label="Sequencer Editor"
                 onClick={() => {
                   onOpenSequencerEditor?.()
                   setShowWindowMenu(false)
@@ -258,10 +380,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <div className="flex-1" />
 
-        {/* Scene Title with dirty indicator */}
+        {/* Project & Scene Title with dirty indicator */}
         <span className="text-xs text-gray-300 font-medium">
+          {projectName ? <span className="text-blue-300 font-semibold">{projectName} — </span> : null}
           {sceneName}
-          {isDirty ? ' *' : ''}
+          {getSceneStatusSuffix({ isDirty, isSaved })}
         </span>
       </div>
 
@@ -285,7 +408,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 ? 'bg-blue-600 text-white shadow'
                 : 'hover:bg-white/10 text-gray-200'
             }`}
-            title="Play / Stop (Ctrl+P)"
+            title={`Play / Stop (${mod}+P)`}
           >
             <span>▶</span>
             <span>{isPlaying ? 'Playing' : 'Play'}</span>
@@ -301,7 +424,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 ? 'hover:bg-white/10 text-gray-200'
                 : 'opacity-40 cursor-not-allowed text-gray-500'
             }`}
-            title="Pause (Ctrl+Shift+P)"
+            title={`Pause (${mod}+Shift+P)`}
           >
             ⏸
           </button>
@@ -312,7 +435,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             className={`px-2.5 py-1 rounded text-xs transition-colors ${
               isPlaying ? 'hover:bg-white/10 text-gray-200' : 'opacity-40 cursor-not-allowed text-gray-500'
             }`}
-            title="Step Frame (Ctrl+Alt+P)"
+            title={`Step Frame (${mod}+Alt+P)`}
           >
             ⏭
           </button>
@@ -342,9 +465,9 @@ const SubMenu: React.FC<{ label: string; children: React.ReactNode }> = ({ label
   <div className="relative group">
     <button className="w-full px-3 py-1.5 text-left hover:bg-blue-600/50 flex items-center justify-between text-xs text-gray-200">
       <span>{label}</span>
-      <span>▶</span>
+      <span className="text-[10px]">▶</span>
     </button>
-    <div className="hidden group-hover:block absolute left-full top-0 bg-[#16213e] border border-gray-700/50 rounded shadow-xl min-w-36 py-1">
+    <div className="hidden group-hover:block absolute left-full top-0 bg-[#16213e] border border-gray-700/50 rounded shadow-xl min-w-48 py-1 z-50">
       {children}
     </div>
   </div>
