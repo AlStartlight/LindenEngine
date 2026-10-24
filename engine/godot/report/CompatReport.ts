@@ -1,5 +1,5 @@
 /**
- * Compatibility Report for Godot Bridge
+ * Compatibility Report for Bridge (Godot)
  * Tracks conversion statistics, warnings, unsupported features, and errors.
  */
 
