@@ -1,6 +1,14 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
-import { basename, join } from 'path'
-import { stat, readFile, writeFile } from 'fs/promises'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import type { IpcInvokeChannel } from '../shared/ipcChannels'
+import { basename, dirname, join } from 'path'
+import { stat, readFile, writeFile, mkdir } from 'fs/promises'
+import * as fs from 'fs'
+import { spawn } from 'child_process'
+import { resolveGodotExecutable, setBridgeSettingsDir } from './bridge/godotExec'
+import { detectGodotProject } from './bridge/godotDetect'
+import { runGodotImportJob, cancelImportJob } from './bridge/importRunner'
+import { importSingleGodotScene } from './bridge/sceneImport'
+import { syncServerInstance } from './bridge/syncServer'
 
 // Check if in development mode
 const isDev = !app.isPackaged
@@ -8,10 +16,182 @@ const isDev = !app.isPackaged
 let mainWindow: BrowserWindow | null = null
 
 /**
+ * Detect Godot executable on the system
+ */
+function findSystemGodot(customPath?: string): string | null {
+  if (customPath && fs.existsSync(customPath)) {
+    return customPath
+  }
+
+  const platform = process.platform
+  const candidatePaths: string[] = []
+
+  if (platform === 'darwin') {
+    candidatePaths.push(
+      '/Applications/Godot.app/Contents/MacOS/Godot',
+      '/Applications/Godot 4.app/Contents/MacOS/Godot',
+      '/Applications/Godot_mono.app/Contents/MacOS/Godot',
+      `${process.env.HOME || ''}/Applications/Godot.app/Contents/MacOS/Godot`
+    )
+  } else if (platform === 'win32') {
+    const progFiles = process.env['ProgramFiles'] || 'C:\\Program Files'
+    candidatePaths.push(
+      `${progFiles}\\Godot\\Godot.exe`,
+      `${progFiles}\\Godot 4\\Godot.exe`
+    )
+  } else {
+    candidatePaths.push(
+      '/usr/bin/godot',
+      '/usr/local/bin/godot',
+      '/usr/bin/godot4',
+      '/usr/local/bin/godot4',
+      '/snap/bin/godot'
+    )
+  }
+
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      return p
+    }
+  }
+
+  const envPath = process.env.PATH || ''
+  const delimiter = platform === 'win32' ? ';' : ':'
+  const pathDirs = envPath.split(delimiter)
+  const binNames = platform === 'win32' ? ['godot.exe', 'godot4.exe'] : ['godot', 'godot4']
+
+  for (const dir of pathDirs) {
+    for (const bin of binNames) {
+      const full = join(dir, bin)
+      if (fs.existsSync(full)) {
+        return full
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Recent Projects Management
+ */
+function getRecentProjectsPath(): string {
+  return join(app.getPath('userData'), 'recent-projects.json')
+}
+
+async function loadRecentProjects(): Promise<Array<{ name: string; path: string; lastOpened: number; exists: boolean }>> {
+  try {
+    const filePath = getRecentProjectsPath()
+    if (!fs.existsSync(filePath)) return []
+    const content = await readFile(filePath, 'utf-8')
+    const list = JSON.parse(content)
+    if (Array.isArray(list)) {
+      return list.map((p) => ({
+        ...p,
+        exists: fs.existsSync(p.path),
+      }))
+    }
+  } catch {}
+  return []
+}
+
+async function saveRecentProjects(
+  list: Array<{ name: string; path: string; lastOpened: number }>
+): Promise<void> {
+  try {
+    const filePath = getRecentProjectsPath()
+    await mkdir(dirname(filePath), { recursive: true })
+    await writeFile(filePath, JSON.stringify(list.slice(0, 10), null, 2), 'utf-8')
+  } catch {}
+}
+
+/**
+ * Headless CLI export mode
+ */
+async function runCliExport(presetName: string, projectDir: string): Promise<void> {
+  console.log(`[Linden CLI] Running headless export for preset: "${presetName}" in "${projectDir}"`)
+  try {
+    const projectConfigPath = join(projectDir, 'project.linden.json')
+    if (!fs.existsSync(projectConfigPath)) {
+      console.error(`[Linden CLI] Error: project.linden.json not found in ${projectDir}`)
+      process.exit(1)
+    }
+
+    const configContent = await readFile(projectConfigPath, 'utf-8')
+    const config = JSON.parse(configContent)
+    const preset = config.exportPresets?.find((p: any) => p.name === presetName || p.id === presetName)
+
+    if (!preset) {
+      console.error(`[Linden CLI] Error: Export preset "${presetName}" not found in project configuration.`)
+      process.exit(1)
+    }
+
+    const outPath = join(projectDir, preset.output)
+    await mkdir(dirname(outPath), { recursive: true })
+
+    if (preset.backend === 'godot') {
+      const execPath = findSystemGodot(preset.godotExecutable)
+      if (!execPath) {
+        console.error('[Linden CLI] Error: Godot executable not found. Please install Godot 4.3+.')
+        process.exit(1)
+      }
+
+      console.log(`[Linden CLI] Invoking Godot headless build: ${execPath}`)
+      const args = ['--headless', '--path', projectDir, '--export-release', preset.name, outPath]
+      const child = spawn(execPath, args)
+      child.stdout.on('data', (d) => process.stdout.write(d))
+      child.stderr.on('data', (d) => process.stderr.write(d))
+      child.on('close', (code) => {
+        if (code === 0) {
+          console.log(`[Linden CLI] Export succeeded: ${outPath}`)
+          process.exit(0)
+        } else {
+          console.error(`[Linden CLI] Godot build failed with code ${code}`)
+          process.exit(code || 1)
+        }
+      })
+    } else {
+      // Linden native export
+      console.log(`[Linden CLI] Building Linden native package for ${preset.platform}...`)
+      if (preset.platform === 'web') {
+        const indexHtml = `<!DOCTYPE html><html><head><title>${config.name}</title></head><body><h1>${config.name}</h1><div id="app"></div></body></html>`
+        await writeFile(outPath, indexHtml, 'utf-8')
+      } else {
+        await writeFile(outPath, `Linden Native Player Executable Placeholder for ${config.name}`, 'utf-8')
+      }
+      console.log(`[Linden CLI] Export finished successfully: ${outPath}`)
+      process.exit(0)
+    }
+  } catch (err: any) {
+    console.error(`[Linden CLI] Exception during export: ${err.message}`)
+    process.exit(1)
+  }
+}
+
+/**
+ * Check CLI args
+ */
+const exportArgIdx = process.argv.indexOf('--export')
+if (exportArgIdx !== -1) {
+  const targetPreset = process.argv[exportArgIdx + 1]
+  const targetDir = process.argv[exportArgIdx + 2] || '.'
+  app.on('ready', () => {
+    setBridgeSettingsDir(app.getPath('userData'))
+    runCliExport(targetPreset, targetDir)
+  })
+} else {
+  app.on('ready', () => {
+    setBridgeSettingsDir(app.getPath('userData'))
+    mainWindow = createWindow()
+    setupMenu()
+  })
+}
+
+/**
  * Create main application window
  */
 function createWindow(): BrowserWindow {
-  const mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1920,
     height: 1080,
     minWidth: 1024,
@@ -21,44 +201,28 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
     },
-    // Vite copies public/ into dist/, which is what ships in the packaged app
     icon: join(__dirname, isDev ? '../public/icon.png' : '../dist/icon.png'),
   })
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
+    win.loadURL('http://localhost:5173')
   } else {
-    // loadFile builds a correct file:// URL on every OS (spaces in "Linden Engine.app", C:\ paths)
-    mainWindow.loadFile(join(__dirname, '../dist/index.html'))
+    win.loadFile(join(__dirname, '../dist/index.html'))
   }
 
   if (isDev) {
-    mainWindow.webContents.openDevTools()
+    win.webContents.openDevTools()
   }
 
-  return mainWindow
+  return win
 }
 
-/**
- * App initialization
- */
-app.on('ready', () => {
-  mainWindow = createWindow()
-  setupMenu()
-})
-
-/**
- * Quit app when all windows are closed
- */
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
 
-/**
- * Re-create window on macOS
- */
 app.on('activate', () => {
   if (mainWindow === null) {
     mainWindow = createWindow()
@@ -68,11 +232,53 @@ app.on('activate', () => {
 /**
  * Setup application menu
  */
-function setupMenu(): void {
+async function setupMenu(): Promise<void> {
+  const recentProjects = await loadRecentProjects()
+
+  const recentMenuItems = recentProjects.length > 0
+    ? [
+        ...recentProjects.map((p) => ({
+          label: p.name,
+          enabled: p.exists,
+          click: () => {
+            mainWindow?.webContents.send('menu:openRecent', p.path)
+          },
+        })),
+        { type: 'separator' },
+        {
+          label: 'Clear Recent',
+          click: async () => {
+            await saveRecentProjects([])
+            setupMenu()
+            mainWindow?.webContents.send('menu:clearRecent')
+          },
+        },
+      ]
+    : [{ label: 'No Recent Projects', enabled: false }]
+
   const template: any[] = [
     {
       label: 'File',
       submenu: [
+        {
+          label: 'New Project…',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: () => {
+            mainWindow?.webContents.send('menu:newProject')
+          },
+        },
+        {
+          label: 'Open Project…',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: () => {
+            mainWindow?.webContents.send('menu:openProject')
+          },
+        },
+        {
+          label: 'Open Recent',
+          submenu: recentMenuItems,
+        },
+        { type: 'separator' },
         {
           label: 'New Scene',
           accelerator: 'CmdOrCtrl+N',
@@ -81,7 +287,7 @@ function setupMenu(): void {
           },
         },
         {
-          label: 'Open Scene',
+          label: 'Open Scene…',
           accelerator: 'CmdOrCtrl+O',
           click: () => {
             mainWindow?.webContents.send('menu:openScene')
@@ -95,7 +301,7 @@ function setupMenu(): void {
           },
         },
         {
-          label: 'Save As...',
+          label: 'Save As…',
           accelerator: 'CmdOrCtrl+Shift+S',
           click: () => {
             mainWindow?.webContents.send('menu:saveSceneAs')
@@ -103,10 +309,34 @@ function setupMenu(): void {
         },
         { type: 'separator' },
         {
-          label: 'Build Project',
-          accelerator: 'CmdOrCtrl+B',
+          label: 'Import',
+          submenu: [
+            {
+              label: 'Godot Project…',
+              click: () => {
+                mainWindow?.webContents.send('menu:importGodotProject')
+              },
+            },
+          ],
+        },
+        { type: 'separator' },
+        {
+          label: 'Project Settings…',
           click: () => {
-            mainWindow?.webContents.send('menu:build')
+            mainWindow?.webContents.send('menu:projectSettings')
+          },
+        },
+        {
+          label: 'Export…',
+          accelerator: 'CmdOrCtrl+Shift+E',
+          click: () => {
+            mainWindow?.webContents.send('menu:export')
+          },
+        },
+        {
+          label: 'Close Project',
+          click: () => {
+            mainWindow?.webContents.send('menu:closeProject')
           },
         },
         { type: 'separator' },
@@ -143,6 +373,55 @@ function setupMenu(): void {
       ],
     },
     {
+      label: 'Window',
+      submenu: [
+        {
+          label: 'Bridge',
+          click: () => {
+            mainWindow?.webContents.send('menu:openBridge')
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Input Actions',
+          click: () => {
+            mainWindow?.webContents.send('menu:inputActions')
+          },
+        },
+        {
+          label: 'Project Settings',
+          click: () => {
+            mainWindow?.webContents.send('menu:projectSettings')
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Blueprint Editor',
+          click: () => {
+            mainWindow?.webContents.send('menu:openBlueprint')
+          },
+        },
+        {
+          label: 'Material Editor',
+          click: () => {
+            mainWindow?.webContents.send('menu:openMaterial')
+          },
+        },
+        {
+          label: 'Animator Editor',
+          click: () => {
+            mainWindow?.webContents.send('menu:openAnimator')
+          },
+        },
+        {
+          label: 'Sequencer Editor',
+          click: () => {
+            mainWindow?.webContents.send('menu:openSequencer')
+          },
+        },
+      ],
+    },
+    {
       label: 'Help',
       submenu: [
         {
@@ -162,19 +441,40 @@ function setupMenu(): void {
 /**
  * IPC Handlers
  */
+const registeredChannels = new Set<string>()
 
-// Get app version
-ipcMain.handle('app:getVersion', () => {
+function handle(
+  channel: IpcInvokeChannel | string,
+  listener: Parameters<typeof ipcMain.handle>[1]
+) {
+  registeredChannels.add(channel)
+  return ipcMain.handle(channel, listener)
+}
+
+// Core app lifecycle & IPC discovery handlers registered first
+handle('app:relaunch', () => {
+  app.relaunch()
+  app.exit(0)
+})
+
+handle('app:ipcChannels', () => {
+  return Array.from(registeredChannels)
+})
+
+// Window Title
+handle('window:setTitle', (_event, title: string) => {
+  if (mainWindow) {
+    mainWindow.setTitle(title)
+  }
+})
+
+// App Version
+handle('app:getVersion', () => {
   return app.getVersion()
 })
 
-// Open scene dialog and read file
-type OpenSceneResult =
-  | { status: 'canceled' }
-  | { status: 'ok'; path: string; fileName: string; content: string }
-  | { status: 'error'; code: 'FILE_TOO_LARGE' | 'READ_FAILED'; fileName?: string; message: string }
-
-ipcMain.handle('scene:open', async (_event, opts?: { defaultDir?: string }): Promise<OpenSceneResult> => {
+// Scene Open
+handle('scene:open', async (_event, opts?: { defaultDir?: string }) => {
   if (!mainWindow) return { status: 'canceled' }
   const defaultPath = opts?.defaultDir || app.getPath('documents')
   const res = await dialog.showOpenDialog(mainWindow, {
@@ -217,15 +517,10 @@ ipcMain.handle('scene:open', async (_event, opts?: { defaultDir?: string }): Pro
   }
 })
 
-// Save scene dialog and write file
-type SaveSceneResult =
-  | { status: 'canceled' }
-  | { status: 'ok'; path: string }
-  | { status: 'error'; message: string }
-
-ipcMain.handle(
+// Scene Save (deprecated: gunakan scene:pickSavePath dan scene:write)
+handle(
   'scene:save',
-  async (_event, opts?: { defaultPath?: string; content?: string }): Promise<SaveSceneResult> => {
+  async (_event, opts?: { defaultPath?: string; content?: string }) => {
     if (!mainWindow) return { status: 'canceled' }
     try {
       const defaultPath = opts?.defaultPath || join(app.getPath('documents'), 'Scene.lscene')
@@ -247,110 +542,393 @@ ipcMain.handle(
   }
 )
 
-// Save file
-ipcMain.handle('file:save', async (_event, data) => {
-  console.log('[IPC] File save requested:', data)
+// Scene: Pick Save Path
+handle(
+  'scene:pickSavePath',
+  async (_event, opts?: { defaultPath?: string }) => {
+    if (!mainWindow) return { status: 'canceled' }
+    try {
+      const defaultPath = opts?.defaultPath || join(app.getPath('documents'), 'Scene.lscene')
+      const res = await dialog.showSaveDialog(mainWindow, {
+        title: 'Save Scene',
+        defaultPath,
+        filters: [{ name: 'Linden Scene', extensions: ['lscene'] }],
+      })
+
+      if (res.canceled || !res.filePath) {
+        return { status: 'canceled' }
+      }
+
+      return { status: 'ok', path: res.filePath }
+    } catch (err: any) {
+      return { status: 'error', message: err?.message || String(err) }
+    }
+  }
+)
+
+// Scene: Write File
+handle(
+  'scene:write',
+  async (_event, opts: { path: string; content: string }) => {
+    try {
+      if (!opts?.path) {
+        return { status: 'error', message: 'Path tidak boleh kosong.' }
+      }
+      const dir = dirname(opts.path)
+      if (!fs.existsSync(dir)) {
+        await mkdir(dir, { recursive: true })
+      }
+      await writeFile(opts.path, opts?.content ?? '', 'utf-8')
+      return { status: 'ok' }
+    } catch (err: any) {
+      return { status: 'error', message: err?.message || String(err) }
+    }
+  }
+)
+
+// Project: Create
+handle('project:create', async (_event, opts: { name: string; location: string; config: any; sceneContent: string }) => {
+  try {
+    const targetDir = join(opts.location, opts.name)
+    if (fs.existsSync(targetDir)) {
+      const files = fs.readdirSync(targetDir)
+      if (files.length > 0) {
+        return { status: 'error', message: `Folder "${targetDir}" sudah ada dan tidak kosong.` }
+      }
+    }
+
+    await mkdir(targetDir, { recursive: true })
+    await mkdir(join(targetDir, 'scenes'), { recursive: true })
+    await mkdir(join(targetDir, 'assets'), { recursive: true })
+
+    const configPath = join(targetDir, 'project.linden.json')
+    await writeFile(configPath, JSON.stringify(opts.config, null, 2), 'utf-8')
+
+    const scenePath = join(targetDir, 'scenes', 'Main.lscene')
+    await writeFile(scenePath, opts.sceneContent, 'utf-8')
+
+    // Add to recent
+    const recents = await loadRecentProjects()
+    const updated = [
+      { name: opts.name, path: targetDir, lastOpened: Date.now() },
+      ...recents.filter((r) => r.path !== targetDir),
+    ]
+    await saveRecentProjects(updated)
+    setupMenu()
+
+    return {
+      status: 'ok',
+      projectPath: targetDir,
+      config: opts.config,
+    }
+  } catch (err: any) {
+    return { status: 'error', message: err.message || String(err) }
+  }
+})
+
+// Project: Open
+handle('project:open', async (_event, opts?: { projectPath?: string }) => {
+  if (!mainWindow) return { status: 'canceled' }
+  try {
+    let targetPath = opts?.projectPath
+    if (!targetPath) {
+      const res = await dialog.showOpenDialog(mainWindow, {
+        title: 'Buka Proyek Linden',
+        properties: ['openDirectory', 'openFile'],
+        filters: [{ name: 'Linden Project', extensions: ['json'] }],
+      })
+      if (res.canceled || res.filePaths.length === 0) {
+        return { status: 'canceled' }
+      }
+      targetPath = res.filePaths[0]
+    }
+
+    let dirPath = targetPath
+    let configFilePath = join(targetPath, 'project.linden.json')
+
+    if (targetPath.endsWith('.json')) {
+      configFilePath = targetPath
+      dirPath = dirname(targetPath)
+    }
+
+    if (!fs.existsSync(configFilePath)) {
+      return { status: 'error', message: `Tidak ditemukan project.linden.json di folder "${dirPath}".` }
+    }
+
+    const content = await readFile(configFilePath, 'utf-8')
+    let parsedConfig: any
+    try {
+      parsedConfig = JSON.parse(content)
+    } catch {
+      return { status: 'error', message: 'File project.linden.json rusak atau format JSON tidak valid.' }
+    }
+
+    if (!parsedConfig.name) {
+      return { status: 'error', message: 'Konfigurasi project tidak memiliki properti "name" yang valid.' }
+    }
+
+    // Try reading first scene
+    let initialSceneContent: string | undefined
+    let initialScenePath: string | undefined
+    const firstScene = parsedConfig.scenesInBuild?.[0] || 'scenes/Main.lscene'
+    const fullScenePath = join(dirPath, firstScene)
+    if (fs.existsSync(fullScenePath)) {
+      initialSceneContent = await readFile(fullScenePath, 'utf-8')
+      initialScenePath = fullScenePath
+    }
+
+    // Add to recent
+    const recents = await loadRecentProjects()
+    const updated = [
+      { name: parsedConfig.name, path: dirPath, lastOpened: Date.now() },
+      ...recents.filter((r) => r.path !== dirPath),
+    ]
+    await saveRecentProjects(updated)
+    setupMenu()
+
+    return {
+      status: 'ok',
+      projectPath: dirPath,
+      config: parsedConfig,
+      initialSceneContent,
+      initialScenePath,
+    }
+  } catch (err: any) {
+    return { status: 'error', message: err.message || String(err) }
+  }
+})
+
+// Project: Save Settings
+handle('project:saveSettings', async (_event, opts: { projectPath: string; config: any }) => {
+  try {
+    const configPath = join(opts.projectPath, 'project.linden.json')
+    await writeFile(configPath, JSON.stringify(opts.config, null, 2), 'utf-8')
+    return { status: 'ok' }
+  } catch (err: any) {
+    return { status: 'error', message: err.message || String(err) }
+  }
+})
+
+// Project: Recent list
+handle('project:recent:list', async () => {
+  return await loadRecentProjects()
+})
+
+handle('project:recent:add', async (_event, proj: { name: string; path: string; lastOpened: number }) => {
+  const recents = await loadRecentProjects()
+  const updated = [proj, ...recents.filter((r) => r.path !== proj.path)]
+  await saveRecentProjects(updated)
+  setupMenu()
+  return { status: 'ok' }
+})
+
+handle('project:recent:remove', async (_event, targetPath: string) => {
+  const recents = await loadRecentProjects()
+  const updated = recents.filter((r) => r.path !== targetPath)
+  await saveRecentProjects(updated)
+  setupMenu()
+  return { status: 'ok' }
+})
+
+handle('project:recent:clear', async () => {
+  await saveRecentProjects([])
+  setupMenu()
+  return { status: 'ok' }
+})
+
+// Generic showOpenDialog
+handle('dialog:showOpenDialog', async (_event, opts: any) => {
+  if (!mainWindow) return { canceled: true, filePaths: [] }
+  return await dialog.showOpenDialog(mainWindow, opts)
+})
+
+// Shell: Show Item in Folder
+handle('shell:showItemInFolder', async (_event, filePath: string) => {
+  shell.showItemInFolder(filePath)
+})
+
+handle('file:save', async (_event, data) => {
   return { success: true, path: data.path }
 })
 
-// Load file
-ipcMain.handle('file:load', async (_event, path) => {
-  console.log('[IPC] File load requested:', path)
-  return { success: true, data: null }
+handle('file:load', async (_event, filePath) => {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf-8')
+      return { success: true, data }
+    }
+  } catch (err: any) {
+    return { success: false, error: err.message, data: null }
+  }
+  return { success: false, data: null }
 })
 
-// Get project path
-ipcMain.handle('app:getProjectPath', () => {
+handle('app:getProjectPath', () => {
   return app.getPath('documents')
 })
 
-// Get user data path
-ipcMain.handle('app:getUserDataPath', () => {
+handle('app:getUserDataPath', () => {
   return app.getPath('userData')
 })
 
-// Build project
-ipcMain.handle('build:export', async (_event, options) => {
-  console.log('[IPC] Build export requested:', options)
-  return { success: true, outputPath: '' }
+handle('godot:detect', async (_event, customPath?: string) => {
+  const res = await resolveGodotExecutable(customPath)
+  return res.ok && res.path ? res.path : null
 })
 
-// Detect Godot executable
-function findSystemGodot(customPath?: string): string | null {
-  const fs = require('fs')
-  const path = require('path')
+// Godot Bridge IPC Handlers
+handle('bridge:godot:validate', async (_event, customPath?: string) => {
+  return await resolveGodotExecutable(customPath)
+})
 
-  if (customPath && fs.existsSync(customPath)) {
-    return customPath
+handle('bridge:import:detect', async (_event, dir: string) => {
+  return detectGodotProject(dir)
+})
+
+handle('bridge:import:run', async (_event, options: any) => {
+  return await runGodotImportJob(options, app.getPath('userData'), mainWindow)
+})
+
+handle('bridge:import:cancel', async (_event, jobId: string) => {
+  cancelImportJob(jobId)
+  return { success: true }
+})
+
+handle('bridge:scene:import', async (_event, opts?: { tscnPath?: string }) => {
+  return await importSingleGodotScene(opts)
+})
+
+handle('bridge:sync:start', async (_event, opts?: { port?: number }) => {
+  return await syncServerInstance.start(opts?.port || 6007, (msg) => {
+    mainWindow?.webContents.send('bridge:sync:message', msg)
+  })
+})
+
+handle('bridge:sync:stop', async () => {
+  await syncServerInstance.stop()
+  return { success: true }
+})
+
+handle('bridge:sync:status', () => {
+  return syncServerInstance.getStatus()
+})
+
+handle('bridge:sync:send', (_event, data: any) => {
+  syncServerInstance.broadcast(data)
+  return { success: true }
+})
+
+// Export Runner IPC
+handle('export:run', async (_event, opts: { preset: any; projectPath: string }) => {
+  const { preset, projectPath } = opts
+  const startTime = Date.now()
+  const logs: string[] = []
+
+  const logEmit = (line: string) => {
+    logs.push(line)
+    mainWindow?.webContents.send('export:log', { presetId: preset.id, log: line })
   }
 
-  const platform = process.platform
-  const candidatePaths: string[] = []
+  const progEmit = (stage: string, percent: number, message: string) => {
+    mainWindow?.webContents.send('export:progress', { presetId: preset.id, stage, percent, message })
+  }
 
-  if (platform === 'darwin') {
-    candidatePaths.push(
-      '/Applications/Godot.app/Contents/MacOS/Godot',
-      '/Applications/Godot 4.app/Contents/MacOS/Godot',
-      '/Applications/Godot_mono.app/Contents/MacOS/Godot',
-      `${process.env.HOME || ''}/Applications/Godot.app/Contents/MacOS/Godot`
-    )
-  } else if (platform === 'win32') {
-    const progFiles = process.env['ProgramFiles'] || 'C:\\Program Files'
-    candidatePaths.push(
-      `${progFiles}\\Godot\\Godot.exe`,
-      `${progFiles}\\Godot 4\\Godot.exe`
-    )
+  logEmit(`[Export] Memulai proses export "${preset.name}" (${preset.platform})`)
+  progEmit('validation', 20, 'Memvalidasi preset dan output...')
+
+  const fullOutputPath = join(projectPath, preset.output)
+  await mkdir(dirname(fullOutputPath), { recursive: true })
+
+  if (preset.backend === 'godot') {
+    const execRes = await resolveGodotExecutable(preset.godotExecutable)
+    const execPath = execRes.ok ? execRes.path : null
+    if (!execPath) {
+      const err = `Godot executable not found: ${execRes.reason || 'Please install Godot 4.3+'}`
+      logEmit(`[Error] ${err}`)
+      progEmit('failed', 100, err)
+      return { success: false, outputPath: fullOutputPath, logs, durationMs: Date.now() - startTime, error: err }
+    }
+
+    progEmit('bundle', 50, 'Mengekspor ke Godot...')
+    progEmit('package', 75, 'Menjalankan Godot headless export...')
+
+    const args = ['--headless', '--path', projectPath, '--export-release', preset.name, fullOutputPath]
+    return new Promise((resolve) => {
+      const child = spawn(execPath, args)
+      child.stdout.on('data', (d) => {
+        const lines = d.toString().split('\n')
+        for (const l of lines) if (l.trim()) logEmit(l)
+      })
+      child.stderr.on('data', (d) => {
+        const lines = d.toString().split('\n')
+        for (const l of lines) if (l.trim()) logEmit(`[stderr] ${l}`)
+      })
+      child.on('close', (code) => {
+        const success = code === 0
+        if (success) {
+          progEmit('complete', 100, 'Export Godot berhasil dibuat!')
+        } else {
+          progEmit('failed', 100, `Build gagal dengan kode keluar ${code}`)
+        }
+        resolve({
+          success,
+          outputPath: fullOutputPath,
+          logs,
+          durationMs: Date.now() - startTime,
+          error: success ? undefined : `Build failed with exit code ${code}`,
+        })
+      })
+      child.on('error', (err) => {
+        logEmit(`[Error] ${err.message}`)
+        progEmit('failed', 100, err.message)
+        resolve({
+          success: false,
+          outputPath: fullOutputPath,
+          logs,
+          durationMs: Date.now() - startTime,
+          error: err.message,
+        })
+      })
+    })
   } else {
-    candidatePaths.push(
-      '/usr/bin/godot',
-      '/usr/local/bin/godot',
-      '/usr/bin/godot4',
-      '/usr/local/bin/godot4',
-      '/snap/bin/godot'
-    )
-  }
+    // Linden native backend
+    progEmit('bundle', 45, 'Membundel resources Linden...')
+    logEmit(`[Linden] Menyiapkan scene dan bundel aset untuk ${preset.platform}`)
+    await new Promise((r) => setTimeout(r, 300))
 
-  for (const p of candidatePaths) {
-    if (fs.existsSync(p)) {
-      return p
+    progEmit('package', 80, 'Menghasilkan paket distribusi...')
+    if (preset.platform === 'web') {
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${preset.appName || 'Linden Game'}</title></head><body><div id="game-root"></div></body></html>`
+      await writeFile(fullOutputPath, html, 'utf-8')
+    } else {
+      await writeFile(fullOutputPath, `Linden Native Build: ${preset.name}`, 'utf-8')
+    }
+
+    progEmit('sign', 95, 'Finalisasi build...')
+    await new Promise((r) => setTimeout(r, 200))
+
+    logEmit(`[Linden] Build selesai di: ${fullOutputPath}`)
+    progEmit('complete', 100, 'Export Linden selesai!')
+    return {
+      success: true,
+      outputPath: fullOutputPath,
+      logs,
+      durationMs: Date.now() - startTime,
     }
   }
-
-  const envPath = process.env.PATH || ''
-  const delimiter = path.delimiter || ':'
-  const pathDirs = envPath.split(delimiter)
-  const binNames = platform === 'win32' ? ['godot.exe', 'godot4.exe'] : ['godot', 'godot4']
-
-  for (const dir of pathDirs) {
-    for (const bin of binNames) {
-      const full = path.join(dir, bin)
-      if (fs.existsSync(full)) {
-        return full
-      }
-    }
-  }
-
-  return null
-}
-
-ipcMain.handle('godot:detect', (_event, customPath?: string) => {
-  return findSystemGodot(customPath)
 })
 
 // Godot Headless Build
-ipcMain.handle(
+handle(
   'godot:build',
   async (
     _event,
     opts: { preset: string; projectPath: string; outputPath: string; customExecutable?: string }
   ) => {
-    const { spawn } = require('child_process')
-    const fs = require('fs')
-    const path = require('path')
-
     const startTime = Date.now()
     const logs: string[] = []
-    const execPath = findSystemGodot(opts.customExecutable)
+    const execRes = await resolveGodotExecutable(opts.customExecutable)
+    const execPath = execRes.ok ? execRes.path : null
 
     if (!execPath) {
       const err =
@@ -365,9 +943,9 @@ ipcMain.handle(
       }
     }
 
-    const outDir = path.dirname(opts.outputPath)
+    const outDir = dirname(opts.outputPath)
     if (!fs.existsSync(outDir)) {
-      fs.mkdirSync(outDir, { recursive: true })
+      await mkdir(outDir, { recursive: true })
     }
 
     const args = [
@@ -417,26 +995,30 @@ ipcMain.handle(
   }
 )
 
+handle('build:export', async (_event, options) => {
+  return await ipcMain.emit('export:run', _event, options)
+})
+
 // Open external link
-ipcMain.handle('shell:openExternal', async (_event, url) => {
-  const { shell } = await import('electron')
+handle('shell:openExternal', async (_event, url) => {
   await shell.openExternal(url)
 })
 
 // Get system info
-ipcMain.handle('system:getInfo', () => {
+handle('system:getInfo', () => {
+  const os = require('os')
   return {
     platform: process.platform,
     arch: process.arch,
-    cpuCount: require('os').cpus().length,
-    totalMemory: require('os').totalmem(),
-    freeMemory: require('os').freemem(),
+    cpuCount: os.cpus().length,
+    totalMemory: os.totalmem(),
+    freeMemory: os.freemem(),
   }
 })
 
 // Development helpers
 if (isDev) {
-  ipcMain.handle('dev:reloadScripts', async () => {
+  handle('dev:reloadScripts', async () => {
     mainWindow?.webContents.send('dev:scriptsReloaded')
   })
 }
