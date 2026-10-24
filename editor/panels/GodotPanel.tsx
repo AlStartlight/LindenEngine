@@ -114,8 +114,8 @@ export const GodotPanel: React.FC<GodotPanelProps> = ({
       <div className="flex items-center justify-between border-b border-gray-700 pb-2">
         <div className="flex items-center space-x-2">
           <span className="text-xl">🤖</span>
-          <h2 className="font-bold text-lg text-white">Godot Bridge</h2>
-          <span className="text-xs px-2 py-0.5 rounded bg-blue-900 text-blue-300">v0.2</span>
+          <h2 className="font-bold text-lg text-white">Bridge</h2>
+          <span className="text-xs px-2 py-0.5 rounded bg-blue-900 text-blue-300">Target: Godot</span>
         </div>
         <div className="flex items-center space-x-2">
           <span
