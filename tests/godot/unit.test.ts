@@ -29,7 +29,7 @@ import { DiffEngine, EntitySnapshot } from '../../engine/godot/sync/DiffEngine'
 import { ConflictResolver } from '../../engine/godot/sync/ConflictResolver'
 import { CompatReport } from '../../engine/godot/report/CompatReport'
 
-describe('Godot Bridge - Unit Tests (UT-01 to UT-16)', () => {
+describe('Bridge (Godot) - Unit Tests (UT-01 to UT-16)', () => {
   // UT-01: TscnWriter - Single entity with Transform
   it('UT-01: exports single entity with position (1,2,3) and Y rotation 90 deg', () => {
     const world = new World()
