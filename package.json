@@ -10,7 +10,8 @@
     "electron": "electron .",
     "electron:watch": "nodemon --watch electron --watch shared --watch engine/godot --watch engine/transmuter --ext ts --delay 300ms --exec \"npm run build:electron && electron .\"",
     "electron-dev": "concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:5173 && npm run electron:watch\"",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && npm run build:player",
+    "build:player": "node scripts/build-player.mjs",
     "build:electron": "tsc -p tsconfig.electron.json --noEmit && node scripts/build-electron.mjs",
     "build:all": "npm run build && npm run build:electron && npm run electron-builder",
     "electron-builder": "electron-builder",
@@ -19,6 +20,9 @@
     "test": "vitest run",
     "test:cases": "playwright test -c docs/test-case/playwright.config.ts",
     "test:cases:1m": "bash docs/test-case-1m/tools/run-all.sh",
+    "test:e2e:play": "npm run build:electron && node tests/e2e/playViewport.e2e.mjs",
+    "test:e2e:move": "npm run build:electron && node tests/e2e/movement.e2e.mjs",
+    "test:e2e:touch": "npm run build:electron && node tests/e2e/touchButtons.e2e.mjs",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
@@ -27,10 +31,12 @@
   "dependencies": {
     "@babylonjs/core": "^6.30.0",
     "@dimforge/rapier3d-compat": "^0.21.0",
+    "@opencode/client": "^2.1.4",
     "@types/ws": "^8.18.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "three": "^0.158.0",
+    "rolldown": "^1.2.15",
+    "three": "^0.186.1",
     "ws": "^8.22.0",
     "zod": "^4.6.7",
     "zustand": "^4.4.1"
@@ -40,16 +46,15 @@
     "@types/node": "^24.0.0",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
-    "@types/three": "^0.158.0",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.2",
     "@webgpu/types": "^0.1.69",
     "autoprefixer": "^10.4.16",
     "concurrently": "^8.2.2",
-    "electron": "^27.0.0",
-    "electron-builder": "^24.6.4",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
     "nodemon": "^3.1.14",
     "postcss": "^8.4.32",
-    "rolldown": "^1.2.15",
     "sass": "^1.69.5",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3",
@@ -101,7 +106,31 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "dist-player",
+        "to": "player-runtime",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/templates",
+        "to": "templates",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "electron/agent/prompts",
+        "to": "agent/prompts",
+        "filter": [
+          "**/*"
+        ]
       }
+    ],
+    "asarUnpack": [
+      "node_modules/@rolldown/binding-*/**"
     ]
   },
   "author": "Linden Engine Contributors"

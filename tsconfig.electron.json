@@ -3,15 +3,17 @@
     "outDir": "./dist-electron",
     "noEmit": false,
     "target": "ES2020",
-    "module": "CommonJS",
-    "moduleResolution": "node",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": ["@webgpu/types", "node"],
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "strict": true,
+    "strict": false,
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "declaration": false
   },
-  "include": ["electron", "shared"],
+  "include": ["electron", "shared", "engine"],
   "exclude": ["node_modules", "dist"]
 }

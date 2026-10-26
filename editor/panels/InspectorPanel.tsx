@@ -773,6 +773,20 @@ const PropertyFieldRow: React.FC<{
     )
   }
 
+  if (schema.kind === 'json') {
+    return (
+      <JsonPropertyField
+        label={schema.label || schema.name}
+        value={isMixed ? undefined : rawValue}
+        onCommit={(val) => {
+          for (const ent of entities) {
+            executeCommand(setPropertyCommand(ent.id, componentType, schema.name, val))
+          }
+        }}
+      />
+    )
+  }
+
   // Fallback text input
   return (
     <div className="flex items-center gap-2">
@@ -789,6 +803,48 @@ const PropertyFieldRow: React.FC<{
         }}
         className="flex-1 bg-black/40 border border-gray-700 rounded px-2 py-0.5 text-white"
       />
+    </div>
+  )
+}
+
+/** JSON editor that only commits valid objects, on blur */
+const JsonPropertyField: React.FC<{
+  label: string
+  value: unknown
+  onCommit: (value: Record<string, unknown>) => void
+}> = ({ label, value, onCommit }) => {
+  const serialized = value === undefined ? '' : JSON.stringify(value ?? {}, null, 2)
+  const [text, setText] = useState(serialized)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setText(serialized)
+    setError(null)
+  }, [serialized])
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-gray-400 truncate">{label}</span>
+      <textarea
+        value={text}
+        rows={Math.min(8, Math.max(2, text.split('\n').length))}
+        spellCheck={false}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          try {
+            const parsed = text.trim() ? JSON.parse(text) : {}
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              throw new Error('Harus berupa objek JSON')
+            }
+            setError(null)
+            if (JSON.stringify(parsed) !== JSON.stringify(value ?? {})) onCommit(parsed)
+          } catch (err: any) {
+            setError(err.message)
+          }
+        }}
+        className="w-full bg-black/40 border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px]"
+      />
+      {error && <span className="text-red-400 text-[10px]">{error}</span>}
     </div>
   )
 }

@@ -5,19 +5,35 @@ import { CommandStack, EditorCommand } from '../commands/CommandStack'
 import { SceneSerializer } from '../../engine/scene/serializer'
 import { Physics } from '../../engine/physics/components'
 import { RapierBackend } from '../../engine/physics/RapierBackend'
-import { Input } from '../../engine/input/InputActions'
+import { Input, InputActionDef, TouchConfig } from '../../engine/input/InputActions'
+import { cloneDefaultActions, cloneDefaultTouch } from '../../engine/input/defaultInput'
+import { normalizeInputActions, normalizeTouchConfig } from '../../engine/input/normalizeActions'
 import { Tween } from '../../engine/time/Tween'
 import { LayerMask } from '../../engine/scene/LayerMask'
 import { ExportPreset, RecentProject } from '../../shared/types/project'
 import { getSceneNameFromPath } from '../ui/windowTitle'
+import type { PlayStartResult } from '../../shared/playProtocol'
 
 export interface ProjectSettingsState {
   tags: string[]
   layers: string[]
   collisionMatrix: boolean[][]
-  inputActions: any[]
+  inputActions: InputActionDef[]
+  touch: TouchConfig
   services: any[]
   scenesInBuild: string[]
+}
+
+export interface PlaySessionInfo {
+  id: string
+  url: string
+  mode: 'scene' | 'html'
+}
+
+function formatPlayErrors(errors: PlayStartResult['errors']): string {
+  return (errors ?? [])
+    .map((e) => `${e.file ? `${e.file}${e.line ? `:${e.line}${e.col ? `:${e.col}` : ''}` : ''}: ` : ''}${e.message}`)
+    .join('\n')
 }
 
 export interface EditorState {
@@ -27,6 +43,12 @@ export interface EditorState {
   selectedEntityIds: string[]
   playState: 'stopped' | 'playing' | 'paused'
   playSnapshot: string | null
+  /** Set while Play runs in the viewport Game Frame (linden-game:// iframe); null for legacy in-editor play */
+  playSession: PlaySessionInfo | null
+  /** Bumped by Step while a Game Frame is running; GameFrame forwards it to the game */
+  playStepNonce: number
+  /** From project.linden.json "runtime": 'html' projects run their own index.html */
+  projectRuntime: 'scene' | 'html'
   sceneName: string
   currentScenePath: string | null
   isDirty: boolean
@@ -56,9 +78,15 @@ export interface EditorState {
   newScene: (name?: string) => void
   saveScene: (path?: string, name?: string) => string
   openScene: (jsonString: string, path?: string) => void
+  /** Load a scene the agent wrote to disk as one undoable step; false if not applied (playing) */
+  applyAgentSceneChange: (jsonString: string) => boolean
   setActiveWindow: (windowName: string | null) => void
   setActiveEditorPanel: (panel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'bridge' | 'godot') => void
   setProjectSettings: (settings: Partial<ProjectSettingsState>) => void
+  /** Apply Input Actions / touch layout and persist them to project.linden.json (input.*) */
+  saveInputSettings: (actions: InputActionDef[], touch: TouchConfig) => Promise<'saved' | 'memory-only' | 'error'>
+  /** Result of normalizing input.touch when the project was opened (v1 -> v2 migration, problems) */
+  touchLoadReport: { migrated: number; warnings: string[] } | null
   addProjectTag: (tag: string) => void
   removeProjectTag: (tag: string) => void
   setProjectLayers: (layers: string[]) => void
@@ -151,6 +179,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selectedEntityIds: [],
   playState: 'stopped',
   playSnapshot: null,
+  playSession: null,
+  playStepNonce: 0,
+  projectRuntime: 'scene',
   sceneName: 'Untitled',
   currentScenePath: null,
   isDirty: false,
@@ -180,16 +211,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     collisionMatrix: Array(16)
       .fill(null)
       .map(() => Array(16).fill(true)),
-    inputActions: [
-      { name: 'Jump', type: 'button', bindings: ['Keyboard/Space', 'Gamepad/ButtonSouth'] },
-      {
-        name: 'Move',
-        type: 'vector2',
-        composite: { up: 'Keyboard/KeyW', down: 'Keyboard/KeyS', left: 'Keyboard/KeyA', right: 'Keyboard/KeyD' },
-        bindings: ['Gamepad/LeftStick'],
-        deadzone: 0.2,
-      },
-    ],
+    inputActions: cloneDefaultActions(),
+    touch: cloneDefaultTouch(),
     services: [],
     scenesInBuild: ['scenes/Level01.lscene'],
   },
@@ -246,7 +269,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   startPlay: async () => {
-    const { world, projectSettings } = get()
+    const { world, projectSettings, projectPath } = get()
+
+    // Run in the sandboxed Game Frame (same LindenPlayer as the web build) when a project is open
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined
+    if (projectPath && api?.playStart) {
+      const res = await api.playStart({ projectPath })
+      if (res.status !== 'ok' || !res.sessionId || !res.url) {
+        const details = formatPlayErrors(res.errors)
+        throw new Error(`${res.message || 'Play gagal dimulai'}${details ? `\n${details}` : ''}`)
+      }
+      set({
+        playState: 'playing',
+        playSnapshot: null,
+        playSession: { id: res.sessionId, url: res.url, mode: res.mode ?? 'scene' },
+      })
+      return
+    }
+
+    // Legacy in-editor simulation (no project folder, e.g. browser-only editor)
     // Snapshot scene
     const snapshot = SceneSerializer.serialize(world, get().sceneName)
 
@@ -308,6 +349,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   stepPlay: () => {
+    if (get().playSession) {
+      set((state) => ({ playStepNonce: state.playStepNonce + 1 }))
+      return
+    }
     const { world, physicsBackend } = get()
     const dt = 1 / 50
     // Physics step
@@ -336,6 +381,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   stopPlay: () => {
+    const { playSession } = get()
+    if (playSession) {
+      // The editor world was never touched: the game ran in its own frame
+      window.electronAPI?.playStop?.(playSession.id)
+      set({ playState: 'stopped', playSession: null, playSnapshot: null })
+      return
+    }
     const { world, playSnapshot, selectedEntityIds, physicsBackend } = get()
     if (physicsBackend) {
       physicsBackend.clear()
@@ -394,6 +446,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })
   },
 
+  applyAgentSceneChange: (jsonString: string) => {
+    const { world, commandStack, playState, sceneName } = get()
+    if (playState !== 'stopped') return false
+    const before = SceneSerializer.serialize(world, sceneName)
+    commandStack.execute({
+      label: 'Perubahan Agent',
+      do: (w) => {
+        SceneSerializer.deserialize(jsonString, w)
+      },
+      undo: (w) => {
+        SceneSerializer.deserialize(before, w)
+      },
+    })
+    // The new content is what is on disk; undoing it makes the scene dirty again
+    commandStack.markSaved()
+    set({ selectedEntityIds: [], isDirty: false })
+    return true
+  },
+
   setActiveWindow: (windowName: string | null) => {
     set({ activeWindow: windowName })
   },
@@ -401,6 +472,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setActiveEditorPanel: (panel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'bridge' | 'godot') => {
     const normalized = (panel as string) === 'godot' ? 'bridge' : panel
     set({ activeEditorPanel: normalized as any })
+  },
+
+  touchLoadReport: null,
+
+  saveInputSettings: async (actions, touch) => {
+    const touchResult = normalizeTouchConfig(touch, normalizeInputActions(actions).actions)
+    const normalized = touchResult.actions
+    const layout = touchResult.config
+    set((state) => ({ projectSettings: { ...state.projectSettings, inputActions: normalized, touch: layout } }))
+    Input.loadActions(normalized)
+    const { projectPath } = get()
+    const save = typeof window !== 'undefined' ? window.electronAPI?.saveProjectInput : undefined
+    if (!projectPath || !save) return 'memory-only'
+    try {
+      const res = await save({ projectPath, input: { actions: normalized, touch: layout } })
+      return res?.status === 'ok' ? 'saved' : 'error'
+    } catch {
+      return 'error'
+    }
   },
 
   setProjectSettings: (settings: Partial<ProjectSettingsState>) => {
@@ -415,6 +505,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     name?: string,
     presets?: ExportPreset[]
   ) => {
+    // input.touch v1 buttons get connected to their actions here (bindings move onto the buttons)
+    const rawInput = (settings as any)?.input
+    const loaded = settings
+      ? normalizeTouchConfig(rawInput?.touch ?? (settings as any).touch, normalizeInputActions(rawInput?.actions ?? (settings as any).inputActions).actions)
+      : null
     set((state) => {
       const pName =
         name ||
@@ -424,7 +519,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         projectPath: path,
         projectName: pName,
         isProjectOpen: Boolean(path),
-        projectSettings: settings ? { ...state.projectSettings, ...settings } : state.projectSettings,
+        projectRuntime: (settings as any)?.runtime === 'html' ? 'html' : 'scene',
+        projectSettings: settings
+          ? {
+              ...state.projectSettings,
+              ...settings,
+              // project.linden.json keeps them under input.{actions,touch}; the editor works on normalized copies
+              inputActions: loaded!.actions,
+              touch: loaded!.config,
+            }
+          : state.projectSettings,
+        touchLoadReport: loaded ? { migrated: loaded.migrated, warnings: loaded.warnings } : null,
         exportPresets: presets && presets.length > 0 ? presets : state.exportPresets,
       }
     })
@@ -438,6 +543,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       projectPath: null,
       projectName: 'Untitled Project',
       isProjectOpen: false,
+      projectRuntime: 'scene',
       sceneName: 'Untitled',
       currentScenePath: null,
       selectedEntityIds: [],

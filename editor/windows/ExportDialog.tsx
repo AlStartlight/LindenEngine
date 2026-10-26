@@ -102,6 +102,14 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       mode: 'release',
       appName: projectName,
       version: '1.0.0',
+      ...(platform === 'web'
+        ? {
+            canvasMode: 'responsive',
+            webgpuRequired: false,
+            zipOutput: true,
+            loadingColor: '#0f172a',
+          }
+        : {}),
     }
 
     addExportPreset(newPreset)
@@ -174,6 +182,53 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
       )
     } else {
       onShowToast?.(`Export gagal: ${res.error || 'Terjadi kesalahan'}`)
+    }
+  }
+
+  const handleRunInBrowser = async () => {
+    if (!selectedPreset) return
+    setIsExporting(true)
+    setExportLogs([])
+    setExportProgress({
+      presetId: selectedPreset.id,
+      stage: 'bundle',
+      percent: 30,
+      message: 'Mempersiapkan build HTML5 untuk preview...',
+    })
+
+    const res = await ExportRunner.runExport(
+      selectedPreset,
+      projectPath || '.',
+      (prog) => setExportProgress(prog),
+      (log) => setExportLogs((prev) => [...prev, log])
+    )
+
+    setIsExporting(false)
+    if (res.success) {
+      setLastExportedPath(res.outputPath)
+      let buildDir = res.outputPath
+      if (buildDir.endsWith('.html')) {
+        const lastSlash = Math.max(buildDir.lastIndexOf('/'), buildDir.lastIndexOf('\\'))
+        if (lastSlash !== -1) {
+          buildDir = buildDir.substring(0, lastSlash)
+        }
+      }
+      if (typeof window !== 'undefined' && (window.electronAPI as any)?.serveWebBuild) {
+        try {
+          const url = await (window.electronAPI as any).serveWebBuild(buildDir)
+          onShowToast?.(`Server web aktif di ${url}`, 'Buka di Browser', () => {
+            if ((window.electronAPI as any)?.openExternal) {
+              ;(window.electronAPI as any).openExternal(url)
+            }
+          })
+        } catch (err: any) {
+          onShowToast?.(`Gagal menjalankan web server: ${err.message}`)
+        }
+      } else {
+        onShowToast?.('Preview di browser memerlukan aplikasi desktop Electron.')
+      }
+    } else {
+      onShowToast?.(`Build gagal: ${res.error || 'Terjadi kesalahan'}`)
     }
   }
 
@@ -442,6 +497,33 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                         className="w-full bg-[#0f3460] border border-gray-700 rounded px-3 py-1.5 text-white focus:outline-none focus:border-blue-500 font-mono"
                       />
                     </div>
+
+                    {selectedPreset.platform === 'web' && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-gray-400 font-medium mb-1">Canvas Mode</label>
+                          <select
+                            value={selectedPreset.canvasMode || 'responsive'}
+                            onChange={(e) => handleUpdateCurrent({ canvasMode: e.target.value as any })}
+                            className="w-full bg-[#0f3460] border border-gray-700 rounded px-3 py-1.5 text-white focus:outline-none focus:border-blue-500"
+                          >
+                            <option value="responsive">Responsive (Scale with viewport)</option>
+                            <option value="fullscreen">Fullscreen (Fixed overlay)</option>
+                            <option value="fixed">Fixed (1280x720 center)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-gray-400 font-medium mb-1">Base Path (URL)</label>
+                          <input
+                            type="text"
+                            value={selectedPreset.basePath || './'}
+                            onChange={(e) => handleUpdateCurrent({ basePath: e.target.value })}
+                            placeholder="./"
+                            className="w-full bg-[#0f3460] border border-gray-700 rounded px-3 py-1.5 text-white focus:outline-none focus:border-blue-500 font-mono"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -477,7 +559,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                       <label className="flex items-start space-x-2 cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={selectedPreset.webgpuRequired ?? true}
+                          checked={selectedPreset.webgpuRequired ?? false}
                           onChange={(e) => handleUpdateCurrent({ webgpuRequired: e.target.checked })}
                           className="mt-0.5 rounded bg-gray-900 border-gray-600 text-blue-500"
                         />
@@ -488,6 +570,74 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                           </span>
                         </div>
                       </label>
+
+                      {selectedPreset.platform === 'web' && (
+                        <>
+                          <div className="border-t border-gray-700/60 pt-3">
+                            <label className="flex items-start space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selectedPreset.zipOutput !== false}
+                                onChange={(e) => handleUpdateCurrent({ zipOutput: e.target.checked })}
+                                className="mt-0.5 rounded bg-gray-900 border-gray-600 text-blue-500"
+                              />
+                              <div>
+                                <span className="font-semibold text-white block">Buat Arsip ZIP (itch.io ready)</span>
+                                <span className="text-[11px] text-gray-400">
+                                  Menghasilkan file .zip terkompresi dari seluruh bundle web, siap diunggah ke platform game.
+                                </span>
+                              </div>
+                            </label>
+                          </div>
+
+                          <div className="border-t border-gray-700/60 pt-3">
+                            <label className="flex items-start space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selectedPreset.includeSourceMap ?? false}
+                                onChange={(e) => handleUpdateCurrent({ includeSourceMap: e.target.checked })}
+                                className="mt-0.5 rounded bg-gray-900 border-gray-600 text-blue-500"
+                              />
+                              <div>
+                                <span className="font-semibold text-white block">Sertakan Source Map</span>
+                                <span className="text-[11px] text-gray-400">
+                                  Menyertakan source map untuk mempermudah debugging script TypeScript di browser DevTools.
+                                </span>
+                              </div>
+                            </label>
+                          </div>
+
+                          <div className="border-t border-gray-700/60 pt-3 grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-gray-300 font-semibold mb-1">Warna Background Loading</label>
+                              <div className="flex items-center space-x-2">
+                                <input
+                                  type="color"
+                                  value={selectedPreset.loadingColor || '#0f172a'}
+                                  onChange={(e) => handleUpdateCurrent({ loadingColor: e.target.value })}
+                                  className="w-8 h-8 rounded border border-gray-700 bg-transparent cursor-pointer"
+                                />
+                                <input
+                                  type="text"
+                                  value={selectedPreset.loadingColor || '#0f172a'}
+                                  onChange={(e) => handleUpdateCurrent({ loadingColor: e.target.value })}
+                                  className="flex-1 bg-[#16213e] border border-gray-700 rounded px-2 py-1 text-white font-mono text-[11px]"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-gray-300 font-semibold mb-1">Judul Layar Loading</label>
+                              <input
+                                type="text"
+                                value={selectedPreset.loadingTitle || selectedPreset.appName || projectName}
+                                onChange={(e) => handleUpdateCurrent({ loadingTitle: e.target.value })}
+                                className="w-full bg-[#16213e] border border-gray-700 rounded px-2.5 py-1 text-white text-xs"
+                                placeholder="Memuat Linden Game..."
+                              />
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -608,6 +758,17 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                   >
                     Close
                   </button>
+                  {selectedPreset.platform === 'web' && (
+                    <button
+                      onClick={handleRunInBrowser}
+                      disabled={isExporting}
+                      className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded text-xs flex items-center space-x-1.5 transition shadow disabled:opacity-50"
+                      title="Build dan jalankan preview di browser default"
+                    >
+                      <Icons.Web className="w-4 h-4" />
+                      <span>Run in Browser</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => handleRunExport()}
                     disabled={isExporting}

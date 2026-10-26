@@ -35,6 +35,17 @@ export class SceneBridge {
     this.scene = null
   }
 
+  /**
+   * Push every entity Transform to its Object3D. Game scripts mutate transforms
+   * directly (entity.getTransform().position.x += ...), which emits no event.
+   */
+  syncTransforms(): void {
+    for (const [id, obj] of this.objectMap) {
+      const entity = this.world.getEntity(id)
+      if (entity) this.applyTransformToGroup(obj, entity.getTransform())
+    }
+  }
+
   getObject(entityId: string): THREE.Object3D | undefined {
     return this.objectMap.get(entityId)
   }

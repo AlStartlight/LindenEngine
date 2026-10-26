@@ -32,6 +32,6 @@
     },
     "types": ["@webgpu/types"]
   },
-  "include": ["src", "engine", "editor", "shared"],
+  "include": ["src", "engine", "editor", "shared", "player"],
   "exclude": ["node_modules", "dist"]
 }

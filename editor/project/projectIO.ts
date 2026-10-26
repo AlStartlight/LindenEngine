@@ -1,5 +1,5 @@
 import { LindenProjectConfig, RecentProject } from '../../shared/types/project'
-import { generateProjectConfig, generateTemplateScene, ProjectTemplateId } from './projectTemplates'
+import { generateProjectConfig, generateTemplateScene, isHtmlTemplate, ProjectTemplateId } from './projectTemplates'
 import { invokeIpc } from './ipc'
 
 export interface CreateProjectOptions {
@@ -142,6 +142,10 @@ export async function createNewProject(opts: CreateProjectOptions): Promise<Proj
   }
 
   const config = generateProjectConfig(sanitizedName, opts.renderer)
+  if (isHtmlTemplate(opts.template)) {
+    config.runtime = 'html'
+    config.html = { entry: 'web/index.html' }
+  }
   const initialScene = generateTemplateScene(opts.template, 'Main')
   const initialSceneJson = JSON.stringify(initialScene, null, 2)
 
@@ -153,6 +157,7 @@ export async function createNewProject(opts: CreateProjectOptions): Promise<Proj
           location: opts.location,
           config,
           sceneContent: initialSceneJson,
+          template: opts.template,
         })
       )
       if (res.status === 'ok') {

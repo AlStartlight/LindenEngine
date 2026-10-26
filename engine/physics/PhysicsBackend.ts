@@ -18,7 +18,8 @@ export interface PhysicsBackend {
     origin: [number, number, number] | { x: number; y: number; z: number },
     dir: [number, number, number] | { x: number; y: number; z: number },
     maxDist: number,
-    layerMask?: number
+    layerMask?: number,
+    excludeEntityId?: string
   ): RaycastHit | null
   setLayerCollisionMatrix(matrix: boolean[][]): void
   clear(): void

@@ -152,4 +152,14 @@ export const Icons = {
       <line x1="12" y1="18" x2="12.01" y2="18" />
     </svg>
   ),
+  Sparkles: ({ className = 'w-4 h-4', size }: IconProps) => (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.912 5.813a2 2 0 001.275 1.275L21 12l-5.813 1.912a2 2 0 00-1.275 1.275L12 21l-1.912-5.813a2 2 0 00-1.275-1.275L3 12l5.813-1.912a2 2 0 001.275-1.275L12 3z" />
+    </svg>
+  ),
+  Play: ({ className = 'w-4 h-4', size }: IconProps) => (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  ),
 }

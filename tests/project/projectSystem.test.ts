@@ -20,8 +20,9 @@ describe('Project System (Spec §4 & §5.1)', () => {
     await clearRecentProjectsList()
   })
 
-  it('generates 4 project templates with valid schema', () => {
-    expect(PROJECT_TEMPLATES.length).toBe(4)
+  it('generates 5 project templates with valid schema', () => {
+    expect(PROJECT_TEMPLATES.length).toBe(5)
+    expect(PROJECT_TEMPLATES.find((t) => t.id === 'html-threejs')?.category).toBe('HTML')
 
     const templates = ['empty-3d', 'empty-2d', '2d-platformer', '3d-fps'] as const
     for (const t of templates) {
