@@ -1,14 +1,15 @@
 import { LindenProjectConfig } from '../../shared/types/project'
 import { defaultExportPresets } from '../store/editorStore'
+import { cloneDefaultActions, cloneDefaultTouch } from '../../engine/input/defaultInput'
 
-export type ProjectTemplateId = 'empty-3d' | 'empty-2d' | '2d-platformer' | '3d-fps'
+export type ProjectTemplateId = 'empty-3d' | 'empty-2d' | '2d-platformer' | '3d-fps' | 'html-threejs'
 
 export interface ProjectTemplateInfo {
   id: ProjectTemplateId
   name: string
   description: string
   icon: string
-  category: '3D' | '2D'
+  category: '3D' | '2D' | 'HTML'
 }
 
 export const PROJECT_TEMPLATES: ProjectTemplateInfo[] = [
@@ -40,7 +41,19 @@ export const PROJECT_TEMPLATES: ProjectTemplateInfo[] = [
     icon: 'crosshair',
     category: '3D',
   },
+  {
+    id: 'html-threejs',
+    name: 'HTML Game (three.js)',
+    description: 'Game 3D sebagai halaman web sendiri (web/index.html + three.js lokal). Dijalankan di viewport saat Play dan diekspor apa adanya.',
+    icon: 'code',
+    category: 'HTML',
+  },
 ]
+
+/** Templates whose game is the project's own web page (project runtime 'html') */
+export function isHtmlTemplate(templateId: ProjectTemplateId): boolean {
+  return templateId === 'html-threejs'
+}
 
 export function generateTemplateScene(templateId: ProjectTemplateId, sceneName: string = 'Main'): any {
   switch (templateId) {
@@ -144,12 +157,17 @@ export function generateTemplateScene(templateId: ProjectTemplateId, sceneName: 
                 data: { primitive: 'cube', color: '#48bb78' },
               },
               {
-                type: 'Rigidbody',
-                data: { bodyType: 'dynamic', mass: 1, lockRotationZ: false },
+                type: 'CapsuleCollider',
+                data: { radius: 0.45, height: 1 },
               },
               {
-                type: 'BoxCollider',
-                data: { size: { x: 1, y: 1, z: 1 } },
+                type: 'CharacterController',
+                data: { stepOffset: 0.2, slopeLimit: 50 },
+              },
+              {
+                // A/D (or joystick) to run, Space to jump; locked to the 2D plane
+                type: 'CharacterMovement',
+                data: { mode: 'walk', lockAxis: 'z', walkSpeed: 5, sprintSpeed: 8, jumpHeight: 2.2, maxJumps: 2, qeMode: 'strafe' },
               },
             ],
           },
@@ -238,12 +256,36 @@ export function generateTemplateScene(templateId: ProjectTemplateId, sceneName: 
                 },
               },
               {
+                type: 'CapsuleCollider',
+                data: { radius: 0.4, height: 1.8 },
+              },
+              {
                 type: 'CharacterController',
                 data: { stepOffset: 0.3, slopeLimit: 45 },
               },
               {
+                // WASD/joystick move, Q/E turn, mouse/right stick/right-side drag to look, Space jump, Shift sprint
+                type: 'CharacterMovement',
+                data: { mode: 'walk', qeMode: 'turn', walkSpeed: 5, sprintSpeed: 8.5, jumpHeight: 1.2 },
+              },
+            ],
+          },
+          {
+            id: 'ent-fps-head-camera',
+            name: 'Head Camera',
+            active: true,
+            static: false,
+            tags: ['MainCamera'],
+            layer: 6,
+            parentId: 'ent-fps-player',
+            components: [
+              {
+                type: 'Transform',
+                data: { position: [0, 0.7, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+              },
+              {
                 type: 'Camera',
-                data: { fov: 75, near: 0.1, far: 1000 },
+                data: { fov: 75, near: 0.1, far: 1000, isActive: true },
               },
             ],
           },
@@ -423,6 +465,7 @@ export function generateProjectConfig(
   return {
     name: projectName,
     version: '0.1.0',
+    renderer: renderer === 'webgpu' ? 'webgpu' : 'webgl',
     tags: ['Player', 'Enemy', 'Pickup', 'Coin', 'Ground', 'Flying'],
     layers: [
       'Default',
@@ -438,25 +481,8 @@ export function generateProjectConfig(
       .fill(null)
       .map(() => Array(16).fill(true)),
     input: {
-      actions: [
-        {
-          name: 'Jump',
-          type: 'button',
-          bindings: ['Keyboard/Space', 'Gamepad/ButtonSouth'],
-        },
-        {
-          name: 'Move',
-          type: 'vector2',
-          composite: {
-            up: 'Keyboard/KeyW',
-            down: 'Keyboard/KeyS',
-            left: 'Keyboard/KeyA',
-            right: 'Keyboard/KeyD',
-          },
-          bindings: ['Gamepad/LeftStick'],
-          deadzone: 0.2,
-        },
-      ],
+      actions: cloneDefaultActions(),
+      touch: cloneDefaultTouch(),
     },
     services: [],
     scenesInBuild: ['scenes/Main.lscene'],

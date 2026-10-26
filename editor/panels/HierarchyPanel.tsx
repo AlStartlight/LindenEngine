@@ -32,6 +32,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
     selectedEntityIds,
     selectEntity,
     executeCommand,
+    projectRuntime,
   } = useEditorStore()
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -221,6 +222,15 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
   }
 
   const rootEntities = world.getRootEntities()
+
+  if (projectRuntime === 'html') {
+    return (
+      <div className="p-4 text-xs text-gray-400 leading-relaxed">
+        <div className="text-gray-200 font-semibold mb-1">HTML Game</div>
+        Scene dikelola oleh kode game (project.linden.json → html.entry). Tekan Play untuk menjalankannya di viewport.
+      </div>
+    )
+  }
 
   return (
     <div
