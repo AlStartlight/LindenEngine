@@ -2,7 +2,7 @@ name: Build Electron App
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feat/**", "fix/**"]
     tags: ["v*"]
   pull_request:
     branches: [main]
@@ -10,10 +10,44 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+
+# A new push supersedes the run still building the previous commit of the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
+  test:
+    name: Unit tests & type-check
+    # Branches of this repo are built by their push event; pull_request only covers forks
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check editor, player and engine
+        run: npx tsc --noEmit
+
+      - name: Type-check Electron main process
+        run: npx tsc -p tsconfig.electron.json --noEmit
+
+      - name: Unit tests
+        run: npm test
+
   build:
     name: Build on ${{ matrix.os }}
+    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -40,13 +74,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Web & Electron bundles
+      - name: Build Web, player runtime & Electron bundles
+        # `npm run build` also builds dist-player/ (shipped as extraResources for Play and web export)
         run: |
           npm run build
           npm run build:electron
 
       - name: Build Electron Binary
-        # Publishing is done once by the release job below; electron-builder would otherwise create its own draft release on tags
+        # Publishing is done by the jobs below; electron-builder would otherwise create its own draft release on tags
         run: npx electron-builder --${{ matrix.platform }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,6 +100,90 @@ jobs:
             release/*.deb
           if-no-files-found: error
           retention-days: 30
+
+  publish-build:
+    name: Publish branch build
+    needs: build
+    # Every non-tag build of this repo: a rolling pre-release per branch, linked from its PR
+    if: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Release metadata
+        id: meta
+        run: |
+          branch="${GITHUB_REF_NAME}"
+          slug="$(echo "$branch" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-60)"
+          echo "tag=build-${slug}" >> "$GITHUB_OUTPUT"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+          echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Replace the branch pre-release
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          # Rolling release: drop the previous build of this branch (and its tag) first
+          gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
+          notes="Automatic build of \`${{ steps.meta.outputs.branch }}\` at ${GITHUB_SHA} ([workflow run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})).
+
+          Not an official release: it is replaced by every new push to this branch. macOS builds are ad-hoc signed (right-click → Open the first time)."
+          mapfile -d '' files < <(find release-artifacts -type f -print0)
+          gh release create "$tag" "${files[@]}" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --latest=false \
+            --title "Build ${{ steps.meta.outputs.branch }} (${{ steps.meta.outputs.short }})" \
+            --notes "$notes"
+
+      - name: Link the binaries from the pull request
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            const branch = process.env.GITHUB_REF_NAME
+            const pulls = await github.rest.pulls.list({ owner, repo, head: `${owner}:${branch}`, state: 'open' })
+            if (pulls.data.length === 0) {
+              core.info(`No open pull request for ${branch}; release ${process.env.TAG} only`)
+              return
+            }
+            const release = await github.rest.repos.getReleaseByTag({ owner, repo, tag: process.env.TAG })
+            const size = (b) => `${(b / 1024 / 1024).toFixed(1)} MB`
+            const platform = (name) =>
+              /\.(exe|msi)$/i.test(name) ? 'Windows' : /\.(dmg)$/i.test(name) || /mac/i.test(name) ? 'macOS' : /\.(AppImage|deb)$/i.test(name) ? 'Linux' : 'Other'
+            const rows = release.data.assets
+              .map((a) => ({ a, p: platform(a.name) }))
+              .sort((x, y) => x.p.localeCompare(y.p) || x.a.name.localeCompare(y.a.name))
+              .map(({ a, p }) => `| ${p} | [${a.name}](${a.browser_download_url}) | ${size(a.size)} |`)
+            const marker = '<!-- linden-build-binaries -->'
+            const body = [
+              marker,
+              `### 📦 Build binaries for \`${context.sha.slice(0, 7)}\``,
+              '',
+              '| Platform | File | Size |',
+              '| --- | --- | --- |',
+              ...rows,
+              '',
+              `Pre-release: ${release.data.html_url} · [workflow run](${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId})`,
+              '',
+              '_Updated on every push to this branch. macOS builds are ad-hoc signed (right-click → Open the first time)._',
+            ].join('\n')
+            for (const pr of pulls.data) {
+              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number, per_page: 100 })
+              const existing = comments.find((c) => c.body?.includes(marker))
+              if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+              else await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body })
+              core.info(`Linked binaries in #${pr.number}`)
+            }
 
   release:
     name: Create GitHub Release
@@ -85,7 +204,9 @@ jobs:
         with:
           files: release-artifacts/**/*
           draft: false
-          prerelease: false
+          # v1.2.3-alpine.1 / -beta.2 ... are pre-releases and never become "Latest"
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

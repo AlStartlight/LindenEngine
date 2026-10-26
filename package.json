@@ -1,6 +1,6 @@
 {
   "name": "linden-engine",
-  "version": "0.1.3",
+  "version": "0.1.5-alpine.1",
   "description": "Modern Desktop Game Engine built with ElectronJS, TypeScript, and WebGPU",
   "main": "dist-electron/main.cjs",
   "homepage": "./",
@@ -23,6 +23,7 @@
     "test:e2e:play": "npm run build:electron && node tests/e2e/playViewport.e2e.mjs",
     "test:e2e:move": "npm run build:electron && node tests/e2e/movement.e2e.mjs",
     "test:e2e:touch": "npm run build:electron && node tests/e2e/touchButtons.e2e.mjs",
+    "test:e2e:packaged-agent": "node tests/e2e/packagedOpencode.e2e.mjs",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
