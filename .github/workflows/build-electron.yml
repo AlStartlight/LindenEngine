@@ -204,7 +204,9 @@ jobs:
         with:
           files: release-artifacts/**/*
           draft: false
-          prerelease: false
+          # v1.2.3-alpine.1 / -beta.2 ... are pre-releases and never become "Latest"
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
