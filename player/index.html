@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>{{APP_NAME}}</title>
+  <link rel="icon" href="data:," />
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: {{LOADING_COLOR}};
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    #game-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0f172a;
+    }
+    #game-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+    }
+    #loading-screen {
+      position: absolute;
+      inset: 0;
+      background: {{LOADING_COLOR}};
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      transition: opacity 0.4s ease-out;
+      color: #f8fafc;
+      padding: 24px;
+    }
+    .loading-title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      letter-spacing: -0.5px;
+    }
+    .loading-bar-track {
+      width: 280px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .loading-bar-fill {
+      height: 100%;
+      width: 10%;
+      background: #38bdf8;
+      border-radius: 999px;
+      transition: width 0.2s ease-out;
+    }
+    .loading-text {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    #start-audio-btn {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 60;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: white;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #start-audio-btn:hover {
+      background: rgba(30, 41, 59, 0.9);
+    }
+  </style>
+</head>
+<body data-webgpu-required="{{WEBGPU_REQUIRED}}" data-canvas-mode="{{CANVAS_MODE}}">
+  <div id="game-container">
+    <div id="loading-screen">
+      <h1 class="loading-title">{{APP_NAME}}</h1>
+      <div class="loading-bar-track">
+        <div id="loading-bar-fill" class="loading-bar-fill"></div>
+      </div>
+      <p id="loading-text" class="loading-text">Memuat game...</p>
+    </div>
+
+    <button id="start-audio-btn">
+      <span>🔊 Aktifkan Audio</span>
+    </button>
+
+    <canvas id="game-canvas"></canvas>
+  </div>
+
+  <script type="module" src="game.js"></script>
+</body>
+</html>
