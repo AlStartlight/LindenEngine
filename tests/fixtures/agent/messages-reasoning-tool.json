@@ -1,0 +1,129 @@
+{
+  "data": [
+    {
+      "id": "msg_172a43996001a7b5V6W4MlsYSK",
+      "time": {
+        "created": 1792924727743
+      },
+      "text": "Think briefly, then call the linden project_info tool, then tell me the project name in one sentence.",
+      "type": "user"
+    },
+    {
+      "id": "msg_172a439c0001U3Epp32jBGKjtx",
+      "time": {
+        "created": 1792924727747,
+        "streamed": 1792924729822,
+        "completed": 1792924729841
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "glm-5.3-flash-free",
+        "providerID": "opencode",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "The user wants me to call the linden project_info tool and report the project name in one sentence. Per Code Mode instructions, tools must be called through `execute`. This is a simple single call \u2014 I can do it directly with a minimal top-level expression.",
+          "state": {
+            "reasoningField": "reasoning_content"
+          },
+          "time": {
+            "created": 1792924728990,
+            "completed": 1792924729817
+          }
+        },
+        {
+          "type": "tool",
+          "id": "chatcmpl-tool-963785a0d13711a9",
+          "name": "execute",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "code": "return await tools.linden.project_info()"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\n  \"name\": \"ZebraQuest\"\n}"
+              }
+            ],
+            "metadata": {
+              "toolCalls": [
+                {
+                  "tool": "linden.project_info",
+                  "status": "completed"
+                }
+              ],
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1792924729812,
+            "ran": 1792924729820,
+            "completed": 1792924729839
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0,
+      "tokens": {
+        "input": 8128,
+        "output": 18,
+        "reasoning": 53,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_172a441f8001a5mPbS91kfNJ2u",
+      "time": {
+        "created": 1792924729853,
+        "streamed": 1792924731158,
+        "completed": 1792924731160
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "glm-5.3-flash-free",
+        "providerID": "opencode",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "The Linden project is named **ZebraQuest**."
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "stop",
+      "cost": 0,
+      "tokens": {
+        "input": 598,
+        "output": 13,
+        "reasoning": 0,
+        "cache": {
+          "read": 7616,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_172a4471a0017IXs7MfpdSGP3A",
+      "time": {
+        "created": 1792924731162
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ],
+  "cursor": {
+    "previous": "eyJpZCI6Im1zZ18xNzJhNDM5OTYwMDFhN2I1VjZXNE1sc1lTSyIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+    "next": "eyJpZCI6Im1zZ18xNzJhNDQ3MWEwMDE3SVhzN01mcGRTR1AzQSIsIm9yZGVyIjoiYXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+  }
+}

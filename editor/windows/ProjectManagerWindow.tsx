@@ -10,6 +10,7 @@ import {
   openExistingProject,
 } from '../project/projectIO'
 import { PROJECT_TEMPLATES, ProjectTemplateId } from '../project/projectTemplates'
+import { PROMPT_TEMPLATES } from '../../electron/agent/promptTemplates'
 import { checkIpcMismatch } from '../project/ipc'
 import { useEditorStore } from '../store/editorStore'
 import { Icons } from '../ui/Icons'
@@ -44,6 +45,17 @@ export const ProjectManagerWindow: React.FC<ProjectManagerWindowProps> = ({
   const [selectedRenderer, setSelectedRenderer] = useState<'webgpu' | 'webgl'>('webgpu')
   const [inlineValidationError, setInlineValidationError] = useState<string | null>(null)
 
+  // Prompt-to-Game Wizard State
+  const [isPromptWizardOpen, setIsPromptWizardOpen] = useState(false)
+  const [promptProjectName, setPromptProjectName] = useState('AIGame')
+  const [promptDimension, setPromptDimension] = useState<'2D' | '3D'>('2D')
+  const [promptText, setPromptText] = useState('')
+  const [promptSelectedModel, setPromptSelectedModel] = useState<string>('default')
+  const [modelsList, setModelsList] = useState<Array<{ id: string; name: string; providerId: string }>>([])
+  const [wizardGenerating, setWizardGenerating] = useState(false)
+  const [wizardStatus, setWizardStatus] = useState<string>('')
+  const [wizardError, setWizardError] = useState<string | null>(null)
+
   useEffect(() => {
     if (isOpen) {
       loadRecents()
@@ -72,8 +84,33 @@ export const ProjectManagerWindow: React.FC<ProjectManagerWindowProps> = ({
           setProjectLocation('/Documents/Linden Projects')
         }
       }
+
+      loadModels()
     }
   }, [isOpen])
+
+  // Models come from the running OpenCode server, so refresh them whenever the wizard opens
+  const loadModels = () => {
+    if (typeof window !== 'undefined' && (window.electronAPI as any)?.agentGetProviders) {
+      ;(window.electronAPI as any).agentGetProviders().then((res: any) => {
+        if (Array.isArray(res)) {
+          const flat: Array<{ id: string; name: string; providerId: string }> = []
+          for (const prov of res) {
+            if (prov.models) {
+              for (const m of prov.models) {
+                flat.push({
+                  id: m.id,
+                  name: `${prov.name} - ${m.name || m.id}`,
+                  providerId: prov.id,
+                })
+              }
+            }
+          }
+          setModelsList(flat)
+        }
+      }).catch(() => {})
+    }
+  }
 
   const handleRestartApp = () => {
     if (typeof window !== 'undefined' && (window.electronAPI as any)?.relaunchApp) {
@@ -166,6 +203,78 @@ export const ProjectManagerWindow: React.FC<ProjectManagerWindowProps> = ({
       onClose?.()
     } else if (res.status === 'error') {
       setErrorMessage(res.message || 'Gagal membuat project.')
+    }
+  }
+
+  const handleCreateFromPrompt = async () => {
+    const trimmedName = promptProjectName.trim()
+    const trimmedPrompt = promptText.trim()
+    if (!trimmedName) {
+      setWizardError('Nama project tidak boleh kosong.')
+      return
+    }
+    if (!trimmedPrompt) {
+      setWizardError('Prompt game tidak boleh kosong.')
+      return
+    }
+
+    setWizardGenerating(true)
+    setWizardError(null)
+    setWizardStatus('1/3 Membuat folder & konfigurasi project Linden...')
+
+    try {
+      const res = await createNewProject({
+        name: trimmedName,
+        location: projectLocation,
+        template: promptDimension === '2D' ? 'empty-2d' : 'empty-3d',
+        renderer: 'webgpu',
+      })
+
+      if (res.status !== 'ok' || !res.projectPath || !res.config) {
+        throw new Error(res.message || 'Gagal membuat project.')
+      }
+
+      const pPath = res.projectPath
+      setProject(pPath, res.config, res.config.name, res.config.exportPresets)
+
+      const api = typeof window !== 'undefined' ? (window.electronAPI as any) : null
+      if (api?.agentStart) {
+        setWizardStatus('2/3 Menginisialisasi OpenCode AI Agent...')
+        await api.agentStart(pPath)
+
+        if (promptSelectedModel !== 'default') {
+          const targetM = modelsList.find((m) => m.id === promptSelectedModel)
+          if (targetM && api.agentSetModel) {
+            await api.agentSetModel(targetM.providerId, targetM.id)
+          }
+        }
+
+        const session = await api.agentCreateSession?.(`Prompt Game: ${trimmedName}`)
+        const sessionId = session?.id || session?.session?.id
+
+        setWizardStatus('3/3 Mengirim prompt ke AI Agent...')
+        if (sessionId && api.agentSubmitPrompt) {
+          api.agentSubmitPrompt({
+            sessionId,
+            prompt: `Dimensi Game: ${promptDimension}\n\n${trimmedPrompt}`,
+            context: {
+              dimension: promptDimension,
+              projectName: trimmedName,
+            },
+          }).catch((err: any) => {
+            console.error('[AgentPrompt] Submission error:', err)
+          })
+        }
+      }
+
+      setWizardGenerating(false)
+      setIsPromptWizardOpen(false)
+      onProjectOpened(pPath, res.initialSceneContent, res.initialScenePath)
+      onShowToast?.(`Project AI "${trimmedName}" dibuat! Agent sedang memproses ide game Anda.`)
+      onClose?.()
+    } catch (err: any) {
+      setWizardGenerating(false)
+      setWizardError(err.message || 'Terjadi kesalahan saat membuat project.')
     }
   }
 
@@ -275,6 +384,24 @@ export const ProjectManagerWindow: React.FC<ProjectManagerWindowProps> = ({
                 <div className="text-left">
                   <div className="font-bold">New Project…</div>
                   <div className="text-[11px] text-blue-200 font-normal">Buat proyek baru dari template</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  setErrorMessage(null)
+                  setWizardError(null)
+                  setIsPromptWizardOpen(true)
+                  loadModels()
+                }}
+                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-medium py-3 px-4 rounded-xl text-sm flex items-center space-x-3 transition shadow-lg shadow-indigo-600/30 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <div className="p-1.5 bg-white/20 rounded-lg">
+                  <Icons.Sparkles className="w-5 h-5 text-indigo-100" />
+                </div>
+                <div className="text-left">
+                  <div className="font-bold">Prompt to Game…</div>
+                  <div className="text-[11px] text-indigo-200 font-normal">Buat game dengan AI OpenCode</div>
                 </div>
               </button>
 
@@ -529,6 +656,204 @@ export const ProjectManagerWindow: React.FC<ProjectManagerWindowProps> = ({
               >
                 <Icons.Plus className="w-4 h-4" />
                 <span>{isLoading ? 'Creating…' : 'Create Project'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Prompt to Game Wizard Modal Dialog */}
+      {isPromptWizardOpen && (
+        <div className="fixed inset-0 z-60 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#16213e] border border-gray-700 rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col text-gray-200 animate-scale-up">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700/60 bg-gradient-to-r from-indigo-950/80 to-[#0f3460]/80">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-1.5 rounded-lg bg-indigo-600/30 text-indigo-400 border border-indigo-500/30">
+                  <Icons.Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-sm text-white">Prompt to Game Wizard</h2>
+                  <p className="text-[11px] text-indigo-200">
+                    Hasilkan proyek game lengkap dari deskripsi teks menggunakan OpenCode AI
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => !wizardGenerating && setIsPromptWizardOpen(false)}
+                disabled={wizardGenerating}
+                className="text-gray-400 hover:text-white p-1 rounded hover:bg-white/10 disabled:opacity-40"
+              >
+                <Icons.Close className="w-4 h-4" />
+              </button>
+            </div>
+
+            {wizardError && (
+              <div className="bg-rose-950/80 border-b border-rose-800/80 px-6 py-2.5 text-xs text-rose-300 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Icons.AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{wizardError}</span>
+                </div>
+                <button
+                  onClick={() => setWizardError(null)}
+                  className="text-rose-400 hover:text-white"
+                >
+                  <Icons.Close className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
+              {/* Row 1: Project Name & Dimension */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-gray-300 font-semibold mb-1">Nama Project</label>
+                  <input
+                    type="text"
+                    value={promptProjectName}
+                    disabled={wizardGenerating}
+                    onChange={(e) => setPromptProjectName(e.target.value)}
+                    placeholder="MyAIGame"
+                    className="w-full bg-[#0f3460] border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-semibold mb-1">Dimensi Permainan</label>
+                  <div className="grid grid-cols-2 gap-1.5 p-0.5 bg-[#0f3460] border border-gray-700 rounded-lg">
+                    <button
+                      type="button"
+                      disabled={wizardGenerating}
+                      onClick={() => setPromptDimension('2D')}
+                      className={`py-1.5 rounded font-semibold text-xs transition ${
+                        promptDimension === '2D'
+                          ? 'bg-indigo-600 text-white shadow'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      2D
+                    </button>
+                    <button
+                      type="button"
+                      disabled={wizardGenerating}
+                      onClick={() => setPromptDimension('3D')}
+                      className={`py-1.5 rounded font-semibold text-xs transition ${
+                        promptDimension === '3D'
+                          ? 'bg-indigo-600 text-white shadow'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      3D
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Template quick pills */}
+              <div>
+                <label className="block text-gray-300 font-semibold mb-1.5">
+                  Mulai Cepat dari Galeri Template:
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PROMPT_TEMPLATES.map((tmpl) => (
+                    <button
+                      key={tmpl.id}
+                      type="button"
+                      disabled={wizardGenerating}
+                      onClick={() => {
+                        setPromptText(tmpl.prompt)
+                        setPromptDimension(tmpl.dimension)
+                        setPromptProjectName(tmpl.title.replace(/[^a-zA-Z0-9]/g, ''))
+                      }}
+                      className="px-2.5 py-1 rounded-full bg-[#0f3460] hover:bg-indigo-600/30 border border-gray-700/80 hover:border-indigo-500/50 text-[11px] text-gray-300 hover:text-white transition flex items-center space-x-1"
+                    >
+                      <span>{tmpl.title}</span>
+                      <span className="text-[9px] text-gray-500">({tmpl.dimension})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Prompt Textarea */}
+              <div>
+                <label className="block text-gray-300 font-semibold mb-1">
+                  Deskripsi Prompt Game (Aturan, Kontrol, Karakter, dll.)
+                </label>
+                <textarea
+                  rows={4}
+                  value={promptText}
+                  disabled={wizardGenerating}
+                  onChange={(e) => setPromptText(e.target.value)}
+                  placeholder="Jelaskan mekanisme game: kontrol pemain, musuh, rintangan, poin kemenangan..."
+                  className="w-full bg-[#0f3460] border border-gray-700 rounded-lg p-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 leading-relaxed font-sans"
+                />
+              </div>
+
+              {/* Model & AI Config */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-300 font-semibold mb-1">Model OpenCode AI</label>
+                  <select
+                    value={promptSelectedModel}
+                    disabled={wizardGenerating}
+                    onChange={(e) => setPromptSelectedModel(e.target.value)}
+                    className="w-full bg-[#0f3460] border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500 text-xs"
+                  >
+                    <option value="default">OpenCode Default Model (Sesuai Konfigurasi CLI)</option>
+                    {modelsList.map((m) => (
+                      <option key={`${m.providerId}/${m.id}`} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-semibold mb-1">Lokasi Folder Proyek</label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      value={projectLocation}
+                      disabled
+                      className="flex-1 bg-[#0f3460]/70 border border-gray-700 rounded-lg px-3 py-2 text-gray-400 font-mono text-[11px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleBrowseLocation}
+                      disabled={wizardGenerating}
+                      className="px-2.5 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg flex items-center space-x-1"
+                    >
+                      <Icons.Folder className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Wizard Status Banner when Generating */}
+              {wizardGenerating && (
+                <div className="p-3.5 bg-indigo-950/40 border border-indigo-500/40 rounded-xl flex items-center space-x-3 text-indigo-200">
+                  <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                  <div>
+                    <div className="font-semibold text-xs text-white">Memproses Prompt...</div>
+                    <div className="text-[11px] text-indigo-300">{wizardStatus}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Bottom Actions */}
+            <div className="flex items-center justify-end space-x-3 px-6 py-4 border-t border-gray-700/60 bg-[#0f3460]/60">
+              <button
+                onClick={() => setIsPromptWizardOpen(false)}
+                disabled={wizardGenerating}
+                className="px-4 py-2 bg-transparent hover:bg-white/10 text-gray-300 rounded-lg text-xs transition disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateFromPrompt}
+                disabled={wizardGenerating || !promptProjectName.trim() || !promptText.trim()}
+                className="px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold rounded-lg text-xs flex items-center space-x-1.5 transition shadow-lg shadow-indigo-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Icons.Sparkles className="w-4 h-4 text-indigo-200" />
+                <span>{wizardGenerating ? 'Menghasilkan Game…' : 'Generate Game with AI'}</span>
               </button>
             </div>
           </div>

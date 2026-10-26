@@ -32,6 +32,9 @@ interface ToolbarProps {
   onOpenSequencerEditor?: () => void
   onOpenInputActions?: () => void
   onOpenProjectSettings?: () => void
+  onOpenAgent?: () => void
+  /** Phase of the agent's running turn; shows a status chip while set */
+  agentActivity?: string
   onCreate3DObject?: (type: 'Cube' | 'Sphere' | 'Capsule' | 'Cylinder' | 'Plane') => void
   onExit?: () => void
 }
@@ -67,6 +70,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenSequencerEditor,
   onOpenInputActions,
   onOpenProjectSettings,
+  onOpenAgent,
+  agentActivity,
   onCreate3DObject,
   onExit,
 }) => {
@@ -330,6 +335,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   setShowWindowMenu(false)
                 }}
               />
+              <MenuItem
+                label="AI Agent Panel"
+                onClick={() => {
+                  onOpenAgent?.()
+                  setShowWindowMenu(false)
+                }}
+              />
               <MenuDivider />
               <MenuItem
                 label="Input Actions"
@@ -379,6 +391,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
 
         <div className="flex-1" />
+
+        {agentActivity && (
+          <button
+            onClick={onOpenAgent}
+            className="mr-3 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/40 text-[11px] text-indigo-200 hover:bg-indigo-500/30 max-w-[260px]"
+            title="Buka panel AI Agent"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-300 animate-pulse shrink-0" />
+            <span className="truncate">Agent: {agentActivity}</span>
+          </button>
+        )}
 
         {/* Project & Scene Title with dirty indicator */}
         <span className="text-xs text-gray-300 font-medium">
