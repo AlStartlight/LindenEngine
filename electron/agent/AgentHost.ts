@@ -1,4 +1,5 @@
 import { spawn, ChildProcess } from 'node:child_process'
+import { resolveOpencode, needsShell, type OpencodeResolution } from './opencodeBinary'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -169,12 +170,31 @@ export class AgentHost {
     this.sendEventToRenderer?.(event)
   }
 
+  /** Resolved CLI + PATH for child processes (see opencodeBinary.ts) */
+  private opencode: OpencodeResolution | null = null
+
   /**
-   * Check that the opencode CLI is on PATH and new enough for the v2 API
+   * Check that the opencode CLI can be found (also from a packaged app, whose PATH lacks
+   * nvm/Homebrew/npm folders) and is new enough for the v2 API
    */
   async checkInstallation(): Promise<{ installed: boolean; version: string | null; error?: string }> {
+    // A previous miss is looked up again: the user may have just installed it ("Coba lagi")
+    const resolution = await resolveOpencode({ refresh: !this.opencode?.bin })
+    this.opencode = resolution
+    if (!resolution.bin) {
+      const where =
+        resolution.source === 'not-found' && process.env.OPENCODE_BIN
+          ? `OPENCODE_BIN menunjuk ke file yang tidak ada (${process.env.OPENCODE_BIN})`
+          : `dicari di ${resolution.searched.length} folder, termasuk PATH login shell, Homebrew, nvm, volta, bun dan npm global`
+      return {
+        installed: false,
+        version: null,
+        error: `OpenCode CLI tidak ditemukan (${where}). ${INSTALL_HINT}, lalu klik Coba lagi. Lokasi khusus: set OPENCODE_BIN=/path/ke/opencode.`,
+      }
+    }
+    const bin = resolution.bin
     return new Promise((resolve) => {
-      const child = spawn('opencode', ['--version'])
+      const child = spawn(bin, ['--version'], { env: this.childEnv(), shell: needsShell(bin) })
       let out = ''
       let err = ''
 
@@ -199,9 +219,14 @@ export class AgentHost {
       })
 
       child.on('error', (e) => {
-        resolve({ installed: false, version: null, error: `OpenCode CLI tidak ditemukan di PATH (${e.message}). ${INSTALL_HINT}` })
+        resolve({ installed: false, version: null, error: `OpenCode CLI di ${bin} tidak bisa dijalankan (${e.message}). ${INSTALL_HINT}` })
       })
     })
+  }
+
+  /** Environment for opencode and the commands it runs: the full user PATH, not the GUI one */
+  private childEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+    return { ...process.env, ...(this.opencode ? { PATH: this.opencode.envPath } : {}), ...extra }
   }
 
   /**
@@ -286,9 +311,11 @@ export class AgentHost {
       // Temp files of the server and its shell commands go into the project, not /tmp
       const tmpDir = path.join(projectPath, '.linden/agent/tmp')
       fs.mkdirSync(tmpDir, { recursive: true })
-      const proc = spawn('opencode', ['serve', '--hostname=127.0.0.1', `--port=${port}`], {
+      const bin = this.opencode?.bin ?? 'opencode'
+      const proc = spawn(bin, ['serve', '--hostname=127.0.0.1', `--port=${port}`], {
         cwd: projectPath,
-        env: { ...process.env, OPENCODE_SERVER_PASSWORD: password, TMPDIR: tmpDir, TMP: tmpDir, TEMP: tmpDir },
+        env: this.childEnv({ OPENCODE_SERVER_PASSWORD: password, TMPDIR: tmpDir, TMP: tmpDir, TEMP: tmpDir }),
+        shell: needsShell(bin),
       })
       this.opencodeProcess = proc
 
