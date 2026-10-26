@@ -212,6 +212,30 @@ export class RapierBackend implements PhysicsBackend {
     }
   }
 
+  setLinearVelocity(entityId: string, vel: { x: number; y: number; z: number }): void {
+    this.bodies.get(entityId)?.setLinvel(vel, true)
+  }
+
+  getLinearVelocity(entityId: string): { x: number; y: number; z: number } | null {
+    const body = this.bodies.get(entityId)
+    if (!body) return null
+    const v = body.linvel()
+    return { x: v.x, y: v.y, z: v.z }
+  }
+
+  applyImpulse(entityId: string, impulse: { x: number; y: number; z: number }): void {
+    this.bodies.get(entityId)?.applyImpulse(impulse, true)
+  }
+
+  hasBody(entityId: string): boolean {
+    return this.bodies.has(entityId)
+  }
+
+  isKinematic(entityId: string): boolean {
+    const body = this.bodies.get(entityId)
+    return !!body && body.bodyType() === RAPIER.RigidBodyType.KinematicPositionBased
+  }
+
   getTranslation(entityId: string): { x: number; y: number; z: number } | null {
     const body = this.bodies.get(entityId)
     if (body) {
@@ -264,13 +288,17 @@ export class RapierBackend implements PhysicsBackend {
     const collider = cols[0]
     let controller = this.characterControllers.get(entityId)
     if (!controller) {
+      // Step height and climbable slope come from the entity's CharacterController
+      const cc = this.entityCallback?.(entityId)?.getComponent?.('CharacterController')
       controller = this.rapierWorld.createCharacterController(0.01)
-      controller.enableAutostep(0.3, 0.2, true)
+      controller.enableAutostep(cc?.stepOffset ?? 0.3, 0.2, true)
       controller.enableSnapToGround(0.5)
+      controller.setMaxSlopeClimbAngle(((cc?.slopeLimit ?? 45) * Math.PI) / 180)
       this.characterControllers.set(entityId, controller)
     }
 
-    controller.computeColliderMovement(collider, delta)
+    // Triggers (doors, coins, checkpoints) must not block the character; they still report overlaps
+    controller.computeColliderMovement(collider, delta, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS)
     const movement = controller.computedMovement()
     const currentPos = body.translation()
     body.setTranslation(
@@ -290,7 +318,9 @@ export class RapierBackend implements PhysicsBackend {
     origin: [number, number, number] | { x: number; y: number; z: number },
     dir: [number, number, number] | { x: number; y: number; z: number },
     maxDist: number = 1000,
-    layerMask: number = 0xffffffff
+    layerMask: number = 0xffffffff,
+    /** Ignore this entity's own body (ground checks from inside a character) */
+    excludeEntityId?: string
   ): RaycastHit | null {
     if (!this.rapierWorld) return null
 
@@ -315,7 +345,7 @@ export class RapierBackend implements PhysicsBackend {
       undefined,
       filterGroups,
       undefined,
-      undefined
+      excludeEntityId ? this.bodies.get(excludeEntityId) : undefined
     )
 
     if (!hit) return null

@@ -3,6 +3,8 @@ import { MeshRenderer, Camera, Light, LightType } from '../renderer/Components'
 import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, CharacterController } from '../physics/components'
 import { TimerComponent } from '../time/Timer'
 import { BlueprintComponent } from '../blueprints/BlueprintComponent'
+import { Script, HtmlUI } from '../scripting/ScriptComponents'
+import { CharacterMovement } from '../movement/CharacterMovement'
 
 export type PropertyKind =
   | 'number'
@@ -17,6 +19,7 @@ export type PropertyKind =
   | 'layerMask'
   | 'event'
   | 'array'
+  | 'json'
 
 export interface PropertySchema {
   name: string
@@ -263,5 +266,69 @@ ComponentRegistry.register({
   create: () => new BlueprintComponent(),
   properties: [
     { name: 'blueprintName', label: 'Blueprint', kind: 'string', default: 'New Blueprint' },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'Script',
+  menuPath: 'Scripting/Script',
+  icon: 'Code',
+  disallowMultiple: true,
+  create: () => new Script(),
+  properties: [
+    { name: 'src', label: 'Script', kind: 'assetRef', assetType: 'script', default: '', tooltip: 'scripts/PlayerController.ts' },
+    { name: 'props', label: 'Properties', kind: 'json', default: {}, tooltip: 'Nilai awal field publik script (JSON)' },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'HtmlUI',
+  menuPath: 'UI/HTML UI',
+  icon: 'Layout',
+  disallowMultiple: true,
+  create: () => new HtmlUI(),
+  properties: [
+    { name: 'src', label: 'HTML File', kind: 'assetRef', assetType: 'html', default: '', tooltip: 'ui/hud.html' },
+    { name: 'mode', label: 'Mode', kind: 'enum', default: 'screen', options: ['screen', 'world'] },
+    { name: 'zIndex', label: 'Z Index', kind: 'int', default: 0 },
+    { name: 'pointerEvents', label: 'Capture Input', kind: 'boolean', default: false },
+    { name: 'pixelSize', label: 'World Pixel Size', kind: 'number', default: 0.01, min: 0.0001, max: 1, step: 0.001 },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'CharacterMovement',
+  menuPath: 'Gameplay/Character Movement',
+  icon: 'Footprints',
+  requires: ['CharacterController'],
+  disallowMultiple: true,
+  create: () => new CharacterMovement(),
+  properties: [
+    { name: 'mode', label: 'Mode', kind: 'enum', default: 'walk', options: ['walk', 'fly', 'topdown'] },
+    { name: 'qeMode', label: 'Q/E', kind: 'enum', default: 'turn', options: ['turn', 'vertical', 'strafe'], tooltip: 'turn = putar, vertical = turun/naik, strafe = geser' },
+    { name: 'walkSpeed', label: 'Walk Speed', kind: 'number', default: 4, min: 0, max: 50, step: 0.1 },
+    { name: 'sprintSpeed', label: 'Sprint Speed', kind: 'number', default: 7, min: 0, max: 80, step: 0.1 },
+    { name: 'crouchSpeed', label: 'Crouch Speed', kind: 'number', default: 2, min: 0, max: 50, step: 0.1 },
+    { name: 'acceleration', label: 'Acceleration', kind: 'number', default: 30, min: 0.1, max: 500, step: 1 },
+    { name: 'deceleration', label: 'Deceleration', kind: 'number', default: 40, min: 0.1, max: 500, step: 1 },
+    { name: 'airControl', label: 'Air Control', kind: 'number', default: 0.4, min: 0, max: 1, step: 0.05 },
+    { name: 'jumpHeight', label: 'Jump Height', kind: 'number', default: 1.2, min: 0, max: 20, step: 0.1 },
+    { name: 'gravity', label: 'Gravity', kind: 'number', default: 20, min: 0, max: 100, step: 0.5 },
+    { name: 'maxJumps', label: 'Max Jumps', kind: 'int', default: 1, min: 0, max: 5, step: 1 },
+    { name: 'coyoteTime', label: 'Coyote Time', kind: 'number', default: 0.1, min: 0, max: 1, step: 0.01 },
+    { name: 'jumpBuffer', label: 'Jump Buffer', kind: 'number', default: 0.1, min: 0, max: 1, step: 0.01 },
+    { name: 'turnSpeed', label: 'Turn Speed (°/s)', kind: 'number', default: 180, min: 0, max: 1080, step: 5 },
+    { name: 'lookSpeed', label: 'Look Speed (°/s)', kind: 'number', default: 180, min: 0, max: 1080, step: 5 },
+    { name: 'orientToMovement', label: 'Face Movement', kind: 'boolean', default: true },
+    { name: 'cameraRelative', label: 'Camera Relative', kind: 'boolean', default: true },
+    { name: 'analogWalk', label: 'Analog Speed', kind: 'boolean', default: true },
+    { name: 'lockAxis', label: 'Lock Axis (2D)', kind: 'enum', default: 'none', options: ['none', 'x', 'z'] },
+    { name: 'moveAction', label: 'Move Action', kind: 'string', default: 'Move' },
+    { name: 'turnAction', label: 'Turn Action', kind: 'string', default: 'Turn' },
+    { name: 'verticalAction', label: 'Vertical Action', kind: 'string', default: 'Vertical' },
+    { name: 'jumpAction', label: 'Jump Action', kind: 'string', default: 'Jump' },
+    { name: 'sprintAction', label: 'Sprint Action', kind: 'string', default: 'Sprint' },
+    { name: 'crouchAction', label: 'Crouch Action', kind: 'string', default: 'Crouch' },
+    { name: 'lookAction', label: 'Look Action', kind: 'string', default: 'Look' },
   ],
 })

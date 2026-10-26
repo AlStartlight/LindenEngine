@@ -44,6 +44,7 @@ export interface IGameScript {
 
 /**
  * Script context - Access ke engine dan game world
+ * Konteks lengkap yang diterima script saat Play ada di ScriptRuntime (GameScriptContext).
  */
 export interface ScriptContext {
   entity: Entity
@@ -76,6 +77,8 @@ export interface TimeManager {
 
 /**
  * Script component - Wrapper untuk user scripts
+ * @deprecated Tidak terdaftar di ComponentRegistry dan tidak bisa memuat .ts dari proyek.
+ * Pakai komponen `Script` (ScriptComponents.ts) + ScriptRuntime.
  */
 export class ScriptComponent extends Component {
   private script: IGameScript | null = null
@@ -186,6 +189,7 @@ export class ScriptComponent extends Component {
 
 /**
  * Script manager - Manage semua scripts dalam world
+ * @deprecated Pakai ScriptRuntime.
  */
 export class ScriptManager {
   private scripts: Map<string, ScriptComponent> = new Map()
