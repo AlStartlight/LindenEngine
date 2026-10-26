@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { SceneViewport } from './viewport/SceneViewport'
 import { HierarchyPanel } from './panels/HierarchyPanel'
 import { InspectorPanel } from './panels/InspectorPanel'
+import { AgentPanel } from './panels/AgentPanel'
+import { useAgentStore } from './agent/agentStore'
+import { subscribeAgentEvents } from './agent/agentEvents'
+import { isAgentSceneForOpenScene } from './agent/agentSceneSync'
+import { phaseLabel } from './agent/TurnView'
 import { ProjectPanel } from './panels/ProjectPanel'
 import { Toolbar } from './ui/Toolbar'
 import { ConsolePanel } from './panels/ConsolePanel'
@@ -70,6 +75,11 @@ export const EditorLayout: React.FC = () => {
 
   // Bottom panel tab: 'project' | 'console' | 'output' | 'all'
   const [bottomTab, setBottomTab] = useState<'project' | 'console' | 'output' | 'all' | 'hidden'>('all')
+  const [rightTab, setRightTab] = useState<'inspector' | 'agent'>('inspector')
+  const isAgentGenerating = useAgentStore((s) => s.isGenerating)
+  const agentDiffs = useAgentStore((s) => s.pendingDiffs)
+  const agentPendingDiffs = agentDiffs.filter((d) => d.status !== 'rejected')
+  const agentActivity = useAgentStore((s) => (s.isGenerating ? s.turns[s.turns.length - 1] : undefined))
   const [consoleMessages, setConsoleMessages] = useState<Array<{ type: string; message: string; time: Date }>>([])
   const [outputLogs, setOutputLogs] = useState<string[]>([])
   const [viewportKey, setViewportKey] = useState(0)
@@ -183,6 +193,38 @@ export const EditorLayout: React.FC = () => {
     })
   }, [])
 
+  // The agent runs inside the open project's folder only: stop it when the project closes
+  useEffect(() => {
+    if (!projectPath && useAgentStore.getState().status?.running) {
+      useAgentStore.getState().stopAgent()
+    }
+  }, [projectPath])
+
+  // Agent events for the whole editor: follow new turns in the Agent tab and show scene
+  // changes the agent writes in the viewport
+  useEffect(() => {
+    if (!projectPath) return
+    return subscribeAgentEvents((event) => {
+      if (event.type === 'turn_started') {
+        setRightTab('agent')
+        return
+      }
+      if (event.type !== 'diff_proposed' || event.data.kind !== 'scene') return
+      const editor = useEditorStore.getState()
+      if (!isAgentSceneForOpenScene(projectPath, event.data.file, editor.currentScenePath)) return
+      if (editor.isDirty) {
+        showToast('Agent mengubah scene ini, tetapi ada perubahan yang belum disimpan.', 'Muat ulang', () => {
+          if (useEditorStore.getState().applyAgentSceneChange(event.data.after)) setViewportKey((k) => k + 1)
+        })
+        return
+      }
+      if (editor.applyAgentSceneChange(event.data.after)) {
+        setViewportKey((k) => k + 1)
+        showToast('Scene diperbarui oleh Agent.', 'Undo', () => useEditorStore.getState().undo())
+      }
+    })
+  }, [projectPath, showToast])
+
   // Update window title with project name, scene name, and * dirty / (unsaved) indicator
   useEffect(() => {
     const fullTitle = formatWindowTitle({
@@ -202,9 +244,16 @@ export const EditorLayout: React.FC = () => {
     if (playState === 'stopped') {
       try {
         await startPlay()
-        addConsoleMessage('info', 'Play mode started (Rapier 3D initialized)')
+        const session = useEditorStore.getState().playSession
+        addConsoleMessage(
+          'info',
+          session ? `Play mode started (${session.mode === 'html' ? 'HTML Game' : 'Game View'})` : 'Play mode started (Rapier 3D initialized)'
+        )
       } catch (err: any) {
-        addConsoleMessage('error', `Failed to start Play mode: ${err.message}`)
+        // Compile errors arrive one per line (file:line: message)
+        const [first, ...details] = String(err.message).split('\n')
+        addConsoleMessage('error', `Failed to start Play mode: ${first}`)
+        details.forEach((line) => addConsoleMessage('error', line))
       }
     } else {
       stopPlay()
@@ -686,6 +735,8 @@ export const EditorLayout: React.FC = () => {
         onOpenSequencerEditor={() => setActiveEditorPanel('sequencer')}
         onOpenInputActions={() => setActiveWindow('inputActions')}
         onOpenProjectSettings={() => setActiveWindow('projectSettings')}
+        onOpenAgent={() => setRightTab('agent')}
+        agentActivity={agentActivity ? phaseLabel(agentActivity) : undefined}
         onCreate3DObject={handleCreate3DObject}
       />
 
@@ -795,7 +846,7 @@ export const EditorLayout: React.FC = () => {
                     </div>
                   )}
                 >
-                  <SceneViewport key={viewportKey} />
+                  <SceneViewport key={viewportKey} onConsoleMessage={addConsoleMessage} />
                 </ErrorBoundary>
               )}
               {activeEditorPanel === 'blueprint' && <BlueprintEditor />}
@@ -917,13 +968,41 @@ export const EditorLayout: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Panel - Inspector */}
-        <div className="w-80 border-l border-gray-700/50 bg-[#16213e] flex flex-col">
-          <div className="p-2 border-b border-gray-700/50 bg-[#0f3460] flex items-center justify-between">
-            <h2 className="text-xs font-semibold text-gray-200">Inspector</h2>
+        {/* Right Panel - Inspector / AI Agent */}
+        <div className="w-[22rem] shrink-0 min-w-0 border-l border-gray-700/50 bg-[#16213e] flex flex-col">
+          <div className="flex border-b border-gray-700/50 bg-[#0f3460]">
+            <button
+              onClick={() => setRightTab('inspector')}
+              className={`flex-1 py-1.5 px-3 text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors ${
+                rightTab === 'inspector'
+                  ? 'bg-[#16213e] text-white border-t-2 border-blue-500'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <span>Inspector</span>
+            </button>
+            <button
+              onClick={() => setRightTab('agent')}
+              className={`flex-1 py-1.5 px-3 text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors relative ${
+                rightTab === 'agent'
+                  ? 'bg-[#16213e] text-white border-t-2 border-indigo-500'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Icons.Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+              <span>AI Agent</span>
+              {isAgentGenerating && (
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping absolute top-1 right-2" />
+              )}
+              {agentPendingDiffs.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-[10px] text-black font-bold">
+                  {agentPendingDiffs.length}
+                </span>
+              )}
+            </button>
           </div>
           <div className="flex-1 overflow-hidden">
-            <InspectorPanel />
+            {rightTab === 'inspector' ? <InspectorPanel /> : <AgentPanel />}
           </div>
         </div>
       </div>

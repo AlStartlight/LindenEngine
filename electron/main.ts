@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } from 'electron'
 import type { IpcInvokeChannel } from '../shared/ipcChannels'
 import { basename, dirname, join } from 'path'
 import { stat, readFile, writeFile, mkdir } from 'fs/promises'
@@ -9,9 +9,48 @@ import { detectGodotProject } from './bridge/godotDetect'
 import { runGodotImportJob, cancelImportJob } from './bridge/importRunner'
 import { importSingleGodotScene } from './bridge/sceneImport'
 import { syncServerInstance } from './bridge/syncServer'
+import { AgentHost } from './agent/AgentHost'
+import { WebBuildRunner } from './build/WebBuildRunner'
+import { resolveGameRequest } from './play/GameProtocol'
+import { resolveAppResource } from './resourcePaths'
+import { getPlaySession, readUiFragment, startPlaySession, stopAllPlaySessions, stopPlaySession } from './play/PlaySession'
+import { GAME_SCHEME } from '../shared/playProtocol'
 
 // Check if in development mode
 const isDev = !app.isPackaged
+
+// The Game Frame (Play in viewport) loads from linden-game://; must be registered before 'ready'
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: GAME_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
+])
+
+/** Serve linden-game://play/<session>/... from the active Play session only */
+function installGameProtocol() {
+  protocol.handle(GAME_SCHEME, async (request) => {
+    const res = resolveGameRequest(request.url, getPlaySession)
+    let body: BodyInit | null = null
+    if (res.filePath) body = new Uint8Array(await fs.promises.readFile(res.filePath))
+    else if (res.body !== undefined) body = typeof res.body === 'string' ? res.body : new Uint8Array(res.body)
+    return new Response(body, { status: res.status, headers: res.headers })
+  })
+}
+
+/** Game code runs in a cross-origin subframe; keep it from navigating or opening windows */
+function guardGameFrame(win: BrowserWindow) {
+  win.webContents.on('will-frame-navigate', (event) => {
+    if (event.isMainFrame) return
+    const url = event.url
+    if (url.startsWith(`${GAME_SCHEME}://`) || url.startsWith('about:')) return
+    event.preventDefault()
+  })
+  win.webContents.setWindowOpenHandler((details) => {
+    const fromGame = details.url.startsWith(`${GAME_SCHEME}:`) || details.referrer?.url?.startsWith(`${GAME_SCHEME}:`)
+    return { action: fromGame ? 'deny' : 'allow' }
+  })
+}
 
 let mainWindow: BrowserWindow | null = null
 
@@ -154,8 +193,15 @@ async function runCliExport(presetName: string, projectDir: string): Promise<voi
       // Linden native export
       console.log(`[Linden CLI] Building Linden native package for ${preset.platform}...`)
       if (preset.platform === 'web') {
-        const indexHtml = `<!DOCTYPE html><html><head><title>${config.name}</title></head><body><h1>${config.name}</h1><div id="app"></div></body></html>`
-        await writeFile(outPath, indexHtml, 'utf-8')
+        const buildRes = await WebBuildRunner.runBuild({
+          projectPath: projectDir,
+          preset,
+          onLog: (l) => console.log(l),
+        })
+        if (!buildRes.success) {
+          console.error(`[Linden CLI] Web build failed: ${buildRes.error}`)
+          process.exit(1)
+        }
       } else {
         await writeFile(outPath, `Linden Native Player Executable Placeholder for ${config.name}`, 'utf-8')
       }
@@ -182,8 +228,14 @@ if (exportArgIdx !== -1) {
 } else {
   app.on('ready', () => {
     setBridgeSettingsDir(app.getPath('userData'))
+    installGameProtocol()
     mainWindow = createWindow()
+    guardGameFrame(mainWindow)
     setupMenu()
+    AgentHost.getInstance().setProjectsRoot(join(app.getPath('documents'), 'Linden Projects'))
+    AgentHost.getInstance().setEventSender((ev) => {
+      mainWindow?.webContents.send('agent:event', ev)
+    })
   })
 }
 
@@ -218,6 +270,7 @@ function createWindow(): BrowserWindow {
 }
 
 app.on('window-all-closed', () => {
+  stopAllPlaySessions()
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -587,7 +640,7 @@ handle(
 )
 
 // Project: Create
-handle('project:create', async (_event, opts: { name: string; location: string; config: any; sceneContent: string }) => {
+handle('project:create', async (_event, opts: { name: string; location: string; config: any; sceneContent: string; template?: string }) => {
   try {
     const targetDir = join(opts.location, opts.name)
     if (fs.existsSync(targetDir)) {
@@ -607,6 +660,10 @@ handle('project:create', async (_event, opts: { name: string; location: string; 
     const scenePath = join(targetDir, 'scenes', 'Main.lscene')
     await writeFile(scenePath, opts.sceneContent, 'utf-8')
 
+    if (opts.template === 'html-threejs') {
+      copyHtmlGameTemplate(targetDir)
+    }
+
     // Add to recent
     const recents = await loadRecentProjects()
     const updated = [
@@ -625,6 +682,27 @@ handle('project:create', async (_event, opts: { name: string; location: string; 
     return { status: 'error', message: err.message || String(err) }
   }
 })
+
+/** HTML Game template: web/ page files + a local copy of three.js (no CDN, works offline) */
+function copyHtmlGameTemplate(targetDir: string) {
+  const templateDir = resolveAppResource('resources/templates/html-threejs', 'templates/html-threejs')
+  const copyDir = (src: string, dst: string) => {
+    fs.mkdirSync(dst, { recursive: true })
+    for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+      const from = join(src, ent.name)
+      const to = join(dst, ent.name)
+      if (ent.isDirectory()) copyDir(from, to)
+      else fs.writeFileSync(to, fs.readFileSync(from))
+    }
+  }
+  copyDir(templateDir, targetDir)
+  // three.module.js imports ./three.core.js (r16x+), so both ship together
+  fs.mkdirSync(join(targetDir, 'web', 'vendor'), { recursive: true })
+  for (const file of ['three.module.js', 'three.core.js']) {
+    const src = resolveAppResource(`node_modules/three/build/${file}`, `app.asar/node_modules/three/build/${file}`)
+    fs.writeFileSync(join(targetDir, 'web', 'vendor', file), fs.readFileSync(src))
+  }
+}
 
 // Project: Open
 handle('project:open', async (_event, opts?: { projectPath?: string }) => {
@@ -703,6 +781,19 @@ handle('project:saveSettings', async (_event, opts: { projectPath: string; confi
   try {
     const configPath = join(opts.projectPath, 'project.linden.json')
     await writeFile(configPath, JSON.stringify(opts.config, null, 2), 'utf-8')
+    return { status: 'ok' }
+  } catch (err: any) {
+    return { status: 'error', message: err.message || String(err) }
+  }
+})
+
+// Project: write only the input section (actions + touch), keeping the rest of the config intact
+handle('project:saveInput', async (_event, opts: { projectPath: string; input: { actions?: unknown[]; touch?: unknown } }) => {
+  try {
+    const configPath = join(opts.projectPath, 'project.linden.json')
+    const current = fs.existsSync(configPath) ? JSON.parse(await readFile(configPath, 'utf-8')) : {}
+    current.input = { ...(current.input ?? {}), ...opts.input }
+    await writeFile(configPath, JSON.stringify(current, null, 2), 'utf-8')
     return { status: 'ok' }
   } catch (err: any) {
     return { status: 'error', message: err.message || String(err) }
@@ -892,17 +983,21 @@ handle('export:run', async (_event, opts: { preset: any; projectPath: string }) 
     })
   } else {
     // Linden native backend
+    if (preset.platform === 'web') {
+      return await WebBuildRunner.runBuild({
+        projectPath: opts.projectPath,
+        preset,
+        onProgress: (p) => progEmit(p.stage, p.percent, p.message),
+        onLog: (l) => logEmit(l),
+      })
+    }
+
     progEmit('bundle', 45, 'Membundel resources Linden...')
     logEmit(`[Linden] Menyiapkan scene dan bundel aset untuk ${preset.platform}`)
     await new Promise((r) => setTimeout(r, 300))
 
     progEmit('package', 80, 'Menghasilkan paket distribusi...')
-    if (preset.platform === 'web') {
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${preset.appName || 'Linden Game'}</title></head><body><div id="game-root"></div></body></html>`
-      await writeFile(fullOutputPath, html, 'utf-8')
-    } else {
-      await writeFile(fullOutputPath, `Linden Native Build: ${preset.name}`, 'utf-8')
-    }
+    await writeFile(fullOutputPath, `Linden Native Build: ${preset.name}`, 'utf-8')
 
     progEmit('sign', 95, 'Finalisasi build...')
     await new Promise((r) => setTimeout(r, 200))
@@ -1014,6 +1109,127 @@ handle('system:getInfo', () => {
     totalMemory: os.totalmem(),
     freeMemory: os.freemem(),
   }
+})
+
+// Web Export & Local Server
+const activeWebServers: { close: () => void }[] = []
+
+handle('export:web:run', async (_event, options: any) => {
+  return await WebBuildRunner.runBuild(options)
+})
+
+handle('export:web:serve', async (_event, { buildDir }: { buildDir: string }) => {
+  const server = await WebBuildRunner.serveLocal(buildDir)
+  activeWebServers.push(server)
+  await shell.openExternal(server.url)
+  return server.url
+})
+
+// Play in viewport (Game Frame)
+handle('play:start', async (_event, opts: { projectPath: string }) => {
+  return startPlaySession({
+    projectPath: opts?.projectPath,
+    cacheRoot: join(app.getPath('userData'), 'play-cache'),
+    preferSourceRuntime: isDev,
+    onFilesChanged: (change) => mainWindow?.webContents.send('play:fileChanged', change),
+  })
+})
+
+handle('play:stop', async (_event, sessionId: string) => stopPlaySession(sessionId))
+
+handle('play:openDevTools', async () => {
+  mainWindow?.webContents.openDevTools({ mode: 'detach' })
+  return true
+})
+
+handle('play:readUiFragment', async (_event, opts: { projectPath: string; src: string }) => {
+  try {
+    return readUiFragment(opts.projectPath, opts.src)
+  } catch (err: any) {
+    return { status: 'error', message: err.message }
+  }
+})
+
+// OpenCode AI Agent Handlers
+handle('agent:status', async () => {
+  return AgentHost.getInstance().getStatus()
+})
+
+handle('agent:start', async (_event, projectPath: string) => {
+  return await AgentHost.getInstance().startServer(projectPath)
+})
+
+handle('agent:stop', async () => {
+  await AgentHost.getInstance().stopServer()
+  return { success: true }
+})
+
+handle('agent:providers', async () => {
+  return await AgentHost.getInstance().getProviders()
+})
+
+handle('agent:setModel', async (_event, { providerId, modelId }: any) => {
+  AgentHost.getInstance().setModel(providerId, modelId)
+  return { success: true }
+})
+
+handle('agent:session:list', async () => {
+  return await AgentHost.getInstance().listSessions()
+})
+
+handle('agent:session:create', async (_event, title?: string) => {
+  return await AgentHost.getInstance().createSession(title)
+})
+
+handle('agent:session:delete', async (_event, sessionId: string) => {
+  return await AgentHost.getInstance().deleteSession(sessionId)
+})
+
+handle('agent:session:get', async (_event, sessionId: string) => {
+  const sessions = await AgentHost.getInstance().listSessions()
+  return sessions.find((s) => s.id === sessionId) || null
+})
+
+handle('agent:prompt', async (_event, options: any) => {
+  return await AgentHost.getInstance().submitPrompt(options)
+})
+
+handle('agent:abort', async (_event, sessionId: string) => {
+  return await AgentHost.getInstance().abortPrompt(sessionId)
+})
+
+handle('agent:session:turns', async (_event, sessionId: string) => {
+  return await AgentHost.getInstance().getSessionTurns(sessionId)
+})
+
+handle('agent:turn:snapshot', async (_event, sessionId: string) => {
+  return AgentHost.getInstance().getTurnSnapshot(sessionId)
+})
+
+handle('agent:permission:reply', async (_event, { requestId, allow }: any) => {
+  await AgentHost.getInstance().replyPermission(requestId, allow)
+  return { success: true }
+})
+
+handle('agent:diff:apply', async (_event, diffId: string) => {
+  return await AgentHost.getInstance().applyDiff(diffId)
+})
+
+handle('agent:diff:reject', async (_event, diffId: string) => {
+  return await AgentHost.getInstance().rejectDiff(diffId)
+})
+
+handle('agent:templates', async () => {
+  return AgentHost.getInstance().getTemplates()
+})
+
+app.on('before-quit', async () => {
+  for (const s of activeWebServers) {
+    try {
+      s.close()
+    } catch (_) {}
+  }
+  await AgentHost.getInstance().stopServer()
 })
 
 // Development helpers

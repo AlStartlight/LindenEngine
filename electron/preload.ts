@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createProject: (opts: any) => invoke('project:create', opts),
   openProject: (opts?: any) => invoke('project:open', opts),
   saveProjectSettings: (opts: any) => invoke('project:saveSettings', opts),
+  saveProjectInput: (opts: { projectPath: string; input: { actions?: unknown[]; touch?: unknown } }) => invoke('project:saveInput', opts),
   getRecentProjects: () => invoke('project:recent:list'),
   addRecentProject: (project: any) => invoke('project:recent:add', project),
   removeRecentProject: (path: string) => invoke('project:recent:remove', path),
@@ -114,6 +115,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Build & Export operations
   buildExport: (options: any) => invoke('build:export', options),
   runExport: (options: any) => invoke('export:run', options),
+  runWebExport: (options: any) => invoke('export:web:run', options),
+  serveWebBuild: (buildDir: string) => invoke('export:web:serve', { buildDir }),
   detectGodot: (customPath?: string) => invoke('godot:detect', customPath),
   buildGodot: (options: any) => invoke('godot:build', options),
   onExportLog: (callback: (data: { presetId: string; log: string }) => void) => {
@@ -125,6 +128,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const sub = (_: any, data: any) => callback(data)
     ipcRenderer.on('export:progress', sub)
     return () => ipcRenderer.removeListener('export:progress', sub)
+  },
+
+  // Agent operations
+  agentGetStatus: () => invoke('agent:status'),
+  agentStart: (projectPath: string) => invoke('agent:start', projectPath),
+  agentStop: () => invoke('agent:stop'),
+  agentGetProviders: () => invoke('agent:providers'),
+  agentSetModel: (providerId: string, modelId: string) =>
+    invoke('agent:setModel', { providerId, modelId }),
+  agentListSessions: () => invoke('agent:session:list'),
+  agentCreateSession: (title?: string) => invoke('agent:session:create', title),
+  agentDeleteSession: (sessionId: string) => invoke('agent:session:delete', sessionId),
+  agentSubmitPrompt: (options: any) => invoke('agent:prompt', options),
+  agentAbortPrompt: (sessionId: string) => invoke('agent:abort', sessionId),
+  agentReplyPermission: (requestId: string, allow: boolean) =>
+    invoke('agent:permission:reply', { requestId, allow }),
+  agentApplyDiff: (diffId: string) => invoke('agent:diff:apply', diffId),
+  agentRejectDiff: (diffId: string) => invoke('agent:diff:reject', diffId),
+  agentGetTemplates: () => invoke('agent:templates'),
+  agentGetSessionTurns: (sessionId: string) => invoke('agent:session:turns', sessionId),
+  agentGetTurnSnapshot: (sessionId: string) => invoke('agent:turn:snapshot', sessionId),
+  onAgentEvent: (callback: (event: any) => void) => {
+    const sub = (_: any, data: any) => callback(data)
+    ipcRenderer.on('agent:event', sub)
+    return () => ipcRenderer.removeListener('agent:event', sub)
+  },
+
+  // Play in viewport (Game Frame)
+  playStart: (opts: { projectPath: string }) => invoke('play:start', opts),
+  playStop: (sessionId: string) => invoke('play:stop', sessionId),
+  playOpenDevTools: () => invoke('play:openDevTools'),
+  playReadUiFragment: (opts: { projectPath: string; src: string }) => invoke('play:readUiFragment', opts),
+  onPlayFileChanged: (callback: (data: import('../shared/playProtocol').PlayFileChange) => void) => {
+    const sub = (_: any, data: any) => callback(data)
+    ipcRenderer.on('play:fileChanged', sub)
+    return () => ipcRenderer.removeListener('play:fileChanged', sub)
   },
 
   // System operations
@@ -205,6 +244,7 @@ declare global {
       createProject?: (opts: any) => Promise<any>
       openProject?: (opts?: any) => Promise<any>
       saveProjectSettings?: (opts: any) => Promise<any>
+      saveProjectInput?: (opts: { projectPath: string; input: { actions?: unknown[]; touch?: unknown } }) => Promise<{ status: 'ok' | 'error'; message?: string }>
       getRecentProjects?: () => Promise<any[]>
       addRecentProject?: (project: any) => Promise<any>
       removeRecentProject?: (path: string) => Promise<any>
@@ -227,10 +267,34 @@ declare global {
       onMenuInputActions?: (callback: () => void) => () => void
       buildExport: (options: any) => Promise<any>
       runExport?: (options: any) => Promise<any>
+      runWebExport?: (options: any) => Promise<any>
+      serveWebBuild?: (buildDir: string) => Promise<string>
       detectGodot: (customPath?: string) => Promise<string | null>
       buildGodot: (options: any) => Promise<any>
       onExportLog?: (callback: (data: { presetId: string; log: string }) => void) => () => void
       onExportProgress?: (callback: (data: any) => void) => () => void
+      agentGetStatus?: () => Promise<any>
+      agentStart?: (projectPath: string) => Promise<any>
+      agentStop?: () => Promise<any>
+      agentGetProviders?: () => Promise<any[]>
+      agentSetModel?: (providerId: string, modelId: string) => Promise<any>
+      agentListSessions?: () => Promise<any[]>
+      agentCreateSession?: (title?: string) => Promise<any>
+      agentDeleteSession?: (sessionId: string) => Promise<boolean>
+      agentSubmitPrompt?: (options: any) => Promise<{ messageId: string }>
+      agentAbortPrompt?: (sessionId: string) => Promise<boolean>
+      agentReplyPermission?: (requestId: string, allow: boolean) => Promise<any>
+      agentApplyDiff?: (diffId: string) => Promise<boolean>
+      agentRejectDiff?: (diffId: string) => Promise<boolean>
+      agentGetTemplates?: () => Promise<any[]>
+      agentGetSessionTurns?: (sessionId: string) => Promise<any[]>
+      agentGetTurnSnapshot?: (sessionId: string) => Promise<any | null>
+      onAgentEvent?: (callback: (event: any) => void) => () => void
+      playStart?: (opts: { projectPath: string }) => Promise<import('../shared/playProtocol').PlayStartResult>
+      playStop?: (sessionId: string) => Promise<boolean>
+      playOpenDevTools?: () => Promise<boolean>
+      playReadUiFragment?: (opts: { projectPath: string; src: string }) => Promise<{ status: 'ok' | 'error'; html?: string; message?: string }>
+      onPlayFileChanged?: (callback: (data: import('../shared/playProtocol').PlayFileChange) => void) => () => void
       openExternal: (url: string) => Promise<void>
       getSystemInfo: () => Promise<any>
       onDevScriptsReloaded: (callback: Function) => void

@@ -6,6 +6,8 @@ import { HierarchyItem } from '../panels/HierarchyPanel'
 import { SceneFile } from '../../engine/scene'
 import { useEditorStore } from '../store/editorStore'
 import { setPropertyCommand } from '../commands/entityCommands'
+import { GameFrame, GameFrameStats } from './GameFrame'
+import { HtmlUiPreview } from './HtmlUiPreview'
 
 interface SceneViewportProps {
   onSelectObject?: (object: THREE.Object3D | null) => void
@@ -15,6 +17,8 @@ interface SceneViewportProps {
   onTransformObject?: (object: THREE.Object3D) => void
   onSceneModified?: () => void
   onObjectsChange?: (items: HierarchyItem[]) => void
+  /** Console sink for game logs/errors while Play runs in the Game Frame */
+  onConsoleMessage?: (type: 'info' | 'warn' | 'error', message: string) => void
 }
 
 type TransformMode = 'translate' | 'rotate' | 'scale'
@@ -26,6 +30,7 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   initialScene,
   onTransformObject,
   onSceneModified,
+  onConsoleMessage,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -45,11 +50,19 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
     executeCommand,
     playState,
     stepPlay,
+    playSession,
+    projectRuntime,
   } = useEditorStore()
 
   const [transformMode, setTransformMode] = useState<TransformMode>('translate')
   const [is2DMode, setIs2DMode] = useState(false)
   const [stats, setStats] = useState({ fps: 0, triangles: 0, drawCalls: 0 })
+  const [gameStats, setGameStats] = useState<GameFrameStats | null>(null)
+  const [showUiPreview, setShowUiPreview] = useState(true)
+
+  useEffect(() => {
+    if (!playSession) setGameStats(null)
+  }, [playSession])
 
   // Transform controls attaching to selected entity
   const primarySelectedId = selectedEntityIds[0] || selectedObjectId || null
@@ -233,7 +246,9 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       onTransformObject?.(targetObj)
     })
 
-    scene.add(transformControls)
+    // three r169+: TransformControls is not an Object3D; its gizmo lives in getHelper()
+    const transformGizmo = transformControls.getHelper()
+    scene.add(transformGizmo)
     transformControlsRef.current = transformControls
 
     // Grid
@@ -337,8 +352,12 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       const dt = Math.min((time - lastTime) / 1000, 0.1)
       lastTime = time
 
-      // If playing, step simulation
-      if (useEditorStore.getState().playState === 'playing') {
+      const editorState = useEditorStore.getState()
+      // The Game Frame renders the game itself; don't spend GPU on the hidden editor scene
+      if (editorState.playSession) return
+
+      // Legacy in-editor play: step the simulation here
+      if (editorState.playState === 'playing') {
         stepPlay()
       }
 
@@ -378,16 +397,42 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
 
   return (
     <div ref={containerRef} className="relative w-full h-full overflow-hidden select-none bg-[#1a1a2e]">
-      {/* Play Mode Tint Overlay (SPEC §5, §7) */}
+      {/* Game Frame: Play runs the real player (or HTML Game) in a sandboxed iframe */}
+      {playSession && (
+        <GameFrame key={playSession.id} session={playSession} onConsole={onConsoleMessage} onStats={setGameStats} />
+      )}
+
+      {/* Play Mode Overlay (SPEC §5, §7): border only over the Game Frame so game colors stay true */}
       {playState !== 'stopped' && (
         <div
-          className="absolute inset-0 pointer-events-none z-20 transition-opacity"
-          style={{ backgroundColor: 'rgba(58, 58, 90, 0.2)', border: '2px solid rgba(59, 130, 246, 0.5)' }}
+          className="absolute inset-0 pointer-events-none z-40 transition-opacity"
+          style={{
+            backgroundColor: playSession ? 'transparent' : 'rgba(58, 58, 90, 0.2)',
+            border: `2px solid ${playState === 'paused' ? 'rgba(234, 179, 8, 0.7)' : 'rgba(59, 130, 246, 0.5)'}`,
+          }}
         />
       )}
 
-      {/* Top Viewport Controls */}
-      <div className="absolute top-2 left-2 z-30 flex items-center gap-1.5 bg-black/60 backdrop-blur-xs rounded-lg p-1 border border-gray-700/60 text-xs">
+      {/* HTML UI preview in edit mode */}
+      {playState === 'stopped' && showUiPreview && projectRuntime === 'scene' && <HtmlUiPreview />}
+
+      {/* HTML Game projects have no editable scene: the game is the project's own page */}
+      {playState === 'stopped' && projectRuntime === 'html' && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#11111d]">
+          <div className="max-w-sm text-center text-sm text-gray-300 px-6">
+            <div className="text-base font-semibold text-white mb-2">HTML Game</div>
+            <p className="text-gray-400 mb-1">Scene dikelola oleh kode game di folder web proyek.</p>
+            <p className="text-gray-400">Tekan <span className="text-white font-medium">Play</span> untuk menjalankan game di viewport.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Top Viewport Controls (edit tools; hidden while the Game Frame owns the viewport) */}
+      <div
+        className={`absolute top-2 left-2 z-30 flex items-center gap-1.5 bg-black/60 backdrop-blur-xs rounded-lg p-1 border border-gray-700/60 text-xs ${
+          playSession || projectRuntime === 'html' ? 'hidden' : ''
+        }`}
+      >
         {/* 2D / 3D Toggle (TC-F27-01) */}
         <button
           className={`px-2 py-1 rounded font-bold transition-colors ${
@@ -427,13 +472,38 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
         >
           Scale (R)
         </button>
+
+        <div className="w-px h-4 bg-gray-700/60" />
+
+        <button
+          className={`px-2 py-1 rounded text-xs transition-colors ${
+            showUiPreview ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+          }`}
+          onClick={() => setShowUiPreview((v) => !v)}
+          title="Tampilkan pratinjau HTML UI"
+        >
+          UI
+        </button>
       </div>
 
       {/* Stats Overlay */}
-      <div className="absolute bottom-2 left-2 z-30 bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded border border-gray-700/50 text-[10px] text-gray-400 font-mono flex items-center gap-3">
-        <span>{stats.fps} FPS</span>
-        <span>{stats.triangles} Tris</span>
-        <span>{stats.drawCalls} Batches</span>
+      <div className="absolute bottom-2 left-2 z-50 bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded border border-gray-700/50 text-[10px] text-gray-400 font-mono flex items-center gap-3">
+        {playSession ? (
+          <>
+            <span className="text-blue-300">Game</span>
+            {gameStats?.renderer && <span className="text-emerald-300">{gameStats.renderer === 'webgpu' ? 'WebGPU' : 'WebGL2'}</span>}
+            <span>{gameStats?.fps ?? 0} FPS</span>
+            <span>{gameStats?.frameMs ?? 0} ms</span>
+            {gameStats?.triangles !== undefined && <span>{gameStats.triangles} Tris</span>}
+            {gameStats?.drawCalls !== undefined && <span>{gameStats.drawCalls} Batches</span>}
+          </>
+        ) : (
+          <>
+            <span>{stats.fps} FPS</span>
+            <span>{stats.triangles} Tris</span>
+            <span>{stats.drawCalls} Batches</span>
+          </>
+        )}
       </div>
     </div>
   )
