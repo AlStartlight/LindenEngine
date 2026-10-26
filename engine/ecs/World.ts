@@ -362,7 +362,16 @@ export class World {
     }
 
     if (data) {
-      Object.assign(comp, data)
+      for (const [key, value] of Object.entries(data)) {
+        const current = (comp as any)[key]
+        // Serialized scenes store an EventField as its listener array; keep the field object
+        // (scripts and physics subscribe to it) and restore only the listeners
+        if (current && typeof current.on === 'function' && Array.isArray(current.listeners)) {
+          if (Array.isArray(value)) current.listeners = value.map((l: any) => ({ ...l }))
+          continue
+        }
+        ;(comp as any)[key] = value
+      }
     }
 
     this.wireComponentEventFields(comp)
