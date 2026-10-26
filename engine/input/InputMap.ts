@@ -1,4 +1,7 @@
 /**
+ * @deprecated Runtime input is engine/input/InputActions.ts (`Input`), configured from
+ * project.linden.json input.actions. This Godot-style map is kept for the Godot parity tests only.
+ *
  * Godot-like InputMap system (GF-12)
  * Maps named actions to keyboard keys, mouse buttons, and gamepad buttons.
  */
