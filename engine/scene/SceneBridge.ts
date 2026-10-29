@@ -17,6 +17,8 @@ import { ModelSpecSchema, ModelSpec } from '../model/ModelSpec'
 import { buildModelObject } from '../model/buildModel'
 import { AnimationPlayer } from '../animation/AnimationPlayer'
 import { WATER, createPlainWater, createWaterObject, sunDirection, updateWater } from '../renderer/water'
+import { createParticleSystem, ParticleSystem } from '../vfx/particleRenderer'
+import type { ParticleEmitter } from '../vfx/ParticleEmitter'
 
 const MESH = '__mesh__'
 const MODEL = '__model__'
@@ -25,7 +27,7 @@ const LIGHT = '__light__'
 /**
  * Mirrors the ECS World into a three.js scene: one Group per entity carrying its Transform, with
  * the renderables built by engine/renderer/sceneFactory.ts (MeshRenderer, Model, Light) and
- * engine/renderer/water.ts (Water).
+ * engine/renderer/water.ts (Water) and engine/vfx (ParticleEmitter).
  */
 export class SceneBridge {
   private world: World
@@ -43,6 +45,10 @@ export class SceneBridge {
   /** Async builds (reflective water) still running; see whenIdle */
   private pending: Set<Promise<unknown>> = new Set()
   private sun = new THREE.Vector3()
+  private particles: Map<string, ParticleSystem> = new Map()
+  private particleTokens: Map<string, number> = new Map()
+  /** Editor: only emitters passing the filter simulate (selected entities); null = all */
+  private particleFilter: ((entityId: string) => boolean) | null = null
 
   constructor(world: World) {
     this.world = world
@@ -71,6 +77,7 @@ export class SceneBridge {
     this.animators.clear()
     for (const id of this.waters.keys()) this.waterTokens.set(id, (this.waterTokens.get(id) ?? 0) + 1)
     this.waters.clear()
+    for (const id of [...this.particles.keys()]) this.removeParticles(id)
     this.objectMap.clear()
     this.scene = null
   }
@@ -82,6 +89,26 @@ export class SceneBridge {
       const sun = sunDirection(this.scene, this.sun)
       for (const mesh of this.waters.values()) updateWater(mesh, dt, sun)
     }
+    for (const [id, system] of this.particles) {
+      const shown = !this.particleFilter || this.particleFilter(id)
+      system.object.visible = shown
+      if (!shown) continue
+      if (system.update(dt)) system.emitter.onFinished.emit(this.world.getEntity(id))
+    }
+  }
+
+  /** Editor viewport: simulate only these emitters (e.g. the selection); null simulates all */
+  setParticlePreview(filter: ((entityId: string) => boolean) | null): void {
+    this.particleFilter = filter
+  }
+
+  /** Simulate every emitter ahead so a still preview is not empty */
+  prewarmParticles(seconds: number): void {
+    for (const system of this.particles.values()) system.prewarm(seconds)
+  }
+
+  getParticleSystem(entityId: string): ParticleSystem | undefined {
+    return this.particles.get(entityId)
   }
 
   /** Resolves once async renderables (reflective water) are built; previews await it before rendering */
@@ -167,6 +194,7 @@ export class SceneBridge {
     this.removeModel(entity.id, obj)
     this.removeChild(obj, LIGHT)
     this.removeWater(entity.id, obj)
+    this.removeParticles(entity.id)
     if (obj.parent) {
       obj.parent.remove(obj)
     }
@@ -220,6 +248,37 @@ export class SceneBridge {
       },
       (err) => this.warn(`Water pada "${entity.name}": ${err?.message ?? err}`)
     )
+    this.pending.add(job)
+    job.finally(() => this.pending.delete(job))
+  }
+
+  private removeParticles(entityId: string): void {
+    this.particleTokens.set(entityId, (this.particleTokens.get(entityId) ?? 0) + 1)
+    this.particles.get(entityId)?.dispose()
+    this.particles.delete(entityId)
+  }
+
+  private buildParticles(entity: Entity, comp: Component): void {
+    const parentObj = this.objectMap.get(entity.id)
+    if (!parentObj) return
+    this.removeParticles(entity.id)
+    const token = this.particleTokens.get(entity.id) ?? 0
+    const attach = (system: ParticleSystem) => {
+      if (this.particleTokens.get(entity.id) !== token || this.objectMap.get(entity.id) !== parentObj) {
+        system.dispose()
+        return
+      }
+      parentObj.add(system.object)
+      this.particles.set(entity.id, system)
+    }
+    const created = createParticleSystem(comp as ParticleEmitter, {
+      backend: this.ctx.backend,
+      maxParticlesCap: this.ctx.caps?.maxParticlesPerEmitter,
+      allowLights: this.ctx.caps?.particleLights,
+      loadTexture: materialContext(this.ctx).loadTexture,
+    })
+    if (!(created instanceof Promise)) return attach(created)
+    const job = created.then(attach, (err) => this.warn(`ParticleEmitter pada "${entity.name}": ${err?.message ?? err}`))
     this.pending.add(job)
     job.finally(() => this.pending.delete(job))
   }
@@ -309,6 +368,7 @@ export class SceneBridge {
     else if (comp.name === 'Model') this.buildModel(entity, comp)
     else if (comp.name === 'Light') this.buildLight(entity, comp)
     else if (comp.name === 'Water') this.buildWater(entity, comp)
+    else if (comp.name === 'ParticleEmitter') this.buildParticles(entity, comp)
   }
 
   private handleComponentRemoved(entity: Entity, comp: Component): void {
@@ -318,6 +378,7 @@ export class SceneBridge {
     else if (comp.name === 'Model') this.removeModel(entity.id, parentObj)
     else if (comp.name === 'Light') this.removeChild(parentObj, LIGHT)
     else if (comp.name === 'Water') this.removeWater(entity.id, parentObj)
+    else if (comp.name === 'ParticleEmitter') this.removeParticles(entity.id)
   }
 
   private handlePropertyChanged(entity: Entity, compType: string, path: string, value: any): void {
@@ -354,6 +415,8 @@ export class SceneBridge {
       this.buildLight(entity, comp)
     } else if (compType === 'Water') {
       this.buildWater(entity, comp)
+    } else if (compType === 'ParticleEmitter') {
+      this.buildParticles(entity, comp)
     }
   }
 

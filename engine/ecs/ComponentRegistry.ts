@@ -1,6 +1,8 @@
 import { Component, Transform } from './Component'
 import { MeshRenderer, Camera, Light, LightType } from '../renderer/Components'
 import { Water } from '../environment/Water'
+import { ParticleEmitter } from '../vfx/ParticleEmitter'
+import { DEFAULT_PARTICLE_VALUES as PD, PARTICLE_PRESETS } from '../vfx/presets'
 import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, CharacterController, Joint } from '../physics/components'
 import { TimerComponent } from '../time/Timer'
 import { Script, HtmlUI } from '../scripting/ScriptComponents'
@@ -308,6 +310,38 @@ ComponentRegistry.register({
     { name: 'density', label: 'Density', kind: 'number', default: 1000, min: 1, max: 20000, step: 10, tooltip: 'kg/m³ (air tawar 1000, air laut 1025)' },
     { name: 'linearDrag', label: 'Linear Drag', kind: 'number', default: 1, min: 0, max: 20, step: 0.1 },
     { name: 'angularDrag', label: 'Angular Drag', kind: 'number', default: 0.5, min: 0, max: 20, step: 0.1 },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'ParticleEmitter',
+  menuPath: 'Effects/Particle Emitter',
+  icon: 'Sparkles',
+  disallowMultiple: true,
+  create: () => new ParticleEmitter(),
+  properties: [
+    { name: 'preset', label: 'Preset', kind: 'enum', default: 'custom', options: ['custom', ...PARTICLE_PRESETS], tooltip: 'Memilih preset mengisi ulang semua field di bawah' },
+    { name: 'playOnStart', label: 'Play On Start', kind: 'boolean', default: true },
+    { name: 'loop', label: 'Loop', kind: 'boolean', default: PD.loop },
+    { name: 'duration', label: 'Duration', kind: 'number', default: PD.duration, min: 0.01, max: 60, step: 0.1 },
+    { name: 'rate', label: 'Rate', kind: 'number', default: PD.rate, min: 0, max: 5000, step: 1, tooltip: 'Partikel per detik' },
+    { name: 'bursts', label: 'Bursts', kind: 'json', default: [], tooltip: '[{ "time": 0, "count": 50 }]' },
+    { name: 'maxParticles', label: 'Max Particles', kind: 'int', default: PD.maxParticles, min: 1, max: 2000, step: 10, tooltip: 'Dibatasi profil kualitas (Low 200, Medium 1000, High 2000)' },
+    { name: 'shape', label: 'Shape', kind: 'enum', default: PD.shape, options: ['point', 'sphere', 'box', 'cone'] },
+    { name: 'shapeSize', label: 'Shape Size', kind: 'vector3', default: PD.shapeSize, tooltip: 'sphere/cone: X = radius; box: ukuran' },
+    { name: 'coneAngle', label: 'Cone Angle', kind: 'number', default: PD.coneAngle, min: 0, max: 180, step: 1 },
+    { name: 'lifetime', label: 'Lifetime', kind: 'json', default: PD.lifetime, tooltip: '{ "min": 0.8, "max": 1.2 } detik' },
+    { name: 'speed', label: 'Speed', kind: 'json', default: PD.speed, tooltip: '{ "min": 1, "max": 2 } m/detik' },
+    { name: 'gravity', label: 'Gravity', kind: 'number', default: PD.gravity, min: -5, max: 5, step: 0.05, tooltip: 'Kali gravitasi dunia; negatif = naik (asap)' },
+    { name: 'drag', label: 'Drag', kind: 'number', default: PD.drag, min: 0, max: 20, step: 0.1 },
+    { name: 'size', label: 'Size Over Life', kind: 'json', default: PD.size, tooltip: '[{ "t": 0, "v": 0.2 }, { "t": 1, "v": 0 }] meter' },
+    { name: 'color', label: 'Color Over Life', kind: 'json', default: PD.color, tooltip: '[{ "t": 0, "color": "#ffffff", "alpha": 1 }]' },
+    { name: 'blending', label: 'Blending', kind: 'enum', default: PD.blending, options: ['additive', 'normal'] },
+    { name: 'texture', label: 'Texture', kind: 'string', default: PD.texture, tooltip: 'soft, spark, smoke, square, atau assets/...png' },
+    { name: 'space', label: 'Space', kind: 'enum', default: PD.space, options: ['world', 'local'] },
+    { name: 'seed', label: 'Seed', kind: 'int', default: 0, min: 0, max: 2147483647, step: 1, tooltip: '0 = acak tiap play' },
+    { name: 'light', label: 'Light', kind: 'json', default: PD.light, tooltip: 'PointLight ikut emitter (mati di profil Low)' },
+    { name: 'onFinished', label: 'On Finished', kind: 'event', default: [] },
   ],
 })
 

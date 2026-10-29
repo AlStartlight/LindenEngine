@@ -67,6 +67,10 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   const [stats, setStats] = useState({ fps: 0, triangles: 0, drawCalls: 0 })
   const [gameStats, setGameStats] = useState<GameFrameStats | null>(null)
   const [showUiPreview, setShowUiPreview] = useState(true)
+  // Particle emitters simulate only when selected, unless VFX preview is on (saves CPU on idle scenes)
+  const [previewVfx, setPreviewVfx] = useState(false)
+  const previewVfxRef = useRef(previewVfx)
+  previewVfxRef.current = previewVfx
 
   useEffect(() => {
     if (!playSession) setGameStats(null)
@@ -372,6 +376,11 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       }
 
       orbitControls.update()
+      if (previewVfxRef.current) bridge.setParticlePreview(null)
+      else {
+        const selected = editorState.selectedEntityIds
+        bridge.setParticlePreview((id) => selected.includes(id))
+      }
       bridge.update(dt)
       if (cameraRef.current) {
         pipeline.render(cameraRef.current)
@@ -498,6 +507,15 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
           title="Tampilkan pratinjau HTML UI"
         >
           UI
+        </button>
+        <button
+          className={`px-2 py-1 rounded text-xs transition-colors ${
+            previewVfx ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+          }`}
+          onClick={() => setPreviewVfx((v) => !v)}
+          title="Jalankan semua efek partikel (mati: hanya entity terpilih)"
+        >
+          VFX
         </button>
       </div>
 
