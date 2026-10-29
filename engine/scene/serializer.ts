@@ -1,6 +1,7 @@
 import { World } from '../ecs/World'
 import { Entity } from '../ecs/Entity'
 import { Component } from '../ecs/Component'
+import { ComponentRegistry } from '../ecs/ComponentRegistry'
 
 export interface SerializedComponent {
   type: string
@@ -244,6 +245,11 @@ export class SceneSerializer {
             }
           }
         } else {
+          // Scenes saved before a component was removed (Blueprint, Animator) still open; the data is
+          // kept as an inert component so a resave does not lose it
+          if (!ComponentRegistry.get(compData.type)) {
+            console.warn(`[Scene] Komponen tidak dikenal "${compData.type}" pada entity "${entData.name}" diabaikan`)
+          }
           try {
             world.addComponent(entity.id, compData.type, compData.data)
           } catch (_) {

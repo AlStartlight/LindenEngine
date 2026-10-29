@@ -154,18 +154,8 @@
 
 ## Phase 4: Professional Features (v0.4.0) 🔮 FUTURE
 
-### Visual Scripting
-- [ ] Node-based editor
-- [ ] Blueprint system
-- [ ] Variable management
-- [ ] Function creation
-- [ ] Data types
-- [ ] Visual debugging
-
 ### Advanced Editor
 - [ ] Prefab variants
-- [ ] Timeline editor
-- [ ] Visual shader editor
 - [ ] Particle system editor
 - [ ] Terrain editor
 - [ ] Lightmap baker
@@ -284,24 +274,6 @@ const rb = entity.addComponent(new RigidBody({
 }))
 ```
 
-### Phase 4: Visual Scripting
-
-#### Node-Based Editor
-```
-[Start] → [GetInput] → [MovePlayer] → [PlayAnimation]
-            ↓
-         [KeyDown?]
-            ↓
-         [Jump]
-```
-
-**Features:**
-- Real-time preview
-- Variable management
-- Function abstraction
-- Type checking
-- Debugging breakpoints
-
 ## Deprecated Features
 
 None yet. All features are forward-compatible.
@@ -321,7 +293,6 @@ None yet. All features are forward-compatible.
 - Basic collision detection only
 
 ### Scripting
-- No visual scripting yet
 - No Lua/WASM support yet
 - Limited API exposure
 
@@ -364,7 +335,6 @@ We welcome contributions to help us reach these goals faster!
 - Phase 2: Asset system
 - Phase 3: Physics engine
 - Phase 3: Audio system
-- Phase 4: Visual scripting
 - Optimization & performance
 
 ## Release Schedule
@@ -373,7 +343,7 @@ We welcome contributions to help us reach these goals faster!
 Q1 2024: v0.1.0 (MVP) ✅
 Q2 2024: v0.2.0 (Assets & Advanced Rendering)
 Q3 2024: v0.3.0 (Physics, Audio, Networking)
-Q4 2024: v0.4.0 (Visual Scripting, Advanced Editor)
+Q4 2024: v0.4.0 (Advanced Editor)
 Q1 2025: v1.0.0 (Release)
 ```
 

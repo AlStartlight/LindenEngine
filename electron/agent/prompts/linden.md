@@ -32,11 +32,10 @@ These come from the `linden` MCP server. In OpenCode code mode they are called a
 5. `linden_script_write`: Write gameplay scripts into `scripts/*.ts`. Always pass `attachTo` so the script is attached (Script component) to an entity.
 5b. `linden_ui_write`: Write an HTML UI fragment (`ui/*.html`, HUD/menus) and attach it (HtmlUI component).
 5c. `linden_web_write`: HTML Game projects only (`"runtime": "html"`): write the game's page files under `web/`.
-6. `linden_blueprint_apply`: Create visual scripting blueprint graphs.
-7. `linden_input_actions`: Add or change Input Actions (merged with the defaults) and the mobile touch layout.
-8. `linden_asset_placeholder`: Generate placeholder SVG / color textures in `assets/`.
-9. `linden_play`: Run the scene headless (ECS + Rapier physics + your compiled scripts at 60 Hz) and report compile errors, script exceptions (file and phase), bodies that fall out of the world, and final positions of dynamic bodies. With `inputScript` it simulates a player and reports, for every `CharacterMovement` entity, distance travelled, max jump height, jumps and grounded state.
-10. `linden_export_web`: Build the game into an HTML5 playable distribution.
+6. `linden_input_actions`: Add or change Input Actions (merged with the defaults) and the mobile touch layout.
+7. `linden_asset_placeholder`: Generate placeholder SVG / color textures in `assets/`.
+8. `linden_play`: Run the scene headless (ECS + Rapier physics + your compiled scripts at 60 Hz) and report compile errors, script exceptions (file and phase), bodies that fall out of the world, and final positions of dynamic bodies. With `inputScript` it simulates a player and reports, for every `CharacterMovement` entity, distance travelled, max jump height, jumps and grounded state.
+9. `linden_export_web`: Build the game into an HTML5 playable distribution.
 
 ---
 

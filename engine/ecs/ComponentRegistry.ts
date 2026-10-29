@@ -2,7 +2,6 @@ import { Component, Transform } from './Component'
 import { MeshRenderer, Camera, Light, LightType } from '../renderer/Components'
 import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, CharacterController } from '../physics/components'
 import { TimerComponent } from '../time/Timer'
-import { BlueprintComponent } from '../blueprints/BlueprintComponent'
 import { Script, HtmlUI } from '../scripting/ScriptComponents'
 import { CharacterMovement } from '../movement/CharacterMovement'
 
@@ -255,17 +254,6 @@ ComponentRegistry.register({
     { name: 'oneShot', label: 'One Shot', kind: 'boolean', default: false },
     { name: 'autoStart', label: 'Auto Start', kind: 'boolean', default: true },
     { name: 'onTimeout', label: 'On Timeout', kind: 'event', default: [] },
-  ],
-})
-
-ComponentRegistry.register({
-  type: 'Blueprint',
-  menuPath: 'Scripting/Blueprint',
-  icon: 'FileCode',
-  disallowMultiple: true,
-  create: () => new BlueprintComponent(),
-  properties: [
-    { name: 'blueprintName', label: 'Blueprint', kind: 'string', default: 'New Blueprint' },
   ],
 })
 

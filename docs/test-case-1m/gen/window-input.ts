@@ -6,7 +6,7 @@ import { mulberry32, randFloat, randInt, seedOf, quiet } from '../lib/util'
 
 // Window menu + Input Actions — 60.000 cases
 //    5.000 Window menu opens a named window and closes it again
-//    5.004 Editor tab switches: 36 (from, to) pairs x 139 sessions, (Scene/Blueprint/Material/Animator/Sequencer/Godot) from any tab to any tab
+//    5.004 Editor tab switches: 9 (from, to) pairs x 556 sessions, (Scene/Bridge/Godot) from any tab to any tab
 //    1.600 Move action: 16 WASD combinations x 100 deadzones
 //   20.000 left stick samples respect deadzone 0.2 and the unit circle (one seed each)
 //   15.000 Jump just-pressed / just-released over random frames (one seed each)
@@ -14,7 +14,7 @@ import { mulberry32, randFloat, randInt, seedOf, quiet } from '../lib/util'
 export const COUNT = 60_000
 
 const WINDOWS = ['InputActions', 'ProjectSettings', 'BuildSettings', 'Preferences', 'UndoHistory'] as const
-const PANELS = ['viewport', 'blueprint', 'material', 'animator', 'sequencer', 'godot'] as const
+const PANELS = ['viewport', 'bridge', 'godot'] as const
 const KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD'] as const
 
 function moveInput(deadzone: number) {
@@ -38,7 +38,7 @@ export function* cases(): Generator<Case> {
 
   for (const from of PANELS) {
     for (const to of PANELS) {
-      for (let v = 0; v < 139; v++) {
+      for (let v = 0; v < 556; v++) {
         yield { title: `Editor tab switch ${from} -> ${to} (session ${v})`, run: () => {
           freshStore()
           state().setActiveEditorPanel(from)

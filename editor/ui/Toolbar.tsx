@@ -26,10 +26,6 @@ interface ToolbarProps {
   recentProjects?: Array<{ name: string; path: string }>
   onOpenRecent?: (path: string) => void
   onClearRecent?: () => void
-  onOpenBlueprintEditor?: () => void
-  onOpenMaterialEditor?: () => void
-  onOpenAnimatorEditor?: () => void
-  onOpenSequencerEditor?: () => void
   onOpenInputActions?: () => void
   onOpenProjectSettings?: () => void
   onOpenAgent?: () => void
@@ -64,10 +60,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   recentProjects = [],
   onOpenRecent,
   onClearRecent,
-  onOpenBlueprintEditor,
-  onOpenMaterialEditor,
-  onOpenAnimatorEditor,
-  onOpenSequencerEditor,
   onOpenInputActions,
   onOpenProjectSettings,
   onOpenAgent,
@@ -354,35 +346,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 label="Project Settings"
                 onClick={() => {
                   onOpenProjectSettings?.()
-                  setShowWindowMenu(false)
-                }}
-              />
-              <MenuDivider />
-              <MenuItem
-                label="Blueprint Editor"
-                onClick={() => {
-                  onOpenBlueprintEditor?.()
-                  setShowWindowMenu(false)
-                }}
-              />
-              <MenuItem
-                label="Material Editor"
-                onClick={() => {
-                  onOpenMaterialEditor?.()
-                  setShowWindowMenu(false)
-                }}
-              />
-              <MenuItem
-                label="Animator Editor"
-                onClick={() => {
-                  onOpenAnimatorEditor?.()
-                  setShowWindowMenu(false)
-                }}
-              />
-              <MenuItem
-                label="Sequencer Editor"
-                onClick={() => {
-                  onOpenSequencerEditor?.()
                   setShowWindowMenu(false)
                 }}
               />

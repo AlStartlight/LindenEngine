@@ -11,10 +11,6 @@ import { ProjectPanel } from './panels/ProjectPanel'
 import { Toolbar } from './ui/Toolbar'
 import { ConsolePanel } from './panels/ConsolePanel'
 import { OutputPanel } from './panels/OutputPanel'
-import { BlueprintEditor } from './panels/BlueprintEditor'
-import { MaterialEditor } from './panels/MaterialEditor'
-import { AnimatorEditor } from './panels/AnimatorEditor'
-import { SequencerEditor } from './panels/SequencerEditor'
 import { BridgePanel } from './panels/BridgePanel'
 import { GodotBridge } from '../engine/godot/GodotBridge'
 import { ConfirmDialog } from './ui/ConfirmDialog'
@@ -729,10 +725,6 @@ export const EditorLayout: React.FC = () => {
           await clearRecentProjects()
           setRecentProjects([])
         }}
-        onOpenBlueprintEditor={() => setActiveEditorPanel('blueprint')}
-        onOpenMaterialEditor={() => setActiveEditorPanel('material')}
-        onOpenAnimatorEditor={() => setActiveEditorPanel('animator')}
-        onOpenSequencerEditor={() => setActiveEditorPanel('sequencer')}
         onOpenInputActions={() => setActiveWindow('inputActions')}
         onOpenProjectSettings={() => setActiveWindow('projectSettings')}
         onOpenAgent={() => setRightTab('agent')}
@@ -770,50 +762,6 @@ export const EditorLayout: React.FC = () => {
                 <span>Viewport</span>
               </button>
               <button
-                onClick={() => setActiveEditorPanel('blueprint')}
-                className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center ${
-                  activeEditorPanel === 'blueprint'
-                    ? 'bg-[#16213e] text-white border-t-2 border-cyan-500'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Icons.Blueprint className="w-3.5 h-3.5 mr-1.5" />
-                <span>Blueprint</span>
-              </button>
-              <button
-                onClick={() => setActiveEditorPanel('material')}
-                className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center ${
-                  activeEditorPanel === 'material'
-                    ? 'bg-[#16213e] text-white border-t-2 border-green-500'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Icons.Material className="w-3.5 h-3.5 mr-1.5" />
-                <span>Material</span>
-              </button>
-              <button
-                onClick={() => setActiveEditorPanel('animator')}
-                className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center ${
-                  activeEditorPanel === 'animator'
-                    ? 'bg-[#16213e] text-white border-t-2 border-orange-500'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Icons.Animator className="w-3.5 h-3.5 mr-1.5" />
-                <span>Animator</span>
-              </button>
-              <button
-                onClick={() => setActiveEditorPanel('sequencer')}
-                className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center ${
-                  activeEditorPanel === 'sequencer'
-                    ? 'bg-[#16213e] text-white border-t-2 border-purple-500'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Icons.Sequencer className="w-3.5 h-3.5 mr-1.5" />
-                <span>Sequencer</span>
-              </button>
-              <button
                 onClick={() => setActiveEditorPanel('bridge')}
                 className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center ${
                   activeEditorPanel === 'bridge' || (activeEditorPanel as string) === 'godot'
@@ -849,10 +797,6 @@ export const EditorLayout: React.FC = () => {
                   <SceneViewport key={viewportKey} onConsoleMessage={addConsoleMessage} />
                 </ErrorBoundary>
               )}
-              {activeEditorPanel === 'blueprint' && <BlueprintEditor />}
-              {activeEditorPanel === 'material' && <MaterialEditor />}
-              {activeEditorPanel === 'animator' && <AnimatorEditor />}
-              {activeEditorPanel === 'sequencer' && <SequencerEditor />}
               {(activeEditorPanel === 'bridge' || (activeEditorPanel as string) === 'godot') && (
                 <BridgePanel
                   bridge={godotBridgeRef.current}

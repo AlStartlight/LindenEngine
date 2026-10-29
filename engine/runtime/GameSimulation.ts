@@ -87,7 +87,7 @@ export class GameSimulation {
     return this.dynamicIds
   }
 
-  /** Call onBeginPlay/start on built-in components (Blueprint, Timer, ...) */
+  /** Call onBeginPlay/start on built-in components (Timer, ...) */
   startComponents(): void {
     for (const ent of this.world.getEntities()) {
       for (const comp of ent.getComponents()) {

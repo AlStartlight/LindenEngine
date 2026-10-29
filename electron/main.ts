@@ -447,31 +447,6 @@ async function setupMenu(): Promise<void> {
             mainWindow?.webContents.send('menu:projectSettings')
           },
         },
-        { type: 'separator' },
-        {
-          label: 'Blueprint Editor',
-          click: () => {
-            mainWindow?.webContents.send('menu:openBlueprint')
-          },
-        },
-        {
-          label: 'Material Editor',
-          click: () => {
-            mainWindow?.webContents.send('menu:openMaterial')
-          },
-        },
-        {
-          label: 'Animator Editor',
-          click: () => {
-            mainWindow?.webContents.send('menu:openAnimator')
-          },
-        },
-        {
-          label: 'Sequencer Editor',
-          click: () => {
-            mainWindow?.webContents.send('menu:openSequencer')
-          },
-        },
       ],
     },
     {

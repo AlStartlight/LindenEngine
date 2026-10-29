@@ -7,7 +7,6 @@ import { Entity } from '../../ecs/Entity'
 import { Transform } from '../../ecs/Component'
 import { MeshRenderer, Camera, Light, LightType } from '../../renderer/Components'
 import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider } from '../../physics/components'
-import { BlueprintComponent } from '../../blueprints/BlueprintComponent'
 import { GodotPassthroughComponent } from './GodotPassthroughComponent'
 import { MaterialMap } from './MaterialMap'
 import { CompatReport } from '../report/CompatReport'
@@ -165,7 +164,6 @@ export class ComponentMap {
     const boxCollider = entity.getComponent<BoxCollider>('BoxCollider')
     const sphereCollider = entity.getComponent<SphereCollider>('SphereCollider')
     const capsuleCollider = entity.getComponent<CapsuleCollider>('CapsuleCollider')
-    const blueprint = entity.getComponent<BlueprintComponent>('Blueprint')
 
     if (light) {
       if (light.type === LightType.POINT || (light.type as any) === 'point') {
@@ -245,10 +243,6 @@ export class ComponentMap {
       })
 
       properties['mesh'] = new GodotSubResource(meshSubId)
-    }
-
-    if (blueprint) {
-      report.addInfo(`Blueprint attached to ${entity.name}`, { entityId: entity.id, nodeName })
     }
 
     const mainNode: TscnNode = {

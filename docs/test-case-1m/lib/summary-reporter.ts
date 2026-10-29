@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 /**
  * Lightweight reporter for very large runs: counts per category, keeps the first
  * failures per category, and fingerprints every title (minus its TC id) so the
- * merge step can prove that no two of the 1.000.000 cases are the same.
+ * merge step can prove that no two of the 680.000 cases are the same.
  */
 export default class SummaryReporter implements Reporter {
   private batch = process.env.BATCH || 'all'

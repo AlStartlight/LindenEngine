@@ -629,54 +629,6 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
     },
   },
 
-  linden_blueprint_apply: {
-    name: 'linden_blueprint_apply',
-    description: 'Menyimpan atau memperbarui visual script Blueprint graph (.lbp).',
-    parameters: {
-      type: 'object',
-      properties: {
-        blueprintPath: {
-          type: 'string',
-          description: 'Path file blueprint, contoh blueprints/PlayerLogic.lbp',
-        },
-        graph: {
-          type: 'object',
-          description: 'Data graph visual script (nodes, connections)',
-        },
-      },
-      required: ['blueprintPath', 'graph'],
-    },
-    async execute(projectPath: string, args: { blueprintPath: string; graph: any }, options) {
-      try {
-        const fullPath = resolveProjectSafePath(projectPath, args.blueprintPath)
-        const content = JSON.stringify(args.graph, null, 2)
-        let before = ''
-        if (fs.existsSync(fullPath)) {
-          before = fs.readFileSync(fullPath, 'utf-8')
-        }
-
-        const diff: AgentDiffItem = {
-          id: `diff_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          file: args.blueprintPath,
-          kind: 'config',
-          action: before ? 'modify' : 'create',
-          description: `Perbarui blueprint graph ${args.blueprintPath}`,
-          before,
-          after: content,
-          status: 'applied',
-        }
-
-        fs.mkdirSync(path.dirname(fullPath), { recursive: true })
-        fs.writeFileSync(fullPath, content, 'utf-8')
-        options?.onDiff?.(diff)
-
-        return { success: true, data: { blueprintPath: args.blueprintPath } }
-      } catch (err: any) {
-        return { success: false, error: err.message }
-      }
-    },
-  },
-
   linden_input_actions: {
     name: 'linden_input_actions',
     description:

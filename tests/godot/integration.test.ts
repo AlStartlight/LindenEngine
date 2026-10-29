@@ -6,10 +6,7 @@ import { GodotBridge } from '../../engine/godot/GodotBridge'
 import { World } from '../../engine/ecs/World'
 import { MeshRenderer, Camera, Light, LightType } from '../../engine/renderer/Components'
 import { Rigidbody, BoxCollider } from '../../engine/physics/components'
-import { BlueprintGraph } from '../../engine/blueprints/BlueprintGraph'
-import { EventTick, RotateNode } from '../../engine/blueprints/BlueprintNode'
 import { MaterialMap } from '../../engine/godot/mapping/MaterialMap'
-import { AnimatorMap } from '../../engine/godot/mapping/AnimatorMap'
 import { SyncServer } from '../../engine/godot/sync/SyncServer'
 import { TscnParser } from '../../engine/godot/tscn/TscnParser'
 import { TscnWriter } from '../../engine/godot/tscn/TscnWriter'
@@ -139,27 +136,6 @@ travel_cost = 1.5
     expect(exportedTscn).toContain('travel_cost = 1.5')
   })
 
-  // IT-04: Blueprint rotating cube runnable structure
-  it('IT-04: transpiles rotating cube Blueprint to valid GDScript structure', () => {
-    const graph = new BlueprintGraph('RotatingCube')
-    const tick = graph.createNode('EventTick') as EventTick
-    const rotate = graph.createNode('Rotate') as RotateNode
-    const speedPin = rotate.inputPins.find((p) => p.name === 'Speed')!
-    speedPin.defaultValue = 180.0
-
-    const tickExec = tick.outputPins.find((p) => p.name === 'Then')!
-    const rotExec = rotate.inputPins.find((p) => p.name === 'Execute')!
-    graph.connect(tick.id, tickExec.id, rotate.id, rotExec.id)
-
-    const bridge = new GodotBridge()
-    const { code, report } = bridge.transpileBlueprint(graph)
-
-    expect(report.isSuccess).toBe(true)
-    expect(code).toContain('extends Node3D')
-    expect(code).toContain('func _process(delta: float) -> void:')
-    expect(code).toContain('rotate_y(deg_to_rad(180) * delta)')
-  })
-
   // IT-05: Material PBR
   it('IT-05: converts PBR material with red albedo, metallic 1, roughness 0.2 to StandardMaterial3D', () => {
     const matProps = MaterialMap.toGodotStandardMaterial({
@@ -171,55 +147,6 @@ travel_cost = 1.5
     expect(matProps['albedo_color']).toEqual({ r: 1, g: 0, b: 0, a: 1 })
     expect(matProps['metallic']).toBe(1.0)
     expect(matProps['roughness']).toBe(0.2)
-  })
-
-  // IT-06: Animator
-  it('IT-06: converts Animator state machine with 3 states and transitions to AnimationTree and AnimationNodeStateMachine', () => {
-    const states = [
-      { name: 'Idle', loop: true },
-      { name: 'Running', speed: 1.2 },
-      { name: 'Jumping', loop: false },
-    ]
-    const transitions = [
-      {
-        fromState: 'Idle',
-        toState: 'Running',
-        conditions: [{ parameter: 'Speed', operator: 'greater' as const, threshold: 0.1 }],
-      },
-      {
-        fromState: 'Running',
-        toState: 'Jumping',
-        conditions: [{ parameter: 'IsGrounded', operator: 'equal' as const, threshold: false }],
-      },
-    ]
-
-    const res = AnimatorMap.toGodotAnimationTree('PlayerAnim', states, transitions, [])
-
-    expect(res.subResources.length).toBe(1)
-    const sm = res.subResources[0]
-    expect(sm.type).toBe('AnimationNodeStateMachine')
-    expect(sm.properties['states']).toEqual(['Idle', 'Running', 'Jumping'])
-    expect(sm.properties['transitions'].length).toBe(2)
-    expect(res.treeNodeProperties['active']).toBe(true)
-  })
-
-  // IT-07: Sequencer
-  it('IT-07: converts cutscene 4 tracks to AnimationPlayer sub_resource', () => {
-    const tracks = [
-      { name: 'Position', type: 'transform' as const, keyframes: [{ time: 0, value: 0 }, { time: 2, value: 10 }] },
-      { name: 'RunAnim', type: 'animation' as const, keyframes: [{ time: 0, value: 'run' }] },
-      { name: 'Voiceover', type: 'audio' as const, keyframes: [{ time: 1, value: 'intro.wav' }] },
-      { name: 'SpawnParticle', type: 'event' as const, keyframes: [{ time: 2.5, value: 'trigger_fx' }] },
-    ]
-
-    const anim = AnimatorMap.toGodotAnimationPlayer('Cutscene1', tracks, 3.0)
-
-    expect(anim.subResources.length).toBe(1)
-    const animRes = anim.subResources[0]
-    expect(animRes.type).toBe('Animation')
-    expect(animRes.properties['length']).toBe(3.0)
-    expect(animRes.properties['tracks'].length).toBe(4)
-    expect(animRes.properties['tracks'][3].type).toBe('method')
   })
 
   // IT-08: Handshake addon

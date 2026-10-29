@@ -98,7 +98,6 @@
            ├──► Update Systems
            │    ├─ PhysicsSystem.update()
            │    ├─ ScriptSystem.update()
-           │    ├─ AnimationSystem.update()
            │    └─ AudioSystem.update()
            │
            ├──► Update Entities
@@ -170,7 +169,6 @@ Component (Base)
 ├─ RigidBody (mass, velocity, gravity)
 ├─ Collider (shape, size, trigger mode)
 ├─ AudioSource (clip, volume, pitch)
-├─ Animator (animations, states)
 ├─ ParticleSystem (particles, emission)
 └─ ScriptComponent (script path, properties)
 ```
@@ -196,11 +194,6 @@ System (Base)
 │  ├─ Handle hot reload
 │  ├─ Event distribution
 │  └─ Script cleanup
-│
-├─ AnimationSystem
-│  ├─ Update animations
-│  ├─ Apply skeletal data
-│  └─ Interpolation
 │
 └─ AudioSystem
    ├─ Play audio sources

@@ -3,7 +3,7 @@ import { test } from '@playwright/test'
 /**
  * A generated case. `title` must describe the exact input (scenario + parameters):
  * the summary reporter rejects the run if two cases share a title, so every case
- * in the 1.000.000 is provably distinct.
+ * in the 680.000 is provably distinct.
  */
 export interface Case {
   title: string
@@ -18,7 +18,7 @@ export type CaseSource = () => Iterable<Case>
  */
 /**
  * SAMPLE=n runs every n-th case (plus the last 5 of each category, which are small groups),
- * for a quick per-module pass instead of the full 1.000.000.
+ * for a quick per-module pass instead of the full 680.000.
  */
 const SAMPLE = Math.max(1, Number(process.env.SAMPLE || 1))
 

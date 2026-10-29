@@ -53,7 +53,7 @@ export interface EditorState {
   currentScenePath: string | null
   isDirty: boolean
   activeWindow: string | null
-  activeEditorPanel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'bridge' | 'godot'
+  activeEditorPanel: 'viewport' | 'bridge' | 'godot'
   projectSettings: ProjectSettingsState
   physicsBackend: RapierBackend | null
 
@@ -81,7 +81,7 @@ export interface EditorState {
   /** Load a scene the agent wrote to disk as one undoable step; false if not applied (playing) */
   applyAgentSceneChange: (jsonString: string) => boolean
   setActiveWindow: (windowName: string | null) => void
-  setActiveEditorPanel: (panel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'bridge' | 'godot') => void
+  setActiveEditorPanel: (panel: 'viewport' | 'bridge' | 'godot') => void
   setProjectSettings: (settings: Partial<ProjectSettingsState>) => void
   /** Apply Input Actions / touch layout and persist them to project.linden.json (input.*) */
   saveInputSettings: (actions: InputActionDef[], touch: TouchConfig) => Promise<'saved' | 'memory-only' | 'error'>
@@ -469,7 +469,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ activeWindow: windowName })
   },
 
-  setActiveEditorPanel: (panel: 'viewport' | 'blueprint' | 'material' | 'animator' | 'sequencer' | 'bridge' | 'godot') => {
+  setActiveEditorPanel: (panel: 'viewport' | 'bridge' | 'godot') => {
     const normalized = (panel as string) === 'godot' ? 'bridge' : panel
     set({ activeEditorPanel: normalized as any })
   },

@@ -13,34 +13,6 @@ export const Icons = {
       <line x1="12" y1="22.08" x2="12" y2="12" />
     </svg>
   ),
-  Blueprint: ({ className = 'w-4 h-4', size }: IconProps) => (
-    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <path d="M10 6.5h4M6.5 10v4M17.5 10v4" />
-    </svg>
-  ),
-  Material: ({ className = 'w-4 h-4', size }: IconProps) => (
-    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 2a7 7 0 0 0 7 7c0 3.86-3.14 7-7 7" />
-      <circle cx="8.5" cy="8.5" r="1.5" />
-    </svg>
-  ),
-  Animator: ({ className = 'w-4 h-4', size }: IconProps) => (
-    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="5 3 19 12 5 21 5 3" />
-      <line x1="19" y1="5" x2="19" y2="19" />
-    </svg>
-  ),
-  Sequencer: ({ className = 'w-4 h-4', size }: IconProps) => (
-    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="4" width="20" height="16" rx="2" />
-      <path d="M2 8h20M2 16h20M8 4v16M16 4v16" />
-    </svg>
-  ),
   Bridge: ({ className = 'w-4 h-4', size }: IconProps) => (
     <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 19V9a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10" />
