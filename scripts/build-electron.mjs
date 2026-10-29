@@ -8,11 +8,14 @@ import { readFileSync, rmSync } from 'node:fs'
 const pkg = JSON.parse(readFileSync('package.json', 'utf-8'))
 // Runtime dependencies ship in node_modules, so load them from there instead of inlining.
 // Keep ESM-only packages like @opencode/client bundled so CJS require() doesn't fail.
+// Keep three bundled too: electron-builder strips node_modules/**/examples, so
+// three/examples/jsm/* would be missing from app.asar at runtime.
 // rolldown ships native bindings and is loaded at runtime by WebBuildRunner, so it stays external.
+const bundled = ['@opencode/client', 'three']
 const external = [
   'electron',
   'rolldown',
-  ...Object.keys(pkg.dependencies ?? {}).filter((d) => d !== '@opencode/client'),
+  ...Object.keys(pkg.dependencies ?? {}).filter((d) => !bundled.includes(d)),
 ]
 
 rmSync('dist-electron', { recursive: true, force: true })
