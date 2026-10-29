@@ -31,6 +31,13 @@ export interface ScriptPhysicsApi {
   setLinearVelocity(v: Vec3): void
   getLinearVelocity(): Vec3 | null
   applyImpulse(v: Vec3): void
+  /** Continuous force in newtons for the next fixed step; call it every onFixedUpdate */
+  addForce(v: Vec3): void
+  addTorque(v: Vec3): void
+  setAngularVelocity(v: Vec3): void
+  getAngularVelocity(): Vec3 | null
+  /** Drive this entity's hinge (degrees/s) or slider (m/s) Joint */
+  setMotor(targetVelocity: number, maxForce?: number): void
   /** Teleport this entity's body (and Transform) */
   setPosition(v: Vec3): void
 }
@@ -295,6 +302,13 @@ export class ScriptRuntime {
         setLinearVelocity: (v) => backend()?.setLinearVelocity?.(entity.id, v),
         getLinearVelocity: () => backend()?.getLinearVelocity?.(entity.id) ?? null,
         applyImpulse: (v) => backend()?.applyImpulse?.(entity.id, v),
+        addForce: (v) => backend()?.addForce?.(entity.id, v),
+        addTorque: (v) => backend()?.addTorque?.(entity.id, v),
+        setAngularVelocity: (v) => backend()?.setAngularVelocity?.(entity.id, v),
+        getAngularVelocity: () => backend()?.getAngularVelocity?.(entity.id) ?? null,
+        setMotor: (targetVelocity, maxForce) => {
+          backend()?.setJointMotor?.(entity.id, targetVelocity, maxForce)
+        },
         setPosition: (v) => {
           backend()?.setTranslation?.(entity.id, v)
           const t = entity.getTransform()

@@ -1,6 +1,6 @@
 import type { World } from '../ecs/World'
 import { RapierBackend } from '../physics/RapierBackend'
-import { Physics, Rigidbody } from '../physics/components'
+import { Physics, Rigidbody, type Joint } from '../physics/components'
 import { CharacterMovementSystem } from '../movement/CharacterMovement'
 import { Input } from '../input/InputActions'
 import { Tween } from '../time/Tween'
@@ -88,6 +88,27 @@ export class GameSimulation {
         }
       }
     }
+    this.createJoints(backend)
+  }
+
+  /** Joints go after every body exists, since they can point at any entity */
+  private createJoints(backend: RapierBackend): void {
+    for (const ent of this.world.getEntities()) {
+      const joint = ent.getComponent('Joint') as Joint | undefined
+      if (!joint) continue
+      joint._broken = false
+      let connectedId: string | null = joint.connectedEntity || null
+      if (connectedId && !backend.hasBody(connectedId)) {
+        const target = this.world.getEntity(connectedId)
+        console.warn(
+          `[Physics] Joint pada "${ent.name}": entity "${target?.name ?? connectedId}" tidak punya Rigidbody/Collider; joint dipasang ke world`
+        )
+        connectedId = null
+      }
+      if (!backend.createJoint(ent.id, joint, connectedId)) {
+        console.warn(`[Physics] Joint pada "${ent.name}" butuh Rigidbody; joint diabaikan`)
+      }
+    }
   }
 
   get dynamicBodyIds(): readonly string[] {
@@ -143,6 +164,12 @@ export class GameSimulation {
         }
       }
       physics.step(FIXED_DT)
+      for (const b of physics.breakJoints(FIXED_DT)) {
+        const entity = this.world.getEntity(b.ownerId)
+        b.joint.onBreak.emit(entity, b.force)
+        this.scripts?.notifyEntity(b.ownerId, 'onJointBreak', b.force)
+        this.scripts?.emit('joint:break', { entityId: b.ownerId, force: b.force })
+      }
       this.flushRemovals()
       for (const id of this.dynamicIds) {
         const pos = physics.getTranslation(id)

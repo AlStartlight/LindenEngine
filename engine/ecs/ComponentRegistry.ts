@@ -1,6 +1,6 @@
 import { Component, Transform } from './Component'
 import { MeshRenderer, Camera, Light, LightType } from '../renderer/Components'
-import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, CharacterController } from '../physics/components'
+import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, CharacterController, Joint } from '../physics/components'
 import { TimerComponent } from '../time/Timer'
 import { Script, HtmlUI } from '../scripting/ScriptComponents'
 import { CharacterMovement } from '../movement/CharacterMovement'
@@ -192,6 +192,27 @@ ComponentRegistry.register({
     { name: 'useGravity', label: 'Use Gravity', kind: 'boolean', default: true },
     { name: 'freezePosition', label: 'Freeze Position', kind: 'vector3', default: { x: false, y: false, z: false } },
     { name: 'freezeRotation', label: 'Freeze Rotation', kind: 'vector3', default: { x: false, y: false, z: false } },
+    { name: 'ccd', label: 'Continuous Collision', kind: 'boolean', default: false, tooltip: 'Untuk benda cepat (peluru) agar tidak menembus dinding tipis' },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'Joint',
+  menuPath: 'Physics/Joint',
+  icon: 'Link',
+  disallowMultiple: true,
+  create: () => new Joint(),
+  properties: [
+    { name: 'type', label: 'Type', kind: 'enum', default: 'hinge', options: ['fixed', 'hinge', 'ball', 'slider'] },
+    { name: 'connectedEntity', label: 'Connected Entity', kind: 'string', default: '', tooltip: 'ID entity tujuan; kosong = terpasang ke world' },
+    { name: 'anchor', label: 'Anchor', kind: 'vector3', default: { x: 0, y: 0, z: 0 }, tooltip: 'Titik sambungan (lokal entity ini)' },
+    { name: 'autoConnectAnchor', label: 'Auto Connected Anchor', kind: 'boolean', default: true },
+    { name: 'connectedAnchor', label: 'Connected Anchor', kind: 'vector3', default: { x: 0, y: 0, z: 0 } },
+    { name: 'axis', label: 'Axis', kind: 'vector3', default: { x: 0, y: 1, z: 0 }, tooltip: 'Sumbu engsel / arah slider (lokal)' },
+    { name: 'limits', label: 'Limits', kind: 'json', default: { enabled: false, min: -45, max: 45 }, tooltip: 'Hinge: derajat, slider: meter' },
+    { name: 'motor', label: 'Motor', kind: 'json', default: { enabled: false, targetVelocity: 0, maxForce: 100 }, tooltip: 'Hinge: derajat/detik, slider: m/detik' },
+    { name: 'breakForce', label: 'Break Force', kind: 'number', default: 0, min: 0, max: 1e6, step: 10, tooltip: 'Newton; 0 = tidak bisa putus' },
+    { name: 'onBreak', label: 'On Break', kind: 'event', default: [] },
   ],
 })
 

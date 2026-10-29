@@ -1,11 +1,33 @@
 import type { PhysicsBackend } from './PhysicsBackend'
 import type { Transform } from '../ecs/Component'
-import type { Rigidbody, BaseCollider, RaycastHit } from './components'
+import type { Rigidbody, BaseCollider, RaycastHit, Joint } from './components'
 import { BoxCollider, SphereCollider, CapsuleCollider } from './components'
 import type { ModelColliderShape } from '../model/modelCollider'
 import * as THREE from 'three'
 
 let RAPIER: any = null
+
+type Vec3 = { x: number; y: number; z: number }
+
+interface JointRecord {
+  raw: any
+  ownerId: string
+  connectedId: string | null
+  comp: Joint
+  /** Dynamic body whose acceleration estimates the joint force (breakable joints) */
+  probeId: string | null
+  prevVel: Vec3 | null
+}
+
+export interface BrokenJoint {
+  ownerId: string
+  joint: Joint
+  force: number
+}
+
+const DEG = Math.PI / 180
+/** Damping factor of velocity motors; maxForce caps the resulting force */
+const MOTOR_FACTOR = 1e4
 
 export async function loadRapier() {
   if (!RAPIER) {
@@ -27,6 +49,13 @@ export class RapierBackend implements PhysicsBackend {
   private collisionMatrix: boolean[][] = [] // 16x16 boolean matrix
   private collisionPairs: Set<string> = new Set() // 'id1:id2' for tracking ongoing collisions
   private entityCallback?: (id: string) => any
+  /** Rigidbody.mass of dynamic bodies, carried by the body's first collider */
+  private pendingMass: Map<string, number> = new Map()
+  private joints: JointRecord[] = []
+  private worldBody: any = null
+  private gravity: Vec3 = { x: 0, y: -9.81, z: 0 }
+  /** Bodies with forces added this step; Rapier keeps forces until reset */
+  private forced: Set<any> = new Set()
 
   constructor(entityLookup?: (id: string) => any) {
     this.entityCallback = entityLookup
@@ -43,8 +72,7 @@ export class RapierBackend implements PhysicsBackend {
   async init(): Promise<void> {
     if (this.rapierWorld) return
     const rapier = await loadRapier()
-    const gravity = { x: 0, y: -9.81, z: 0 }
-    this.rapierWorld = new rapier.World(gravity)
+    this.rapierWorld = new rapier.World(this.gravity)
     this.eventQueue = new rapier.EventQueue(true)
   }
 
@@ -109,10 +137,12 @@ export class RapierBackend implements PhysicsBackend {
 
     desc.setLinearDamping(rb.drag || 0)
     desc.setAngularDamping(rb.angularDrag || 0.05)
+    if (rb.ccd) desc.setCcdEnabled(true)
 
     const body = this.rapierWorld.createRigidBody(desc)
     body.userData = { entityId }
     this.bodies.set(entityId, body)
+    if (rb.bodyType === 'dynamic' && rb.mass > 0) this.pendingMass.set(entityId, rb.mass)
   }
 
   removeBody(entityId: string): void {
@@ -129,6 +159,10 @@ export class RapierBackend implements PhysicsBackend {
         this.colliders.delete(entityId)
       }
 
+      // Rapier removes the joints attached to the body with it
+      this.joints = this.joints.filter((j) => j.ownerId !== entityId && j.connectedId !== entityId)
+      this.forced.delete(body)
+      this.pendingMass.delete(entityId)
       this.rapierWorld.removeRigidBody(body)
       this.bodies.delete(entityId)
     }
@@ -184,6 +218,11 @@ export class RapierBackend implements PhysicsBackend {
     colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
     colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL)
     colDesc.setCollisionGroups(this.getCollisionGroups(layer))
+    const mass = this.pendingMass.get(entityId)
+    if (mass !== undefined) {
+      colDesc.setMass(mass)
+      this.pendingMass.delete(entityId)
+    }
 
     const parentBody = this.bodies.get(entityId)
     let rapierCollider: any
@@ -245,6 +284,201 @@ export class RapierBackend implements PhysicsBackend {
 
   applyImpulse(entityId: string, impulse: { x: number; y: number; z: number }): void {
     this.bodies.get(entityId)?.applyImpulse(impulse, true)
+  }
+
+  /** Continuous force (N) for the next step; call every fixed step to keep pushing */
+  addForce(entityId: string, force: Vec3): void {
+    this.forcedBody(entityId)?.addForce(force, true)
+  }
+
+  addForceAtPoint(entityId: string, force: Vec3, point: Vec3): void {
+    this.forcedBody(entityId)?.addForceAtPoint(force, point, true)
+  }
+
+  addTorque(entityId: string, torque: Vec3): void {
+    this.forcedBody(entityId)?.addTorque(torque, true)
+  }
+
+  private forcedBody(entityId: string): any {
+    const body = this.bodies.get(entityId)
+    if (body) this.forced.add(body)
+    return body
+  }
+
+  setAngularVelocity(entityId: string, vel: Vec3): void {
+    this.bodies.get(entityId)?.setAngvel(vel, true)
+  }
+
+  getAngularVelocity(entityId: string): Vec3 | null {
+    const body = this.bodies.get(entityId)
+    if (!body) return null
+    const v = body.angvel()
+    return { x: v.x, y: v.y, z: v.z }
+  }
+
+  getMass(entityId: string): number {
+    return this.bodies.get(entityId)?.mass() ?? 0
+  }
+
+  isDynamic(entityId: string): boolean {
+    const body = this.bodies.get(entityId)
+    return !!body && body.bodyType() === RAPIER.RigidBodyType.Dynamic
+  }
+
+  /** World-space AABB over all colliders of an entity */
+  getBounds(entityId: string): { min: Vec3; max: Vec3 } | null {
+    const cols = this.colliders.get(entityId)
+    if (!cols || cols.length === 0) return null
+    const min = { x: Infinity, y: Infinity, z: Infinity }
+    const max = { x: -Infinity, y: -Infinity, z: -Infinity }
+    for (const col of cols) {
+      const aabb = colliderAabb(col)
+      min.x = Math.min(min.x, aabb.min.x)
+      min.y = Math.min(min.y, aabb.min.y)
+      min.z = Math.min(min.z, aabb.min.z)
+      max.x = Math.max(max.x, aabb.max.x)
+      max.y = Math.max(max.y, aabb.max.y)
+      max.z = Math.max(max.z, aabb.max.z)
+    }
+    return { min, max }
+  }
+
+  /** Summed shape volume (m³) of an entity's colliders */
+  getColliderVolume(entityId: string): number {
+    const cols = this.colliders.get(entityId)
+    if (!cols) return 0
+    let volume = 0
+    for (const col of cols) volume += col.volume()
+    return volume
+  }
+
+  /**
+   * Connect ownerId's body to connectedId's body, or to the world when connectedId is null.
+   * Returns false when the owner has no body.
+   */
+  createJoint(ownerId: string, joint: Joint, connectedId: string | null): boolean {
+    if (!this.rapierWorld) return false
+    const body2 = this.bodies.get(ownerId)
+    if (!body2) return false
+    const body1 = connectedId ? this.bodies.get(connectedId) : this.getWorldBody()
+    if (!body1) return false
+
+    const rot1 = toQuat(body1.rotation())
+    const rot2 = toQuat(body2.rotation())
+    const inv1 = rot1.clone().invert()
+    const pos1 = toVec(body1.translation())
+    const pos2 = toVec(body2.translation())
+
+    const anchor2 = toVec(joint.anchor)
+    const worldAnchor = anchor2.clone().applyQuaternion(rot2).add(pos2)
+    const anchor1 = joint.autoConnectAnchor ? worldAnchor.clone().sub(pos1).applyQuaternion(inv1) : toVec(joint.connectedAnchor)
+    const axis2 = toVec(joint.axis)
+    if (axis2.lengthSq() < 1e-12) axis2.set(0, 1, 0)
+    axis2.normalize()
+    // The same direction expressed in body1's frame
+    const axis1 = axis2.clone().applyQuaternion(rot2).applyQuaternion(inv1)
+
+    let data: any
+    switch (joint.type) {
+      case 'fixed': {
+        const frame1 = inv1.clone().multiply(rot2)
+        data = RAPIER.JointData.fixed(anchor1, plainQuat(frame1), anchor2, { x: 0, y: 0, z: 0, w: 1 })
+        break
+      }
+      case 'ball':
+        data = RAPIER.JointData.spherical(anchor1, anchor2)
+        break
+      case 'slider':
+        data = RAPIER.JointData.prismatic(anchor1, anchor2, axis1)
+        break
+      case 'hinge':
+      default:
+        data = RAPIER.JointData.revoluteWithAxes(anchor1, anchor2, axis1, axis2)
+        break
+    }
+
+    const raw = this.rapierWorld.createImpulseJoint(data, body1, body2, true)
+    if (joint.type === 'hinge' || joint.type === 'slider') {
+      const unit = joint.type === 'hinge' ? DEG : 1
+      if (joint.limits?.enabled) raw.setLimits(joint.limits.min * unit, joint.limits.max * unit)
+      if (joint.motor?.enabled) {
+        raw.configureMotorVelocity(joint.motor.targetVelocity * unit, MOTOR_FACTOR)
+        raw.setMotorMaxForce(Math.max(joint.motor.maxForce, 0))
+      }
+    }
+
+    const probeId = this.isDynamic(ownerId) ? ownerId : connectedId && this.isDynamic(connectedId) ? connectedId : null
+    this.joints.push({ raw, ownerId, connectedId, comp: joint, probeId, prevVel: null })
+    return true
+  }
+
+  /** Change a hinge/slider motor at runtime (degrees/s for hinges, m/s for sliders) */
+  setJointMotor(ownerId: string, targetVelocity: number, maxForce?: number): boolean {
+    const rec = this.joints.find((j) => j.ownerId === ownerId)
+    if (!rec || (rec.comp.type !== 'hinge' && rec.comp.type !== 'slider')) return false
+    const unit = rec.comp.type === 'hinge' ? DEG : 1
+    rec.comp.motor = { ...rec.comp.motor, enabled: true, targetVelocity, maxForce: maxForce ?? rec.comp.motor.maxForce }
+    rec.raw.configureMotorVelocity(targetVelocity * unit, MOTOR_FACTOR)
+    rec.raw.setMotorMaxForce(Math.max(rec.comp.motor.maxForce, 0))
+    return true
+  }
+
+  removeJoints(ownerId: string): void {
+    for (const rec of this.joints.filter((j) => j.ownerId === ownerId)) this.removeJointRecord(rec)
+  }
+
+  getJointCount(): number {
+    return this.joints.length
+  }
+
+  private removeJointRecord(rec: JointRecord): void {
+    if (this.rapierWorld && this.rapierWorld.impulseJoints.contains(rec.raw.handle)) {
+      this.rapierWorld.removeImpulseJoint(rec.raw, true)
+    }
+    this.joints = this.joints.filter((j) => j !== rec)
+  }
+
+  private getWorldBody(): any {
+    if (!this.worldBody) {
+      this.worldBody = this.rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.fixed())
+      this.worldBody.userData = { isWorldAnchor: true }
+    }
+    return this.worldBody
+  }
+
+  /**
+   * Remove breakable joints whose force exceeded breakForce during the last step.
+   * Rapier's JS API does not expose joint impulses, so the force is estimated from the
+   * acceleration of the jointed dynamic body against gravity: F = m * |a - g|. Contacts and
+   * script forces on that body count toward it too.
+   */
+  breakJoints(dt: number): BrokenJoint[] {
+    const broken: BrokenJoint[] = []
+    for (const rec of [...this.joints]) {
+      if (!(rec.comp.breakForce > 0) || !rec.probeId) continue
+      const body = this.bodies.get(rec.probeId)
+      if (!body) continue
+      const v = body.linvel()
+      const prev = rec.prevVel
+      rec.prevVel = { x: v.x, y: v.y, z: v.z }
+      if (!prev) {
+        // First step: no previous velocity yet, assume the body started at rest
+        if (dt <= 0) continue
+      }
+      const p = prev ?? { x: 0, y: 0, z: 0 }
+      const g = this.gravity
+      const scale = body.gravityScale()
+      const ax = (v.x - p.x) / dt - g.x * scale
+      const ay = (v.y - p.y) / dt - g.y * scale
+      const az = (v.z - p.z) / dt - g.z * scale
+      const force = body.mass() * Math.hypot(ax, ay, az)
+      if (force > rec.comp.breakForce) {
+        this.removeJointRecord(rec)
+        rec.comp._broken = true
+        broken.push({ ownerId: rec.ownerId, joint: rec.comp, force })
+      }
+    }
+    return broken
   }
 
   hasBody(entityId: string): boolean {
@@ -395,6 +629,14 @@ export class RapierBackend implements PhysicsBackend {
     if (!this.rapierWorld) return
     this.rapierWorld.timestep = deltaTime
     this.rapierWorld.step(this.eventQueue)
+    // Forces last one step, like Unity's AddForce in FixedUpdate
+    for (const body of this.forced) {
+      if (!body.isValid || body.isValid()) {
+        body.resetForces(false)
+        body.resetTorques(false)
+      }
+    }
+    this.forced.clear()
 
     // Process collision events
     if (this.eventQueue) {
@@ -457,9 +699,54 @@ export class RapierBackend implements PhysicsBackend {
     }
 
     this.bodies.clear()
+    this.joints = []
+    this.forced.clear()
+    this.worldBody = null
+    this.pendingMass.clear()
     this.colliders.clear()
     this.colliderToEntity.clear()
     this.colliderToIsTrigger.clear()
     this.collisionPairs.clear()
   }
+}
+
+function toVec(v: Vec3): THREE.Vector3 {
+  return new THREE.Vector3(v.x, v.y, v.z)
+}
+
+function toQuat(q: { x: number; y: number; z: number; w: number }): THREE.Quaternion {
+  return new THREE.Quaternion(q.x, q.y, q.z, q.w)
+}
+
+function plainQuat(q: THREE.Quaternion): { x: number; y: number; z: number; w: number } {
+  return { x: q.x, y: q.y, z: q.z, w: q.w }
+}
+
+function colliderAabb(col: any): { min: Vec3; max: Vec3 } {
+  // Bounding sphere of the shape is enough for water overlap; exact for balls
+  const t = col.translation()
+  const shape = col.shape
+  const he = shape.halfExtents
+  let r: Vec3
+  if (he) {
+    // Rotated cuboid: project the half extents onto the world axes
+    const q = toQuat(col.rotation())
+    const m = new THREE.Matrix3().setFromMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(q)).elements
+    r = {
+      x: Math.abs(m[0]) * he.x + Math.abs(m[3]) * he.y + Math.abs(m[6]) * he.z,
+      y: Math.abs(m[1]) * he.x + Math.abs(m[4]) * he.y + Math.abs(m[7]) * he.z,
+      z: Math.abs(m[2]) * he.x + Math.abs(m[5]) * he.y + Math.abs(m[8]) * he.z,
+    }
+  } else if (typeof shape.halfHeight === 'number' && typeof shape.radius === 'number') {
+    const q = toQuat(col.rotation())
+    const up = new THREE.Vector3(0, shape.halfHeight, 0).applyQuaternion(q)
+    r = { x: Math.abs(up.x) + shape.radius, y: Math.abs(up.y) + shape.radius, z: Math.abs(up.z) + shape.radius }
+  } else if (typeof shape.radius === 'number') {
+    r = { x: shape.radius, y: shape.radius, z: shape.radius }
+  } else {
+    // Convex hull / other: fall back to the volume-equivalent sphere
+    const rr = Math.cbrt((3 * col.volume()) / (4 * Math.PI))
+    r = { x: rr, y: rr, z: rr }
+  }
+  return { min: { x: t.x - r.x, y: t.y - r.y, z: t.z - r.z }, max: { x: t.x + r.x, y: t.y + r.y, z: t.z + r.z } }
 }
