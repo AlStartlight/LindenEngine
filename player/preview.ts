@@ -58,8 +58,9 @@ async function run() {
   pipeline.setSize(size, size)
   pipeline.applySettings(world.getSceneSettings())
   const bridge = new SceneBridge(world)
-  bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, warn })
+  bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, backend: 'webgl2', caps: pipeline.caps, warn })
   await assets.whenIdle()
+  await bridge.whenIdle()
   await pipeline.whenReady()
 
   let target: THREE.Object3D = scene

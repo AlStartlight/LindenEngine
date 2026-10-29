@@ -276,7 +276,7 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
     gridRef.current = grid
 
     // Lights, environment and shadows come from the scene settings (ScenePipeline)
-    bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, warn })
+    bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, backend: 'webgl2', caps: pipeline.caps, warn })
 
     // Raycast on click to select entity
     const raycaster = new THREE.Raycaster()

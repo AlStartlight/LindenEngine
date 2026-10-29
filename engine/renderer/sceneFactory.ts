@@ -71,6 +71,10 @@ export function meshRendererMaterialSpec(mr: Record<string, any>): MaterialSpec 
 
 export interface RenderContext extends MaterialContext {
   assets?: AssetLoader
+  /** Renderer backend (water and particle materials differ per backend); default webgl2 */
+  backend?: 'webgl2' | 'webgpu'
+  /** Quality caps for water and particles; default medium */
+  caps?: Pick<QualityCaps, 'waterReflections' | 'maxParticlesPerEmitter' | 'particleLights'>
 }
 
 export function materialContext(ctx: RenderContext): MaterialContext {

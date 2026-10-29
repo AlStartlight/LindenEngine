@@ -16,6 +16,7 @@ import { createMaterial, disposeMaterial } from '../materials/createMaterial'
 import { ModelSpecSchema, ModelSpec } from '../model/ModelSpec'
 import { buildModelObject } from '../model/buildModel'
 import { AnimationPlayer } from '../animation/AnimationPlayer'
+import { WATER, createPlainWater, createWaterObject, sunDirection, updateWater } from '../renderer/water'
 
 const MESH = '__mesh__'
 const MODEL = '__model__'
@@ -23,7 +24,8 @@ const LIGHT = '__light__'
 
 /**
  * Mirrors the ECS World into a three.js scene: one Group per entity carrying its Transform, with
- * the renderables built by engine/renderer/sceneFactory.ts (MeshRenderer, Model, Light).
+ * the renderables built by engine/renderer/sceneFactory.ts (MeshRenderer, Model, Light) and
+ * engine/renderer/water.ts (Water).
  */
 export class SceneBridge {
   private world: World
@@ -35,6 +37,12 @@ export class SceneBridge {
   private animators: Map<string, AnimationPlayer> = new Map()
   /** Bumped per entity so a slow glTF load does not attach to a newer Model */
   private modelTokens: Map<string, number> = new Map()
+  /** Water surface per entity; bumped tokens drop a reflective build that finished too late */
+  private waters: Map<string, THREE.Mesh> = new Map()
+  private waterTokens: Map<string, number> = new Map()
+  /** Async builds (reflective water) still running; see whenIdle */
+  private pending: Set<Promise<unknown>> = new Set()
+  private sun = new THREE.Vector3()
 
   constructor(world: World) {
     this.world = world
@@ -61,13 +69,24 @@ export class SceneBridge {
     }
     for (const anim of this.animators.values()) anim.detachMixer()
     this.animators.clear()
+    for (const id of this.waters.keys()) this.waterTokens.set(id, (this.waterTokens.get(id) ?? 0) + 1)
+    this.waters.clear()
     this.objectMap.clear()
     this.scene = null
   }
 
-  /** Advance glTF animations */
+  /** Advance glTF animations and water waves */
   update(dt: number): void {
     for (const anim of this.animators.values()) anim.advance(dt)
+    if (this.waters.size > 0) {
+      const sun = sunDirection(this.scene, this.sun)
+      for (const mesh of this.waters.values()) updateWater(mesh, dt, sun)
+    }
+  }
+
+  /** Resolves once async renderables (reflective water) are built; previews await it before rendering */
+  async whenIdle(): Promise<void> {
+    while (this.pending.size > 0) await Promise.allSettled([...this.pending])
   }
 
   getAnimationPlayer(entityId: string): AnimationPlayer | undefined {
@@ -147,6 +166,7 @@ export class SceneBridge {
     this.removeChild(obj, MESH)
     this.removeModel(entity.id, obj)
     this.removeChild(obj, LIGHT)
+    this.removeWater(entity.id, obj)
     if (obj.parent) {
       obj.parent.remove(obj)
     }
@@ -166,6 +186,42 @@ export class SceneBridge {
     this.animators.get(entityId)?.detachMixer()
     this.animators.delete(entityId)
     this.removeChild(parent, MODEL)
+  }
+
+  private removeWater(entityId: string, parent: THREE.Object3D): void {
+    this.waterTokens.set(entityId, (this.waterTokens.get(entityId) ?? 0) + 1)
+    this.waters.delete(entityId)
+    this.removeChild(parent, WATER)
+  }
+
+  private buildWater(entity: Entity, comp: Component): void {
+    const parentObj = this.objectMap.get(entity.id)
+    if (!parentObj) return
+    this.removeWater(entity.id, parentObj)
+    const water = comp as any
+    // The plain plane shows at once; the reflective shader replaces it when its chunk has loaded
+    const plain = createPlainWater(water)
+    plain.userData.entityId = entity.id
+    parentObj.add(plain)
+    this.waters.set(entity.id, plain)
+    if (water.reflections === false || this.ctx.caps?.waterReflections === false) return
+
+    const token = this.waterTokens.get(entity.id) ?? 0
+    const job = createWaterObject(water, { backend: this.ctx.backend, allowReflections: this.ctx.caps?.waterReflections }).then(
+      (mesh) => {
+        if (this.waterTokens.get(entity.id) !== token || this.objectMap.get(entity.id) !== parentObj) {
+          disposeObject3D(mesh)
+          return
+        }
+        this.removeChild(parentObj, WATER)
+        mesh.userData.entityId = entity.id
+        parentObj.add(mesh)
+        this.waters.set(entity.id, mesh)
+      },
+      (err) => this.warn(`Water pada "${entity.name}": ${err?.message ?? err}`)
+    )
+    this.pending.add(job)
+    job.finally(() => this.pending.delete(job))
   }
 
   private warn(message: string): void {
@@ -252,6 +308,7 @@ export class SceneBridge {
     if (comp.name === 'MeshRenderer') this.buildMesh(entity, comp)
     else if (comp.name === 'Model') this.buildModel(entity, comp)
     else if (comp.name === 'Light') this.buildLight(entity, comp)
+    else if (comp.name === 'Water') this.buildWater(entity, comp)
   }
 
   private handleComponentRemoved(entity: Entity, comp: Component): void {
@@ -260,6 +317,7 @@ export class SceneBridge {
     if (comp.name === 'MeshRenderer') this.removeChild(parentObj, MESH)
     else if (comp.name === 'Model') this.removeModel(entity.id, parentObj)
     else if (comp.name === 'Light') this.removeChild(parentObj, LIGHT)
+    else if (comp.name === 'Water') this.removeWater(entity.id, parentObj)
   }
 
   private handlePropertyChanged(entity: Entity, compType: string, path: string, value: any): void {
@@ -294,6 +352,8 @@ export class SceneBridge {
       this.buildModel(entity, comp)
     } else if (compType === 'Light') {
       this.buildLight(entity, comp)
+    } else if (compType === 'Water') {
+      this.buildWater(entity, comp)
     }
   }
 

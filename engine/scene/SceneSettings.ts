@@ -99,12 +99,18 @@ export interface QualityCaps {
   shadowMapSize: number
   transmission: boolean
   maxPixelRatio: number
+  /** Water reflection/refraction pass (renders the scene a second time) */
+  waterReflections: boolean
+  /** Upper bound for ParticleEmitter.maxParticles */
+  maxParticlesPerEmitter: number
+  /** ParticleEmitter.light (a PointLight per emitter) */
+  particleLights: boolean
 }
 
 export const QUALITY_CAPS: Record<QualityProfileType, QualityCaps> = {
-  low: { postFx: false, shadowMapSize: 1024, transmission: false, maxPixelRatio: 1 },
-  medium: { postFx: true, shadowMapSize: 2048, transmission: true, maxPixelRatio: 1.5 },
-  high: { postFx: true, shadowMapSize: 4096, transmission: true, maxPixelRatio: 2 },
+  low: { postFx: false, shadowMapSize: 1024, transmission: false, maxPixelRatio: 1, waterReflections: false, maxParticlesPerEmitter: 200, particleLights: false },
+  medium: { postFx: true, shadowMapSize: 2048, transmission: true, maxPixelRatio: 1.5, waterReflections: true, maxParticlesPerEmitter: 1000, particleLights: true },
+  high: { postFx: true, shadowMapSize: 4096, transmission: true, maxPixelRatio: 2, waterReflections: true, maxParticlesPerEmitter: 2000, particleLights: true },
 }
 
 export const SHADOW_MAP_SIZE: Record<ShadowQualityType, number> = { off: 0, low: 1024, medium: 2048, high: 4096 }

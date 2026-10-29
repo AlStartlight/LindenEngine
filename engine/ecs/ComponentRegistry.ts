@@ -1,5 +1,6 @@
 import { Component, Transform } from './Component'
 import { MeshRenderer, Camera, Light, LightType } from '../renderer/Components'
+import { Water } from '../environment/Water'
 import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, CharacterController, Joint } from '../physics/components'
 import { TimerComponent } from '../time/Timer'
 import { Script, HtmlUI } from '../scripting/ScriptComponents'
@@ -13,6 +14,7 @@ export type PropertyKind =
   | 'boolean'
   | 'string'
   | 'color'
+  | 'vector2'
   | 'vector3'
   | 'enum'
   | 'entityRef'
@@ -287,6 +289,25 @@ ComponentRegistry.register({
     { name: 'stepOffset', label: 'Step Offset', kind: 'number', default: 0.3, min: 0, max: 2, step: 0.05 },
     { name: 'slopeLimit', label: 'Slope Limit', kind: 'number', default: 45, min: 0, max: 90, step: 1 },
     { name: 'skinWidth', label: 'Skin Width', kind: 'number', default: 0.08, min: 0.001, max: 0.5, step: 0.01 },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'Water',
+  menuPath: 'Environment/Water',
+  icon: 'Waves',
+  disallowMultiple: true,
+  create: () => new Water(),
+  properties: [
+    { name: 'size', label: 'Size', kind: 'vector2', default: { x: 20, y: 20 }, tooltip: 'Lebar (X) dan panjang (Z) permukaan, meter' },
+    { name: 'color', label: 'Color', kind: 'color', default: '#1e5f74' },
+    { name: 'distortion', label: 'Distortion', kind: 'number', default: 3.7, min: 0, max: 20, step: 0.1 },
+    { name: 'waveSpeed', label: 'Wave Speed', kind: 'number', default: 1, min: 0, max: 10, step: 0.1, tooltip: 'WebGPU memakai kecepatan tetap' },
+    { name: 'reflections', label: 'Reflections', kind: 'boolean', default: true, tooltip: 'Mati otomatis di profil kualitas Low' },
+    { name: 'buoyancy', label: 'Buoyancy', kind: 'boolean', default: true, tooltip: 'Benda dinamis mengapung' },
+    { name: 'density', label: 'Density', kind: 'number', default: 1000, min: 1, max: 20000, step: 10, tooltip: 'kg/m³ (air tawar 1000, air laut 1025)' },
+    { name: 'linearDrag', label: 'Linear Drag', kind: 'number', default: 1, min: 0, max: 20, step: 0.1 },
+    { name: 'angularDrag', label: 'Angular Drag', kind: 'number', default: 0.5, min: 0, max: 20, step: 0.1 },
   ],
 })
 

@@ -127,6 +127,8 @@ export class LindenPlayer {
       this.bridge.attach(this.scene, {
         assets: this.assets,
         allowTransmission: this.pipeline.caps.transmission,
+        backend: this.backend,
+        caps: this.pipeline.caps,
         warn: (msg) => this.warn(msg),
       })
       this.ui = new HtmlUiLayer({
