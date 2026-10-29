@@ -4,6 +4,8 @@ import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, 
 import { TimerComponent } from '../time/Timer'
 import { Script, HtmlUI } from '../scripting/ScriptComponents'
 import { CharacterMovement } from '../movement/CharacterMovement'
+import { ModelComponent } from '../model/ModelComponent'
+import { PRIMITIVE_KINDS } from '../renderer/primitives'
 
 export type PropertyKind =
   | 'number'
@@ -19,6 +21,7 @@ export type PropertyKind =
   | 'event'
   | 'array'
   | 'json'
+  | 'material'
 
 export interface PropertySchema {
   name: string
@@ -114,13 +117,35 @@ ComponentRegistry.register({
   disallowMultiple: true,
   create: () => new MeshRenderer(),
   properties: [
-    { name: 'primitive', label: 'Primitive', kind: 'enum', default: 'box', options: ['box', 'sphere', 'cylinder', 'capsule', 'plane', 'torus'] },
+    { name: 'primitive', label: 'Primitive', kind: 'enum', default: 'box', options: [...PRIMITIVE_KINDS], tooltip: 'Ukuran 1 m (capsule Ø1×2 m)' },
+    { name: 'material', label: 'Material', kind: 'material', default: {}, tooltip: 'Preset PBR + override; kosong = pakai Color/Roughness/Metalness' },
     { name: 'color', label: 'Color', kind: 'color', default: '#3b82f6' },
     { name: 'roughness', label: 'Roughness', kind: 'number', default: 0.5, min: 0, max: 1, step: 0.05 },
     { name: 'metalness', label: 'Metalness', kind: 'number', default: 0.1, min: 0, max: 1, step: 0.05 },
+    { name: 'size', label: 'Mesh Size', kind: 'vector3', default: { x: 1, y: 1, z: 1 }, hideInInspector: true, tooltip: 'Skala mesh saja (tidak diwarisi child); dipakai migrasi scene v1' },
     { name: 'castShadow', label: 'Cast Shadows', kind: 'boolean', default: true },
     { name: 'receiveShadow', label: 'Receive Shadows', kind: 'boolean', default: true },
     { name: 'isVisible', label: 'Visible', kind: 'boolean', default: true },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'Model',
+  menuPath: 'Rendering/Model',
+  icon: 'Box',
+  disallowMultiple: true,
+  create: () => new ModelComponent(),
+  properties: [
+    { name: 'src', label: 'Model File', kind: 'assetRef', assetType: 'model', default: '', tooltip: 'assets/*.glb|gltf|obj; kosong = pakai parts' },
+    { name: 'parts', label: 'Parts', kind: 'json', default: [], tooltip: 'Daftar part (roundedBox, lathe, extrude, tube, ...); lihat linden_model_build' },
+    { name: 'category', label: 'Category', kind: 'string', default: '', tooltip: 'Kunci tabel ukuran nyata, mis. chair' },
+    { name: 'placement', label: 'Placement', kind: 'enum', default: 'floor', options: ['floor', 'wall', 'ceiling', 'free'] },
+    { name: 'merge', label: 'Merge Static Parts', kind: 'boolean', default: true },
+    { name: 'collider', label: 'Auto Collider', kind: 'enum', default: 'none', options: ['none', 'box', 'convexHull'] },
+    { name: 'animation', label: 'Animation Clip', kind: 'string', default: '' },
+    { name: 'instances', label: 'Instances', kind: 'json', default: [], hideInInspector: true },
+    { name: 'castShadow', label: 'Cast Shadows', kind: 'boolean', default: true },
+    { name: 'receiveShadow', label: 'Receive Shadows', kind: 'boolean', default: true },
   ],
 })
 
@@ -147,7 +172,7 @@ ComponentRegistry.register({
   properties: [
     { name: 'type', label: 'Type', kind: 'enum', default: LightType.DIRECTIONAL, options: [LightType.DIRECTIONAL, LightType.POINT, LightType.SPOT] },
     { name: 'color', label: 'Color', kind: 'color', default: '#ffffff' },
-    { name: 'intensity', label: 'Intensity', kind: 'number', default: 1, min: 0, max: 10, step: 0.1 },
+    { name: 'intensity', label: 'Intensity', kind: 'number', default: 1, min: 0, max: 500, step: 0.1, tooltip: 'Directional: ~2-4 seperti matahari; point/spot: candela (bohlam 60 W ≈ 65)' },
     { name: 'range', label: 'Range', kind: 'number', default: 10, min: 0.1, max: 100, step: 0.5 },
     { name: 'castShadow', label: 'Cast Shadows', kind: 'boolean', default: true },
   ],

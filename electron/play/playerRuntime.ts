@@ -8,7 +8,7 @@ import { resolveAppResource } from '../resourcePaths'
  * player/, engine/ or shared/ change, so Play never runs a stale dist-player/ or old build.
  */
 
-const REQUIRED = ['game.js', 'index.html', 'linden-bridge.js']
+const REQUIRED = ['game.js', 'index.html', 'linden-bridge.js', 'preview.js', 'preview.html', 'decoders/draco/draco_wasm_wrapper.js']
 const builds = new Map<string, { fingerprint: string; promise: Promise<string> }>()
 
 /** Newest mtime of the sources that make up the runtime (dev rebuilds when it changes) */
@@ -45,12 +45,25 @@ async function buildFromSource(playerDir: string, outDir: string): Promise<strin
     output: { dir: outDir, format: 'esm', entryFileNames: 'game.js', sourcemap: true },
   } as any)
   await build({
+    input: path.join(playerDir, 'preview.ts'),
+    platform: 'browser',
+    logLevel: 'silent',
+    output: { dir: outDir, format: 'esm', entryFileNames: 'preview.js', sourcemap: true },
+  } as any)
+  await build({
     input: path.join(playerDir, 'htmlBridge.ts'),
     platform: 'browser',
     logLevel: 'silent',
     output: { file: path.join(outDir, 'linden-bridge.js'), format: 'iife', codeSplitting: false },
   } as any)
   fs.copyFileSync(path.join(playerDir, 'index.html'), path.join(outDir, 'index.html'))
+  fs.copyFileSync(path.join(playerDir, 'preview.html'), path.join(outDir, 'preview.html'))
+  // Same as scripts/copy-decoders.mjs: glTF decoders served next to game.js
+  const libs = path.join(path.dirname(playerDir), 'node_modules/three/examples/jsm/libs')
+  if (fs.existsSync(libs)) {
+    fs.cpSync(path.join(libs, 'draco/gltf'), path.join(outDir, 'decoders/draco'), { recursive: true })
+    fs.cpSync(path.join(libs, 'basis'), path.join(outDir, 'decoders/basis'), { recursive: true, filter: (src) => !src.endsWith('.md') })
+  }
   return outDir
 }
 

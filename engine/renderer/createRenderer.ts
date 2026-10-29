@@ -6,6 +6,9 @@ export type RendererBackend = 'webgpu' | 'webgl2'
 /** The subset of WebGLRenderer / WebGPURenderer the runtime uses */
 export interface GameRenderer {
   domElement: HTMLCanvasElement
+  toneMapping?: THREE.ToneMapping
+  toneMappingExposure?: number
+  outputColorSpace?: THREE.ColorSpace
   shadowMap: { enabled: boolean; type: THREE.ShadowMapType }
   info: { render: { triangles?: number; calls?: number; drawCalls?: number } }
   setSize(width: number, height: number, updateStyle?: boolean): void
@@ -26,7 +29,7 @@ export function configureRenderer(renderer: GameRenderer, width: number, height:
   renderer.setPixelRatio(Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1, 2))
   renderer.setSize(width, height)
   renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap
+  renderer.shadowMap.type = THREE.PCFShadowMap
 }
 
 export function rendererStats(renderer: GameRenderer): { triangles: number; drawCalls: number } {
@@ -72,8 +75,9 @@ export async function createGameRenderer(
   return createWebGLRenderer(canvas, opts.width, opts.height)
 }
 
-function createWebGLRenderer(canvas: HTMLCanvasElement, width: number, height: number): CreatedRenderer {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' })
+/** Synchronous WebGL2 renderer with the shared configuration (editor viewport, offscreen previews) */
+export function createWebGLRenderer(canvas: HTMLCanvasElement, width: number, height: number, opts: { preserveDrawingBuffer?: boolean } = {}): CreatedRenderer {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: opts.preserveDrawingBuffer ?? false })
   configureRenderer(renderer as unknown as GameRenderer, width, height)
   return { renderer: renderer as unknown as GameRenderer, backend: 'webgl2' }
 }

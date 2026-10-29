@@ -1,6 +1,6 @@
 {
   "format": "linden-scene",
-  "version": 2,
+  "version": 3,
   "name": "FutureScene",
   "camera": {
     "position": [10, 10, 10],

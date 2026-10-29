@@ -1,86 +1,46 @@
 import * as THREE from 'three'
-import { SceneFile, SceneObjectData } from './SceneSchema'
+import { SceneFile, SceneFileV1, SceneObjectDataV1 } from './SceneSchema'
+import { createMeshRendererMesh, RenderContext } from '../renderer/sceneFactory'
+import { migrateSceneV1ToV2, V1_PRIMITIVE_SIZES } from './migrations'
+import { World } from '../ecs/World'
+import { SceneSerializer } from './serializer'
+import { SceneBridge } from './SceneBridge'
+import '../ecs/ComponentRegistry'
 
-export function createPrimitiveGeometry(primitive: SceneObjectData['primitive']): THREE.BufferGeometry {
-  switch (primitive) {
-    case 'box':
-      return new THREE.BoxGeometry(2, 2, 2)
-    case 'sphere':
-      return new THREE.SphereGeometry(1, 32, 32)
-    case 'cylinder':
-      return new THREE.CylinderGeometry(0.5, 0.5, 3, 32)
-    case 'torus':
-      return new THREE.TorusGeometry(1, 0.4, 16, 100)
-    case 'cone':
-      return new THREE.ConeGeometry(1, 2, 32)
-    case 'plane':
-      return new THREE.PlaneGeometry(2, 2)
-  }
-}
-
-export function createPrimitiveMesh(obj: SceneObjectData): THREE.Mesh {
-  const geometry = createPrimitiveGeometry(obj.primitive)
-  const material = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(obj.material.color),
-    roughness: obj.material.roughness,
-    metalness: obj.material.metalness,
-  })
-
-  const mesh = new THREE.Mesh(geometry, material)
+/**
+ * A single v1 object as a mesh (legacy helper). Geometry comes from sceneFactory; the v1 size is
+ * baked into the geometry so the mesh scale stays the object's own scale.
+ */
+export function createPrimitiveMesh(obj: SceneObjectDataV1): THREE.Mesh {
+  const mesh = createMeshRendererMesh({ primitive: obj.primitive, ...obj.material, castShadow: obj.castShadow, receiveShadow: obj.receiveShadow, isVisible: obj.visible })
+  const [sx, sy, sz] = V1_PRIMITIVE_SIZES[obj.primitive] ?? [1, 1, 1]
+  mesh.geometry.scale(sx, sy, sz)
   mesh.name = obj.name
-
-  mesh.position.set(
-    obj.transform.position[0],
-    obj.transform.position[1],
-    obj.transform.position[2]
-  )
-
+  mesh.position.fromArray(obj.transform.position)
   mesh.rotation.set(
     THREE.MathUtils.degToRad(obj.transform.rotation[0]),
     THREE.MathUtils.degToRad(obj.transform.rotation[1]),
     THREE.MathUtils.degToRad(obj.transform.rotation[2])
   )
-
-  mesh.scale.set(
-    obj.transform.scale[0],
-    obj.transform.scale[1],
-    obj.transform.scale[2]
-  )
-
-  mesh.castShadow = obj.castShadow
-  mesh.receiveShadow = obj.receiveShadow
-  mesh.visible = obj.visible
-
-  mesh.userData = {
-    id: obj.id,
-    name: obj.name,
-    selectable: true,
-    type: 'primitive',
-    primitive: obj.primitive,
-  }
-
+  mesh.scale.fromArray(obj.transform.scale)
+  mesh.userData = { id: obj.id, name: obj.name, selectable: true, type: 'primitive', primitive: obj.primitive }
   return mesh
 }
 
-export function buildSceneFromData(scene: THREE.Scene, data: SceneFile): Map<string, THREE.Object3D> {
-  const objectsMap = new Map<string, THREE.Object3D>()
-
-  // 1. Create all meshes
-  for (const objData of data.objects) {
-    const mesh = createPrimitiveMesh(objData)
-    objectsMap.set(objData.id, mesh)
+/**
+ * Build a scene file (v2, or v1 migrated) into a three.js scene through the same World +
+ * SceneBridge path as the editor and the player. Returns the entity groups by id.
+ */
+export function buildSceneFromData(scene: THREE.Scene, data: SceneFile | SceneFileV1, ctx: RenderContext = {}): Map<string, THREE.Object3D> {
+  const v2 = data.version === 1 ? migrateSceneV1ToV2(data) : data
+  const world = new World()
+  SceneSerializer.deserialize(JSON.stringify(v2), world)
+  const bridge = new SceneBridge(world)
+  bridge.attach(scene, ctx)
+  const map = new Map<string, THREE.Object3D>()
+  for (const e of world.getEntities()) {
+    const obj = bridge.getObject(e.id)
+    if (obj) map.set(e.id, obj)
   }
-
-  // 2. Add to scene or parent
-  for (const objData of data.objects) {
-    const mesh = objectsMap.get(objData.id)!
-    if (objData.parentId && objectsMap.has(objData.parentId)) {
-      const parent = objectsMap.get(objData.parentId)!
-      parent.add(mesh)
-    } else {
-      scene.add(mesh)
-    }
-  }
-
-  return objectsMap
+  return map
 }

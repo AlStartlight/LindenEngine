@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useEditorStore } from '../store/editorStore'
+import { MaterialPropertyField } from './MaterialPropertyField'
 import { ComponentRegistry, PropertySchema } from '../../engine/ecs/ComponentRegistry'
 import {
   setPropertyCommand,
@@ -757,6 +758,21 @@ const PropertyFieldRow: React.FC<{
           ))}
         </select>
       </div>
+    )
+  }
+
+  if (schema.kind === 'material') {
+    return (
+      <MaterialPropertyField
+        label={schema.label || schema.name}
+        value={isMixed ? undefined : rawValue}
+        legacy={{ color: (comp as any)?.color, roughness: (comp as any)?.roughness, metalness: (comp as any)?.metalness }}
+        onCommit={(val, mergeKey) => {
+          for (const ent of entities) {
+            executeCommand(setPropertyCommand(ent.id, componentType, schema.name, val, undefined, mergeKey ? `${mergeKey}:${ent.id}` : undefined))
+          }
+        }}
+      />
     )
   }
 

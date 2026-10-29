@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useEditorStore } from '../store/editorStore'
 
-type TabType = 'tags_layers' | 'physics' | 'time' | 'services'
+type TabType = 'tags_layers' | 'physics' | 'graphics' | 'time' | 'services'
 
 export const ProjectSettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const {
@@ -11,6 +11,7 @@ export const ProjectSettingsWindow: React.FC<{ onClose: () => void }> = ({ onClo
     removeProjectTag,
     setProjectLayers,
     setCollisionMatrixCell,
+    saveGraphicsSettings,
   } = useEditorStore()
 
   const [activeTab, setActiveTab] = useState<TabType>('tags_layers')
@@ -63,6 +64,14 @@ export const ProjectSettingsWindow: React.FC<{ onClose: () => void }> = ({ onClo
               }`}
             >
               Physics (Collision Matrix)
+            </button>
+            <button
+              onClick={() => setActiveTab('graphics')}
+              className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
+                activeTab === 'graphics' ? 'bg-blue-600 text-white font-medium' : 'text-gray-400 hover:bg-white/5'
+              }`}
+            >
+              Graphics (Quality)
             </button>
             <button
               onClick={() => setActiveTab('time')}
@@ -230,6 +239,42 @@ export const ProjectSettingsWindow: React.FC<{ onClose: () => void }> = ({ onClo
             )}
 
             {/* Time Settings */}
+            {activeTab === 'graphics' && (
+              <div className="space-y-4">
+                <h3 className="font-semibold text-gray-300 text-sm">Graphics</h3>
+                <div className="bg-[#121b33] border border-gray-700/50 rounded-lg p-3 space-y-3 max-w-md">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-gray-300">Quality Profile</span>
+                    <select
+                      value={projectSettings.quality ?? 'medium'}
+                      onChange={(e) => saveGraphicsSettings({ quality: e.target.value as 'low' | 'medium' | 'high' })}
+                      className="bg-black/40 border border-gray-700 rounded px-2 py-1 text-white"
+                    >
+                      <option value="low">Low (mobile)</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </div>
+                  <p className="text-gray-500 leading-relaxed">
+                    Low: tanpa post-processing, shadow map 1024, kaca/air tanpa refraksi (transparansi biasa), pixel ratio 1.
+                    Medium: shadow map maks 2048. High: shadow map maks 4096, pixel ratio 2. Berlaku di editor, Play dan web export;
+                    setting per scene ada di tab Scene.
+                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-gray-300">Renderer</span>
+                    <select
+                      value={projectSettings.renderer ?? 'webgl'}
+                      onChange={(e) => saveGraphicsSettings({ renderer: e.target.value as 'webgl' | 'webgpu' })}
+                      className="bg-black/40 border border-gray-700 rounded px-2 py-1 text-white"
+                    >
+                      <option value="webgl">WebGL2</option>
+                      <option value="webgpu">WebGPU (fallback WebGL2)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'time' && (
               <div className="space-y-4">
                 <h3 className="font-semibold text-gray-300 text-sm">Time Settings</h3>

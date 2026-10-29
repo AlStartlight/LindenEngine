@@ -1,6 +1,7 @@
 import { Component, Transform } from './Component'
 import { Entity } from './Entity'
 import { ComponentRegistry } from './ComponentRegistry'
+import { DEFAULT_SCENE_SETTINGS, SceneSettings } from '../scene/SceneSettings'
 
 export type EventCallback = (...args: any[]) => void
 
@@ -77,7 +78,22 @@ export class World {
 
   public readonly events: EventEmitter = new EventEmitter()
 
+  /** Render settings of the loaded scene (environment, tone mapping, fog, shadows, post-processing) */
+  private sceneSettings: SceneSettings = structuredClone(DEFAULT_SCENE_SETTINGS)
+
   constructor() {}
+
+  getSceneSettings(): SceneSettings {
+    return this.sceneSettings
+  }
+
+  /** Replace (or merge, for a partial) the scene settings; renderers re-apply on 'sceneSettingsChanged' */
+  setSceneSettings(settings: Partial<SceneSettings>, replace = false): void {
+    this.sceneSettings = replace
+      ? (structuredClone(settings) as SceneSettings)
+      : ({ ...this.sceneSettings, ...structuredClone(settings) } as SceneSettings)
+    this.events.emit('sceneSettingsChanged', this.sceneSettings)
+  }
 
   /**
    * Create entity and optionally attach to parent

@@ -75,6 +75,7 @@ export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStat
                 name: projectName,
                 collisionMatrix: projectSettings.collisionMatrix,
                 renderer: (projectSettings as { renderer?: string }).renderer === 'webgpu' ? 'webgpu' : 'webgl',
+                quality: projectSettings.quality ?? 'medium',
                 input: {
                   actions: projectSettings.inputActions,
                   touch: {

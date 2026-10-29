@@ -15,6 +15,9 @@ import { getSceneNameFromPath } from '../ui/windowTitle'
 import type { PlayStartResult } from '../../shared/playProtocol'
 
 export interface ProjectSettingsState {
+  /** Quality profile: Low = no post-processing, 1024 shadows, no transmission (SceneSettings.ts QUALITY_CAPS) */
+  quality?: 'low' | 'medium' | 'high'
+  renderer?: 'webgl' | 'webgpu'
   tags: string[]
   layers: string[]
   collisionMatrix: boolean[][]
@@ -83,6 +86,7 @@ export interface EditorState {
   setActiveWindow: (windowName: string | null) => void
   setActiveEditorPanel: (panel: 'viewport' | 'bridge' | 'godot') => void
   setProjectSettings: (settings: Partial<ProjectSettingsState>) => void
+  saveGraphicsSettings: (graphics: { quality?: 'low' | 'medium' | 'high'; renderer?: 'webgl' | 'webgpu' }) => Promise<'saved' | 'memory-only' | 'error'>
   /** Apply Input Actions / touch layout and persist them to project.linden.json (input.*) */
   saveInputSettings: (actions: InputActionDef[], touch: TouchConfig) => Promise<'saved' | 'memory-only' | 'error'>
   /** Result of normalizing input.touch when the project was opened (v1 -> v2 migration, problems) */
@@ -487,6 +491,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (!projectPath || !save) return 'memory-only'
     try {
       const res = await save({ projectPath, input: { actions: normalized, touch: layout } })
+      return res?.status === 'ok' ? 'saved' : 'error'
+    } catch {
+      return 'error'
+    }
+  },
+
+  saveGraphicsSettings: async (graphics: { quality?: 'low' | 'medium' | 'high'; renderer?: 'webgl' | 'webgpu' }) => {
+    set((state) => ({ projectSettings: { ...state.projectSettings, ...graphics } }))
+    const { projectPath } = get()
+    const save = typeof window !== 'undefined' ? window.electronAPI?.saveProjectGraphics : undefined
+    if (!projectPath || !save) return 'memory-only'
+    try {
+      const res = await save({ projectPath, ...graphics })
       return res?.status === 'ok' ? 'saved' : 'error'
     } catch {
       return 'error'

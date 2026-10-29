@@ -54,8 +54,9 @@ A complete editing environment with all the tools you need:
 
 - **Scene Viewport**: Real-time 3D rendering with transform gizmos
 - **Hierarchy Panel**: Organize entities in a tree structure
-- **Inspector Panel**: Edit properties and add components
-- **Asset Browser**: Manage textures, models, sounds, and scripts
+- **Inspector Panel**: Edit properties and add components, including PBR materials (preset dropdown, sliders, live preview)
+- **Scene Settings**: Environment lighting (HDR/EXR), tone mapping, exposure, fog, shadows and post-processing per scene
+- **Asset Browser**: The project's `assets/` with thumbnails for glTF/GLB/OBJ models and HDR environments
 - **Console**: Debug output and error tracking
 
 ### Modern Architecture
@@ -101,6 +102,7 @@ Build once, deploy everywhere:
 <details>
 <summary>Features & Guides</summary>
 
+- [Realistic 3D Objects & Rendering](#realistic-3d-objects--rendering)
 - [Scripting with TypeScript](#scripting-with-typescript)
 - [Plugin Development](#plugin-development)
 
@@ -243,7 +245,7 @@ npm run dev
 1. Select the "Rotating Cube" entity in the Hierarchy
 2. In the **Inspector** panel (right side), click **"+ Add Component"**
 3. Choose **"Mesh Renderer"**
-4. In the Mesh Renderer properties, select **"Cube"** as the mesh type
+4. In the Mesh Renderer properties, select **"box"** as the primitive (1 m cube) and pick a material preset
 
 ### Step 4: Add Rotation Logic with a Script
 
@@ -474,6 +476,42 @@ export class GameScript implements IGameScript {
 ```
 
 ---
+
+## Realistic 3D Objects & Rendering
+
+The editor viewport, Play and the web export render through one module,
+`engine/renderer/sceneFactory.ts`, so a scene looks the same everywhere. 1 unit = 1 meter; primitives are 1 m
+(the capsule is Ø1×2 m to match the default capsule collider).
+
+**Rendering** (per scene, `settings` in the `.lscene`, editable in the **Scene** tab):
+
+- sRGB output, AgX/ACES/Neutral tone mapping and exposure
+- Image-based lighting: procedural RoomEnvironment by default, or an HDR/EXR from `assets/` as environment and background
+- Soft shadows (PCF) with the sun's shadow camera fitted to the scene and texel-scaled bias
+- Optional post-processing: GTAO ambient occlusion, bloom, SMAA/FXAA (EffectComposer on WebGL, TSL `RenderPipeline` on WebGPU; an effect that is unavailable is skipped with a warning)
+- Project quality profile (**Project Settings → Graphics**): Low (no post-processing, 1024 shadows, no transmission), Medium, High
+
+**Materials** (`engine/materials`): 30+ PBR presets (teak/oak/walnut, steel, chrome, gold, copper, brushed aluminium,
+plastics, rubber, glass, water, ceramic, marble, concrete, brick, fabric, leather, grass, soil, sand, stone, car paint...)
+with overrides for clearcoat, transmission/IOR/thickness, sheen, iridescence, anisotropy and emission. Wood grain, bricks,
+tiles, weave, brushed and scratched metal are generated at runtime (albedo, roughness and normal maps, no downloads);
+project textures (`map`, `normalMap`, `roughnessMap`, `metalnessMap`, `aoMap`) are supported with the right color space.
+
+**Models** (`Model` component, `engine/model`): objects built from parts (rounded boxes, lathe profiles for vases and
+glasses, extrusions, spline tubes, tapered cylinders, displaced planes) in a hierarchy, merged per material, with GPU
+instancing for repeated objects and an optional box/convex-hull collider. glTF/GLB (Draco, Meshopt, KTX2, decoders bundled
+locally) and OBJ files from `assets/` are supported, with glTF animations played through `AnimationPlayer`.
+
+**From a prompt**: the Linden Agent looks up real sizes (`linden_dimensions`, 90+ objects), builds the object part by part
+(`linden_model_build`, which validates floating or disconnected parts, buried parts, ground contact, scale against the
+real object and inverted normals), looks at offscreen renders from four angles (`linden_render_preview`) and corrects
+the model before placing it.
+
+![Realistic showcase](docs/showcase/scene-threeQuarter.png)
+
+`fixtures/realistic-showcase.lscene` (teak table, rattan chair, metal desk lamp, a glass of water, a lathe-turned ceramic
+vase, a GLB teapot, HDR environment) is generated with `node scripts/generate-showcase.mjs`; `npm run test:e2e:preview`
+renders it with `linden_render_preview` into `docs/showcase/`.
 
 ## Scripting with TypeScript
 

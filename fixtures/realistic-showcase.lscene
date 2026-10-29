@@ -1,0 +1,952 @@
+{
+  "format": "linden-scene",
+  "version": 2,
+  "name": "Realistic Showcase",
+  "settings": {
+    "ambientColor": "#666666",
+    "ambientIntensity": 0.05,
+    "skybox": null,
+    "environment": "assets/hdri/studio_sky.hdr",
+    "environmentIntensity": 1,
+    "backgroundBlurriness": 0,
+    "toneMapping": "agx",
+    "exposure": 1,
+    "fog": {
+      "enabled": false,
+      "color": "#c8d2dc",
+      "type": "exp2",
+      "near": 10,
+      "far": 120,
+      "density": 0.015
+    },
+    "shadowQuality": "high",
+    "sun": {
+      "enabled": true,
+      "color": "#fff1dc",
+      "intensity": 3,
+      "direction": [
+        0.45,
+        0.62,
+        0.64
+      ]
+    },
+    "postFx": {
+      "enabled": true,
+      "ao": true,
+      "aoIntensity": 1,
+      "bloom": true,
+      "bloomStrength": 0.25,
+      "bloomThreshold": 1.2,
+      "bloomRadius": 0.4,
+      "antialias": "smaa"
+    }
+  },
+  "entities": [
+    {
+      "active": true,
+      "components": [
+        {
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "type": "Transform"
+        },
+        {
+          "data": {
+            "collider": "none",
+            "merge": true,
+            "parts": [
+              {
+                "castShadow": false,
+                "id": "floor",
+                "material": {
+                  "color": "#b9b0a3",
+                  "preset": "ceramic_tile",
+                  "tileSize": 1.2
+                },
+                "name": "Lantai ubin",
+                "shape": {
+                  "size": [
+                    8,
+                    8
+                  ],
+                  "type": "plane"
+                }
+              }
+            ],
+            "placement": "floor"
+          },
+          "type": "Model"
+        }
+      ],
+      "id": "floor",
+      "layer": 0,
+      "name": "Lantai",
+      "parentId": null,
+      "static": true,
+      "tags": []
+    },
+    {
+      "active": true,
+      "components": [
+        {
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "type": "Transform"
+        },
+        {
+          "data": {
+            "category": "dining_table",
+            "collider": "box",
+            "merge": true,
+            "parts": [
+              {
+                "id": "top",
+                "material": "wood_teak",
+                "name": "Daun meja",
+                "position": [
+                  0,
+                  0.7325,
+                  0
+                ],
+                "shape": {
+                  "radius": 0.006,
+                  "size": [
+                    1.6,
+                    0.035,
+                    0.9
+                  ],
+                  "type": "roundedBox"
+                }
+              },
+              {
+                "attachTo": "top",
+                "id": "apron_f",
+                "material": "wood_teak",
+                "position": [
+                  0,
+                  0.6749999999999999,
+                  0.37
+                ],
+                "shape": {
+                  "size": [
+                    1.4,
+                    0.08,
+                    0.022
+                  ],
+                  "type": "roundedBox"
+                }
+              },
+              {
+                "attachTo": "top",
+                "id": "apron_b",
+                "material": "wood_teak",
+                "position": [
+                  0,
+                  0.6749999999999999,
+                  -0.37
+                ],
+                "shape": {
+                  "size": [
+                    1.4,
+                    0.08,
+                    0.022
+                  ],
+                  "type": "roundedBox"
+                }
+              },
+              {
+                "attachTo": "top",
+                "id": "leg_0",
+                "material": "wood_teak",
+                "name": "Kaki meja",
+                "position": [
+                  -0.73,
+                  0.3575,
+                  -0.38
+                ],
+                "shape": {
+                  "height": 0.715,
+                  "radialSegments": 32,
+                  "radiusBottom": 0.022,
+                  "radiusTop": 0.03,
+                  "type": "cylinder"
+                }
+              },
+              {
+                "attachTo": "top",
+                "id": "leg_1",
+                "material": "wood_teak",
+                "name": "Kaki meja",
+                "position": [
+                  0.73,
+                  0.3575,
+                  -0.38
+                ],
+                "shape": {
+                  "height": 0.715,
+                  "radialSegments": 32,
+                  "radiusBottom": 0.022,
+                  "radiusTop": 0.03,
+                  "type": "cylinder"
+                }
+              },
+              {
+                "attachTo": "top",
+                "id": "leg_2",
+                "material": "wood_teak",
+                "name": "Kaki meja",
+                "position": [
+                  -0.73,
+                  0.3575,
+                  0.38
+                ],
+                "shape": {
+                  "height": 0.715,
+                  "radialSegments": 32,
+                  "radiusBottom": 0.022,
+                  "radiusTop": 0.03,
+                  "type": "cylinder"
+                }
+              },
+              {
+                "attachTo": "top",
+                "id": "leg_3",
+                "material": "wood_teak",
+                "name": "Kaki meja",
+                "position": [
+                  0.73,
+                  0.3575,
+                  0.38
+                ],
+                "shape": {
+                  "height": 0.715,
+                  "radialSegments": 32,
+                  "radiusBottom": 0.022,
+                  "radiusTop": 0.03,
+                  "type": "cylinder"
+                }
+              }
+            ],
+            "placement": "floor"
+          },
+          "type": "Model"
+        }
+      ],
+      "id": "table",
+      "layer": 0,
+      "name": "Meja Kayu Jati",
+      "parentId": null,
+      "static": true,
+      "tags": []
+    },
+    {
+      "active": true,
+      "components": [
+        {
+          "data": {
+            "position": [
+              0,
+              0,
+              0.62
+            ],
+            "rotation": [
+              0,
+              180,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "type": "Transform"
+        },
+        {
+          "data": {
+            "category": "chair",
+            "collider": "box",
+            "merge": true,
+            "parts": [
+              {
+                "id": "seat",
+                "material": "rattan",
+                "name": "Dudukan rotan",
+                "position": [
+                  0,
+                  0.435,
+                  0
+                ],
+                "shape": {
+                  "radius": 0.008,
+                  "size": [
+                    0.44,
+                    0.03,
+                    0.42
+                  ],
+                  "type": "roundedBox"
+                }
+              },
+              {
+                "attachTo": "seat",
+                "id": "seat_frame",
+                "material": "wood_teak",
+                "position": [
+                  0,
+                  0.4,
+                  0
+                ],
+                "shape": {
+                  "radius": 0.006,
+                  "size": [
+                    0.46,
+                    0.04,
+                    0.44
+                  ],
+                  "type": "roundedBox"
+                }
+              },
+              {
+                "attachTo": "seat_frame",
+                "id": "front_leg_0",
+                "material": "wood_teak",
+                "position": [
+                  -0.2,
+                  0.19,
+                  0.19
+                ],
+                "shape": {
+                  "size": [
+                    0.036,
+                    0.38,
+                    0.036
+                  ],
+                  "type": "roundedBox"
+                }
+              },
+              {
+                "attachTo": "seat_frame",
+                "id": "front_leg_1",
+                "material": "wood_teak",
+                "position": [
+                  0.2,
+                  0.19,
+                  0.19
+                ],
+                "shape": {
+                  "size": [
+                    0.036,
+                    0.38,
+                    0.036
+                  ],
+                  "type": "roundedBox"
+                }
+              },
+              {
+                "attachTo": "seat_frame",
+                "id": "back_leg_0",
+                "material": "wood_teak",
+                "position": [
+                  -0.2,
+                  0.43,
+                  -0.19
+                ],
+                "rotation": [
+                  -4,
+                  0,
+                  0
+                ],
+                "shape": {
+                  "size": [
+                    0.036,
+                    0.86,
+                    0.036
+                  ],
+                  "type": "roundedBox"
+                }
+              },
+              {
+                "attachTo": "seat_frame",
+                "id": "back_leg_1",
+                "material": "wood_teak",
+                "position": [
+                  0.2,
+                  0.43,
+                  -0.19
+                ],
+                "rotation": [
+                  -4,
+                  0,
+                  0
+                ],
+                "shape": {
+                  "size": [
+                    0.036,
+                    0.86,
+                    0.036
+                  ],
+                  "type": "roundedBox"
+                }
+              },
+              {
+                "attachTo": "back_leg_0",
+                "id": "backrest",
+                "material": "rattan",
+                "name": "Sandaran rotan",
+                "position": [
+                  0,
+                  0.68,
+                  -0.205
+                ],
+                "rotation": [
+                  -4,
+                  0,
+                  0
+                ],
+                "shape": {
+                  "radius": 0.006,
+                  "size": [
+                    0.37,
+                    0.3,
+                    0.018
+                  ],
+                  "type": "roundedBox"
+                }
+              },
+              {
+                "attachTo": "back_leg_0",
+                "id": "top_rail",
+                "material": "wood_teak",
+                "position": [
+                  0,
+                  0.84,
+                  -0.215
+                ],
+                "rotation": [
+                  -4,
+                  0,
+                  0
+                ],
+                "shape": {
+                  "size": [
+                    0.44,
+                    0.05,
+                    0.03
+                  ],
+                  "type": "roundedBox"
+                }
+              }
+            ],
+            "placement": "floor"
+          },
+          "type": "Model"
+        }
+      ],
+      "id": "chair",
+      "layer": 0,
+      "name": "Kursi Jati Rotan",
+      "parentId": null,
+      "static": true,
+      "tags": []
+    },
+    {
+      "active": true,
+      "components": [
+        {
+          "data": {
+            "position": [
+              -0.55,
+              0.75,
+              -0.2
+            ],
+            "rotation": [
+              0,
+              30,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "type": "Transform"
+        },
+        {
+          "data": {
+            "category": "desk_lamp",
+            "collider": "none",
+            "merge": true,
+            "parts": [
+              {
+                "id": "base",
+                "material": "metal_black_matte",
+                "name": "Alas",
+                "position": [
+                  0,
+                  0.01,
+                  0
+                ],
+                "shape": {
+                  "bevel": 0.004,
+                  "height": 0.02,
+                  "radiusBottom": 0.075,
+                  "radiusTop": 0.07,
+                  "type": "cylinder"
+                }
+              },
+              {
+                "attachTo": "base",
+                "id": "stem",
+                "material": "metal_aluminium_brushed",
+                "name": "Tiang",
+                "shape": {
+                  "path": [
+                    [
+                      0,
+                      0.018,
+                      0
+                    ],
+                    [
+                      0,
+                      0.2,
+                      0
+                    ],
+                    [
+                      0.02,
+                      0.32,
+                      0
+                    ],
+                    [
+                      0.08,
+                      0.38,
+                      0
+                    ]
+                  ],
+                  "radius": 0.007,
+                  "type": "tube"
+                }
+              },
+              {
+                "allowOverlap": true,
+                "attachTo": "stem",
+                "id": "joint",
+                "material": "metal_aluminium_brushed",
+                "position": [
+                  0.08,
+                  0.38,
+                  0
+                ],
+                "shape": {
+                  "radius": 0.014,
+                  "type": "sphere"
+                }
+              },
+              {
+                "attachTo": "joint",
+                "id": "shade",
+                "material": {
+                  "doubleSided": true,
+                  "preset": "metal_black_matte"
+                },
+                "name": "Kap lampu",
+                "position": [
+                  0.1,
+                  0.3,
+                  0
+                ],
+                "shape": {
+                  "points": [
+                    [
+                      0.085,
+                      0
+                    ],
+                    [
+                      0.07,
+                      0.03
+                    ],
+                    [
+                      0.045,
+                      0.07
+                    ],
+                    [
+                      0.02,
+                      0.09
+                    ]
+                  ],
+                  "thickness": 0.0015,
+                  "type": "lathe"
+                }
+              },
+              {
+                "allowOverlap": true,
+                "attachTo": "shade",
+                "castShadow": false,
+                "id": "bulb",
+                "material": "emissive_light",
+                "name": "Bohlam",
+                "position": [
+                  0.1,
+                  0.345,
+                  0
+                ],
+                "shape": {
+                  "radius": 0.025,
+                  "type": "sphere"
+                }
+              }
+            ],
+            "placement": "floor"
+          },
+          "type": "Model"
+        }
+      ],
+      "id": "desk_lamp",
+      "layer": 0,
+      "name": "Lampu Meja Logam",
+      "parentId": null,
+      "static": true,
+      "tags": []
+    },
+    {
+      "active": true,
+      "components": [
+        {
+          "data": {
+            "position": [
+              0.18,
+              0.75,
+              0.12
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "type": "Transform"
+        },
+        {
+          "data": {
+            "category": "drinking_glass",
+            "collider": "none",
+            "merge": true,
+            "parts": [
+              {
+                "castShadow": false,
+                "id": "glass",
+                "material": "glass_clear",
+                "name": "Gelas",
+                "shape": {
+                  "capBottom": true,
+                  "points": [
+                    [
+                      0.03,
+                      0
+                    ],
+                    [
+                      0.032,
+                      0.03
+                    ],
+                    [
+                      0.0375,
+                      0.12
+                    ]
+                  ],
+                  "segments": 64,
+                  "thickness": 0.0025,
+                  "type": "lathe"
+                }
+              },
+              {
+                "attachTo": "glass",
+                "castShadow": false,
+                "id": "water",
+                "material": "water",
+                "name": "Air",
+                "shape": {
+                  "capBottom": true,
+                  "points": [
+                    [
+                      0.0274,
+                      0.0027
+                    ],
+                    [
+                      0.0294,
+                      0.03
+                    ],
+                    [
+                      0.0335,
+                      0.085
+                    ],
+                    [
+                      0,
+                      0.085
+                    ]
+                  ],
+                  "segments": 64,
+                  "type": "lathe"
+                }
+              }
+            ],
+            "placement": "floor"
+          },
+          "type": "Model"
+        }
+      ],
+      "id": "glass",
+      "layer": 0,
+      "name": "Gelas Air",
+      "parentId": null,
+      "static": true,
+      "tags": []
+    },
+    {
+      "active": true,
+      "components": [
+        {
+          "data": {
+            "position": [
+              0.5,
+              0.75,
+              -0.18
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "type": "Transform"
+        },
+        {
+          "data": {
+            "category": "vase",
+            "collider": "none",
+            "merge": true,
+            "parts": [
+              {
+                "id": "vase",
+                "material": {
+                  "color": "#c9b79a",
+                  "preset": "ceramic_glazed"
+                },
+                "name": "Vas keramik",
+                "shape": {
+                  "capBottom": true,
+                  "points": [
+                    [
+                      0.05,
+                      0
+                    ],
+                    [
+                      0.075,
+                      0.04
+                    ],
+                    [
+                      0.09,
+                      0.1
+                    ],
+                    [
+                      0.08,
+                      0.17
+                    ],
+                    [
+                      0.045,
+                      0.23
+                    ],
+                    [
+                      0.035,
+                      0.26
+                    ],
+                    [
+                      0.045,
+                      0.29
+                    ]
+                  ],
+                  "segments": 96,
+                  "thickness": 0.005,
+                  "type": "lathe"
+                }
+              }
+            ],
+            "placement": "floor"
+          },
+          "type": "Model"
+        }
+      ],
+      "id": "vase",
+      "layer": 0,
+      "name": "Vas Keramik",
+      "parentId": null,
+      "static": true,
+      "tags": []
+    },
+    {
+      "active": true,
+      "components": [
+        {
+          "data": {
+            "position": [
+              -0.12,
+              0.75,
+              -0.05
+            ],
+            "rotation": [
+              0,
+              -35,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "type": "Transform"
+        },
+        {
+          "data": {
+            "bounds": [
+              [
+                -0.13333334028720856,
+                0,
+                -0.08888889104127884
+              ],
+              [
+                0.15262410044670105,
+                0.14000000059604645,
+                0.08888889104127884
+              ]
+            ],
+            "collider": "box",
+            "merge": true,
+            "parts": [],
+            "placement": "floor",
+            "src": "assets/models/teapot.glb"
+          },
+          "type": "Model"
+        }
+      ],
+      "id": "teapot",
+      "layer": 0,
+      "name": "Teko Keramik (GLB)",
+      "parentId": null,
+      "static": true,
+      "tags": []
+    },
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "parentId": null,
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              1.9,
+              1.45,
+              2.3
+            ],
+            "rotation": [
+              -18,
+              40,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Camera",
+          "data": {
+            "fov": 45,
+            "near": 0.05,
+            "far": 100,
+            "isActive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "lamp_light",
+      "name": "Cahaya Lampu",
+      "parentId": "desk_lamp",
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0.1,
+              0.33,
+              0
+            ],
+            "rotation": [
+              -90,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Light",
+          "data": {
+            "type": "point",
+            "color": "#ffd9a0",
+            "intensity": 1.5,
+            "range": 3,
+            "castShadow": false
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,250 +1,163 @@
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
+import * as THREE from 'three'
+import { useEditorStore } from '../store/editorStore'
+import { AssetLoader } from '../../engine/assets/AssetLoader'
+import { AssetEntry, projectAssetUrl } from '../../shared/assetProtocol'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { createEntityWithComponentsCommand } from '../commands/entityCommands'
 
-interface Asset {
-  id: string
-  name: string
-  type: 'folder' | 'mesh' | 'material' | 'texture' | 'script' | 'prefab' | 'scene'
-  children?: Asset[]
+/**
+ * Files in the project's assets/ folder with thumbnails: glb/gltf/obj models are rendered, HDR/EXR
+ * environments are shown tone-mapped, images as themselves. Models can be added to the scene.
+ */
+
+const THUMB_W = 128
+const THUMB_H = 96
+const thumbCache = new Map<string, Promise<string>>()
+
+let rig: { renderer: THREE.WebGLRenderer; loader: AssetLoader; room: THREE.Texture } | null = null
+
+function getRig() {
+  if (rig) return rig
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
+  renderer.setSize(THUMB_W, THUMB_H, false)
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  renderer.toneMapping = THREE.AgXToneMapping
+  const loader = new AssetLoader({ resolveUrl: projectAssetUrl, decoderPath: new URL('decoders/', document.baseURI).href, renderer })
+  const pmrem = new THREE.PMREMGenerator(renderer)
+  const room = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+  pmrem.dispose()
+  rig = { renderer, loader, room }
+  return rig
 }
 
-const sampleAssets: Asset[] = [
-  {
-    id: 'models',
-    name: 'Models',
-    type: 'folder',
-    children: [
-      { id: 'cube-mesh', name: 'Cube.fbx', type: 'mesh' },
-      { id: 'sphere-mesh', name: 'Sphere.fbx', type: 'mesh' },
-      { id: 'character-mesh', name: 'Character.fbx', type: 'mesh' },
-    ],
-  },
-  {
-    id: 'materials',
-    name: 'Materials',
-    type: 'folder',
-    children: [
-      { id: 'metal-mat', name: 'Metal.mat', type: 'material' },
-      { id: 'wood-mat', name: 'Wood.mat', type: 'material' },
-      { id: 'glass-mat', name: 'Glass.mat', type: 'material' },
-    ],
-  },
-  {
-    id: 'textures',
-    name: 'Textures',
-    type: 'folder',
-    children: [
-      { id: 'diffuse-tex', name: 'Diffuse.png', type: 'texture' },
-      { id: 'normal-tex', name: 'Normal.png', type: 'texture' },
-      { id: 'roughness-tex', name: 'Roughness.png', type: 'texture' },
-    ],
-  },
-  {
-    id: 'scripts',
-    name: 'Scripts',
-    type: 'folder',
-    children: [
-      { id: 'player-script', name: 'PlayerController.ts', type: 'script' },
-      { id: 'enemy-script', name: 'EnemyAI.ts', type: 'script' },
-    ],
-  },
-  {
-    id: 'prefabs',
-    name: 'Prefabs',
-    type: 'folder',
-    children: [
-      { id: 'player-prefab', name: 'Player.prefab', type: 'prefab' },
-      { id: 'enemy-prefab', name: 'Enemy.prefab', type: 'prefab' },
-    ],
-  },
-  {
-    id: 'scenes',
-    name: 'Scenes',
-    type: 'folder',
-    children: [
-      { id: 'main-scene', name: 'MainScene.scene', type: 'scene' },
-      { id: 'test-scene', name: 'TestScene.scene', type: 'scene' },
-    ],
-  },
-]
+async function renderModelThumb(path: string): Promise<string> {
+  const { renderer, loader, room } = getRig()
+  const { root } = await loader.loadModel(path)
+  const scene = new THREE.Scene()
+  scene.environment = room
+  const key = new THREE.DirectionalLight(0xffffff, 2.5)
+  key.position.set(2, 3, 2)
+  scene.add(key, root)
+  const box = new THREE.Box3().setFromObject(root)
+  const sphere = box.getBoundingSphere(new THREE.Sphere())
+  const camera = new THREE.PerspectiveCamera(30, THUMB_W / THUMB_H, 0.001, 1000)
+  const dist = (sphere.radius / Math.sin(THREE.MathUtils.degToRad(15))) * 1.05
+  camera.position.copy(sphere.center).add(new THREE.Vector3(1, 0.7, 1).normalize().multiplyScalar(dist))
+  camera.near = dist / 100
+  camera.far = dist * 10
+  camera.lookAt(sphere.center)
+  camera.updateProjectionMatrix()
+  renderer.setClearColor(0x000000, 0)
+  renderer.render(scene, camera)
+  return renderer.domElement.toDataURL('image/png')
+}
+
+async function renderEnvThumb(path: string): Promise<string> {
+  const { renderer, loader } = getRig()
+  const tex = await loader.loadEnvironment(path)
+  const scene = new THREE.Scene()
+  scene.background = tex
+  const camera = new THREE.PerspectiveCamera(80, THUMB_W / THUMB_H, 0.1, 10)
+  camera.lookAt(0, 0.1, -1)
+  renderer.render(scene, camera)
+  return renderer.domElement.toDataURL('image/png')
+}
+
+function thumbnail(asset: AssetEntry): Promise<string> | null {
+  if (asset.kind === 'texture' && !/\.ktx2$/i.test(asset.path)) return Promise.resolve(projectAssetUrl(asset.path))
+  if (asset.kind !== 'model' && asset.kind !== 'environment') return null
+  let p = thumbCache.get(asset.path)
+  if (!p) {
+    p = asset.kind === 'model' ? renderModelThumb(asset.path) : renderEnvThumb(asset.path)
+    thumbCache.set(asset.path, p)
+  }
+  return p
+}
+
+const Thumb: React.FC<{ asset: AssetEntry }> = ({ asset }) => {
+  const [src, setSrc] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let alive = true
+    thumbnail(asset)?.then(
+      (url) => alive && setSrc(url),
+      () => alive && setFailed(true)
+    )
+    return () => {
+      alive = false
+    }
+  }, [asset.path])
+  const icon = { model: '◆', environment: '◐', texture: '▦', audio: '♪', other: '•' }[asset.kind]
+  return (
+    <div className="w-full aspect-[4/3] rounded bg-black/40 border border-gray-700 flex items-center justify-center overflow-hidden">
+      {src && !failed ? <img src={src} alt="" className="w-full h-full object-contain" draggable={false} /> : <span className="text-2xl text-gray-500">{failed ? '!' : icon}</span>}
+    </div>
+  )
+}
 
 export const AssetBrowser: React.FC = () => {
-  const [selectedAsset, setSelectedAsset] = useState<string | null>(null)
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
-    new Set(['models', 'materials', 'prefabs'])
-  )
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [currentPath, setCurrentPath] = useState<string[]>(['Assets'])
+  const { executeCommand, projectPath } = useEditorStore()
+  const [assets, setAssets] = useState<AssetEntry[]>([])
+  const [filter, setFilter] = useState<'all' | AssetEntry['kind']>('all')
+  const [error, setError] = useState<string | null>(null)
 
-  const toggleFolder = (id: string) => {
-    const newExpanded = new Set(expandedFolders)
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id)
-    } else {
-      newExpanded.add(id)
+  const refresh = useCallback(() => {
+    const api = window.electronAPI
+    if (!api?.listAssets) {
+      setError('Daftar aset hanya tersedia di aplikasi desktop')
+      return
     }
-    setExpandedFolders(newExpanded)
-  }
-
-  const getAssetIcon = (type: Asset['type']): string => {
-    switch (type) {
-      case 'folder':
-        return '📁'
-      case 'mesh':
-        return '🎲'
-      case 'material':
-        return '🎨'
-      case 'texture':
-        return '🖼️'
-      case 'script':
-        return '📜'
-      case 'prefab':
-        return '📦'
-      case 'scene':
-        return '🌍'
-      default:
-        return '📄'
-    }
-  }
-
-  const getAssetColor = (type: Asset['type']): string => {
-    switch (type) {
-      case 'folder':
-        return 'text-yellow-400'
-      case 'mesh':
-        return 'text-blue-400'
-      case 'material':
-        return 'text-purple-400'
-      case 'texture':
-        return 'text-green-400'
-      case 'script':
-        return 'text-orange-400'
-      case 'prefab':
-        return 'text-cyan-400'
-      case 'scene':
-        return 'text-pink-400'
-      default:
-        return 'text-gray-400'
-    }
-  }
-
-  const renderAssetTree = (asset: Asset, depth: number = 0) => {
-    const isExpanded = expandedFolders.has(asset.id)
-    const isSelected = selectedAsset === asset.id
-    const hasChildren = asset.children && asset.children.length > 0
-
-    return (
-      <div key={asset.id}>
-        <div
-          className={`flex items-center px-2 py-1 cursor-pointer transition-colors ${
-            isSelected ? 'bg-blue-600/30' : 'hover:bg-white/5'
-          }`}
-          style={{ paddingLeft: `${4 + depth * 12}px` }}
-          onClick={() => {
-            setSelectedAsset(asset.id)
-            if (asset.type === 'folder') {
-              toggleFolder(asset.id)
-            }
-          }}
-          onDoubleClick={() => {
-            if (asset.type === 'folder') {
-              setCurrentPath([...currentPath, asset.name])
-            }
-          }}
-        >
-          {asset.type === 'folder' && (
-            <span className="mr-1 text-xs text-gray-500 w-3">
-              {hasChildren ? (isExpanded ? '▼' : '▶') : ''}
-            </span>
-          )}
-          <span className={`mr-2 text-sm ${getAssetColor(asset.type)}`}>
-            {getAssetIcon(asset.type)}
-          </span>
-          <span className="text-xs truncate">{asset.name}</span>
-        </div>
-
-        {isExpanded && hasChildren && (
-          <div>
-            {asset.children!.map((child) => renderAssetTree(child, depth + 1))}
-          </div>
-        )}
-      </div>
+    api.listAssets().then(
+      (list: AssetEntry[]) => {
+        setAssets(list)
+        setError(null)
+      },
+      (err: any) => setError(String(err?.message ?? err))
     )
+  }, [])
+
+  useEffect(() => {
+    thumbCache.clear()
+    refresh()
+  }, [projectPath, refresh])
+
+  const addToScene = (asset: AssetEntry) => {
+    const name = asset.path.split('/').pop()!.replace(/\.[^.]+$/, '')
+    executeCommand(createEntityWithComponentsCommand(name, { Model: { src: asset.path, collider: 'box' } }))
   }
 
-  const renderGridView = () => {
-    const getAllAssets = (assets: Asset[]): Asset[] => {
-      return assets.flatMap(a => a.children ? [a, ...getAllAssets(a.children)] : [a])
-    }
-    
-    const flatAssets = getAllAssets(sampleAssets).filter(a => a.type !== 'folder')
-
-    return (
-      <div className="grid grid-cols-4 gap-2 p-2">
-        {flatAssets.slice(0, 12).map((asset) => (
-          <div
-            key={asset.id}
-            className={`flex flex-col items-center p-2 rounded cursor-pointer transition-colors ${
-              selectedAsset === asset.id ? 'bg-blue-600/30' : 'hover:bg-white/10'
-            }`}
-            onClick={() => setSelectedAsset(asset.id)}
-          >
-            <div className={`text-2xl mb-1 ${getAssetColor(asset.type)}`}>
-              {getAssetIcon(asset.type)}
-            </div>
-            <span className="text-xs text-center truncate w-full">{asset.name}</span>
+  const shown = assets.filter((a) => filter === 'all' || a.kind === filter)
+  return (
+    <div className="h-full flex flex-col text-xs text-gray-200">
+      <div className="flex items-center gap-2 px-2 py-1 border-b border-gray-700/50">
+        <span className="text-gray-400">assets/</span>
+        <select value={filter} onChange={(e) => setFilter(e.target.value as any)} className="bg-black/40 border border-gray-700 rounded px-1 py-0.5">
+          <option value="all">Semua</option>
+          <option value="model">Model</option>
+          <option value="environment">HDR</option>
+          <option value="texture">Tekstur</option>
+          <option value="audio">Audio</option>
+        </select>
+        <div className="flex-1" />
+        <button onClick={refresh} className="px-2 py-0.5 rounded hover:bg-white/10 text-gray-300" title="Muat ulang daftar aset">
+          ↻
+        </button>
+      </div>
+      {error && <div className="p-3 text-gray-400">{error}</div>}
+      {!error && shown.length === 0 && <div className="p-3 text-gray-500">Belum ada aset. Impor model/HDR lewat AI Agent (linden_asset_import) atau salin ke folder assets/.</div>}
+      <div className="flex-1 overflow-y-auto p-2 grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))' }}>
+        {shown.map((a) => (
+          <div key={a.path} className="flex flex-col gap-1 group" title={`${a.path} (${(a.size / 1024).toFixed(0)} KB)`}>
+            <Thumb asset={a} />
+            <div className="truncate text-[11px]">{a.path.split('/').pop()}</div>
+            {a.kind === 'model' && (
+              <button onClick={() => addToScene(a)} className="text-[10px] text-blue-300 hover:text-blue-200 text-left opacity-0 group-hover:opacity-100">
+                + Tambah ke scene
+              </button>
+            )}
           </div>
         ))}
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex h-full">
-      {/* Folder Tree (Left) */}
-      <div className="w-40 border-r border-gray-700/50 overflow-auto">
-        <div className="py-1">
-          {sampleAssets.map((asset) => renderAssetTree(asset))}
-        </div>
-      </div>
-
-      {/* Content Area (Right) */}
-      <div className="flex-1 flex flex-col">
-        {/* Breadcrumb & View Toggle */}
-        <div className="flex items-center justify-between px-2 py-1 border-b border-gray-700/50 bg-black/20">
-          <div className="flex items-center text-xs text-gray-400">
-            {currentPath.map((p, i) => (
-              <span key={i}>
-                {i > 0 && <span className="mx-1">/</span>}
-                <span className="hover:text-white cursor-pointer">{p}</span>
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-1">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-1 rounded ${viewMode === 'grid' ? 'bg-blue-600/50' : 'hover:bg-white/10'}`}
-              title="Grid View"
-            >
-              <span className="text-xs">⊞</span>
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-1 rounded ${viewMode === 'list' ? 'bg-blue-600/50' : 'hover:bg-white/10'}`}
-              title="List View"
-            >
-              <span className="text-xs">☰</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Assets Display */}
-        <div className="flex-1 overflow-auto">
-          {viewMode === 'grid' ? renderGridView() : (
-            <div className="p-1">
-              {sampleAssets.map((asset) => renderAssetTree(asset))}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   )

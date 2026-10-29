@@ -48,7 +48,8 @@ function resolveRuntimeDir(): Promise<string> {
 /** Copy every file of a prebuilt runtime; readFileSync works inside asar where cpSync may not. */
 function copyRuntime(srcDir: string, dstDir: string, includeSourceMap: boolean) {
   for (const ent of fs.readdirSync(srcDir, { withFileTypes: true })) {
-    if (ent.name === 'index.html' || ent.name === 'linden-bridge.js') continue
+    // The editor-only render preview (linden_render_preview) is not part of a game build
+    if (['index.html', 'linden-bridge.js', 'preview.html', 'preview.js', 'preview.js.map'].includes(ent.name)) continue
     if (!includeSourceMap && ent.name.endsWith('.map')) continue
     const src = path.join(srcDir, ent.name)
     const dst = path.join(dstDir, ent.name)

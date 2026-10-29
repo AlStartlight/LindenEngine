@@ -16,6 +16,14 @@ import { isValidScriptSrc, isValidUiSrc } from '../../../shared/playProtocol'
 import { WebBuildRunner } from '../../build/WebBuildRunner'
 import { AgentDiffItem } from '../../../shared/agentTypes'
 import { ExportPreset } from '../../../shared/types/project'
+import { MODEL_TOOLS } from './modelTools'
+import { ModelSpecSchema } from '../../../engine/model/ModelSpec'
+import { MaterialSpecSchema } from '../../../engine/materials/MaterialSpec'
+import { normalizeSceneSettings } from '../../../engine/scene/SceneSettings'
+import { parseSceneFile } from '../../../engine/scene/parseSceneFile'
+
+export { setPreviewRenderer } from './modelTools'
+export type { PreviewRenderer, PreviewRequest, PreviewResult } from './modelTools'
 
 export interface ToolDefinition {
   name: string
@@ -29,7 +37,15 @@ export interface ToolDefinition {
     projectPath: string,
     args: any,
     options?: { onDiff?: (diff: AgentDiffItem) => void }
-  ) => Promise<{ success: boolean; data?: any; error?: string }>
+  ) => Promise<ToolResult>
+}
+
+export interface ToolResult {
+  success: boolean
+  data?: any
+  error?: string
+  /** Images returned to the agent as MCP image content (linden_render_preview) */
+  images?: { mimeType: string; data: string; label?: string }[]
 }
 
 function resolveProjectSafePath(projectPath: string, relativePath: string): string {
@@ -67,6 +83,20 @@ export function validateSceneEntities(entities: SerializedEntity[]): string | nu
       }
       if (comp.type === 'HtmlUI' && !isValidUiSrc(comp.data?.src)) {
         return `HtmlUI.src pada entity "${ent.name}" harus path .html relatif di dalam proyek, mis. ui/hud.html`
+      }
+      if (comp.type === 'Model') {
+        const res = ModelSpecSchema.safeParse({ ...comp.data, src: comp.data?.src || undefined, category: comp.data?.category || undefined, animation: comp.data?.animation || undefined })
+        if (!res.success) {
+          const i = res.error.issues[0]
+          return `Model pada entity "${ent.name}" tidak valid: ${i.path.join('.')} ${i.message}`
+        }
+      }
+      if (comp.type === 'MeshRenderer' && comp.data?.material && Object.keys(comp.data.material).length > 0) {
+        const res = MaterialSpecSchema.safeParse(comp.data.material)
+        if (!res.success) {
+          const i = res.error.issues[0]
+          return `MeshRenderer.material pada entity "${ent.name}" tidak valid: ${i.path.join('.')} ${i.message}`
+        }
       }
       if (comp.type === 'Transform' && comp.data) {
         for (const key of ['position', 'rotation', 'scale']) {
@@ -428,10 +458,18 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
           type: 'string',
           description: 'Nama scene, contoh Main',
         },
+        settings: {
+          type: 'object',
+          description:
+            'Setting render scene (digabung dengan yang ada): environment ("room", "none", atau assets/hdri/x.hdr), environmentIntensity, ' +
+            'skybox (null, "#rrggbb", "environment"), toneMapping (agx|aces|neutral|...), exposure, ambientColor, ambientIntensity, ' +
+            'fog {enabled,type,color,near,far,density}, shadowQuality (off|low|medium|high), sun {enabled,color,intensity,direction}, ' +
+            'postFx {enabled, ao, bloom, antialias: smaa|fxaa|none}',
+        },
         entities: {
           type: 'array',
           description:
-            'Seluruh entity scene (menggantikan isi scene). Tipe komponen dan propertinya lihat linden_component_list. ' +
+            'Seluruh entity scene (menggantikan isi scene; kosongkan untuk hanya mengubah settings). Tipe komponen dan propertinya lihat linden_component_list. ' +
             'Contoh: {"id":"player","name":"Player","parentId":null,"components":[{"type":"Transform","data":{"position":[0,1,0],"rotation":[0,0,0],"scale":[1,1,1]}},{"type":"MeshRenderer","data":{"primitive":"sphere","color":"#38bdf8"}}]}',
           items: {
             type: 'object',
@@ -457,16 +495,24 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
           },
         },
       },
-      required: ['entities'],
     },
-    async execute(projectPath: string, args: { scenePath?: string; sceneName?: string; entities: SerializedEntity[] }, options) {
+    async execute(projectPath: string, args: { scenePath?: string; sceneName?: string; settings?: Record<string, unknown>; entities?: SerializedEntity[] }, options) {
       try {
         const rel = args.scenePath || 'scenes/Main.lscene'
         const fullPath = resolveProjectSafePath(projectPath, rel)
 
+        // Without entities only the settings change: keep the scene's current entities
+        if (!args.entities) {
+          if (!args.settings) return { success: false, error: 'Isi "entities" dan/atau "settings"' }
+          const existing = fs.existsSync(fullPath) ? parseSceneFile(fs.readFileSync(fullPath, 'utf-8')) : null
+          if (existing && 'message' in existing) return { success: false, error: `Scene ${rel} tidak bisa dibaca: ${existing.message}` }
+          args = { ...args, entities: (existing && 'scene' in existing ? existing.scene.entities : []) as SerializedEntity[] }
+        }
+        const entities = args.entities!
+
         // Validation: Unique IDs & Valid parent references
         const seenIds = new Set<string>()
-        for (const ent of args.entities) {
+        for (const ent of entities) {
           if (!ent.id) {
             ent.id = `ent_${Math.random().toString(36).substring(2, 9)}`
           }
@@ -476,40 +522,50 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
           seenIds.add(ent.id)
         }
 
-        for (const ent of args.entities) {
+        for (const ent of entities) {
           if (ent.parentId && !seenIds.has(ent.parentId)) {
             return { success: false, error: `Entity "${ent.name}" merujuk parent non-existent: ${ent.parentId}` }
           }
         }
 
-        const schemaError = validateSceneEntities(args.entities)
+        const schemaError = validateSceneEntities(entities)
         if (schemaError) {
           return { success: false, error: schemaError }
+        }
+
+        let beforeContent = ''
+        let previousSettings: Record<string, unknown> = {}
+        if (fs.existsSync(fullPath)) {
+          beforeContent = fs.readFileSync(fullPath, 'utf-8')
+          try {
+            previousSettings = JSON.parse(beforeContent).settings ?? {}
+          } catch {
+            // A corrupt scene is replaced as a whole
+          }
+        }
+        // Settings merge with the scene's current ones; invalid fields are reported, not silently dropped
+        const merged = { ...previousSettings, ...(args.settings ?? {}) }
+        const { settings, warnings: settingsWarnings } = normalizeSceneSettings(merged)
+        if (args.settings && settingsWarnings.length > 0) {
+          return { success: false, error: settingsWarnings.join('; ') }
         }
 
         const sceneData = {
           format: 'linden-scene',
           version: 2,
           name: args.sceneName || path.basename(rel, '.lscene'),
-          settings: {
-            ambientColor: '#666666',
-            skybox: null,
-          },
-          entities: args.entities,
+          settings,
+          entities: entities,
         }
 
         const newContent = JSON.stringify(sceneData, null, 2)
-        let beforeContent = ''
-        if (fs.existsSync(fullPath)) {
-          beforeContent = fs.readFileSync(fullPath, 'utf-8')
-        }
 
         const diff: AgentDiffItem = {
           id: `diff_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
           file: rel,
           kind: 'scene',
           action: beforeContent ? 'modify' : 'create',
-          description: `Perbarui scene ${rel} dengan ${args.entities.length} entity`,
+          description: `Perbarui scene ${rel} dengan ${entities.length} entity`,
           before: beforeContent,
           after: newContent,
           status: 'applied',
@@ -519,7 +575,7 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
         fs.writeFileSync(fullPath, newContent, 'utf-8')
         options?.onDiff?.(diff)
 
-        return { success: true, data: { scenePath: rel, entityCount: args.entities.length } }
+        return { success: true, data: { scenePath: rel, entityCount: entities.length } }
       } catch (err: any) {
         return { success: false, error: err.message }
       }
@@ -1080,4 +1136,6 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
       }
     },
   },
+
+  ...MODEL_TOOLS,
 }

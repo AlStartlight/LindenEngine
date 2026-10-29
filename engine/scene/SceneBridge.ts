@@ -2,21 +2,48 @@ import * as THREE from 'three'
 import { World } from '../ecs/World'
 import { Entity } from '../ecs/Entity'
 import { Component, Transform } from '../ecs/Component'
-import { MeshRenderer } from '../renderer/Components'
+import {
+  createLightObject,
+  createMeshRendererMesh,
+  disposeObject3D,
+  materialContext,
+  meshRendererMaterialSpec,
+  RenderContext,
+  applyMeshSize,
+  createPrimitiveGeometry,
+} from '../renderer/sceneFactory'
+import { createMaterial, disposeMaterial } from '../materials/createMaterial'
+import { ModelSpecSchema, ModelSpec } from '../model/ModelSpec'
+import { buildModelObject } from '../model/buildModel'
+import { AnimationPlayer } from '../animation/AnimationPlayer'
 
+const MESH = '__mesh__'
+const MODEL = '__model__'
+const LIGHT = '__light__'
+
+/**
+ * Mirrors the ECS World into a three.js scene: one Group per entity carrying its Transform, with
+ * the renderables built by engine/renderer/sceneFactory.ts (MeshRenderer, Model, Light).
+ */
 export class SceneBridge {
   private world: World
   private scene: THREE.Scene | null = null
   private objectMap: Map<string, THREE.Object3D> = new Map()
   private cleanupFns: (() => void)[] = []
+  private ctx: RenderContext = {}
+  /** glTF animation per entity (Model.src with clips) */
+  private animators: Map<string, AnimationPlayer> = new Map()
+  /** Bumped per entity so a slow glTF load does not attach to a newer Model */
+  private modelTokens: Map<string, number> = new Map()
 
   constructor(world: World) {
     this.world = world
     this.bindEvents()
   }
 
-  attach(scene: THREE.Scene): void {
+  attach(scene: THREE.Scene, ctx: RenderContext = {}): void {
     this.scene = scene
+    this.ctx = ctx
 
     // Sync all existing entities in world
     for (const entity of this.world.getEntities()) {
@@ -29,10 +56,22 @@ export class SceneBridge {
 
   detach(): void {
     for (const obj of this.objectMap.values()) {
-      this.disposeObject(obj)
+      obj.parent?.remove(obj)
+      disposeObject3D(obj)
     }
+    for (const anim of this.animators.values()) anim.detachMixer()
+    this.animators.clear()
     this.objectMap.clear()
     this.scene = null
+  }
+
+  /** Advance glTF animations */
+  update(dt: number): void {
+    for (const anim of this.animators.values()) anim.advance(dt)
+  }
+
+  getAnimationPlayer(entityId: string): AnimationPlayer | undefined {
+    return this.animators.get(entityId)
   }
 
   /**
@@ -105,54 +144,122 @@ export class SceneBridge {
     const obj = this.objectMap.get(entity.id)
     if (!obj) return
 
-    this.disposeObject(obj)
+    this.removeChild(obj, MESH)
+    this.removeModel(entity.id, obj)
+    this.removeChild(obj, LIGHT)
     if (obj.parent) {
       obj.parent.remove(obj)
     }
     this.objectMap.delete(entity.id)
   }
 
-  private handleComponentAdded(entity: Entity, comp: Component): void {
+  /** Remove and free a renderable child by name (child entity groups are left alone) */
+  private removeChild(parent: THREE.Object3D, name: string): void {
+    const child = parent.children.find((c) => c.name === name)
+    if (!child) return
+    parent.remove(child)
+    disposeObject3D(child)
+  }
+
+  private removeModel(entityId: string, parent: THREE.Object3D): void {
+    this.modelTokens.set(entityId, (this.modelTokens.get(entityId) ?? 0) + 1)
+    this.animators.get(entityId)?.detachMixer()
+    this.animators.delete(entityId)
+    this.removeChild(parent, MODEL)
+  }
+
+  private warn(message: string): void {
+    if (this.ctx.warn) this.ctx.warn(message)
+    else console.warn(`[Linden] ${message}`)
+  }
+
+  private buildMesh(entity: Entity, comp: Component): void {
     const parentObj = this.objectMap.get(entity.id)
     if (!parentObj) return
+    this.removeChild(parentObj, MESH)
+    const mesh = createMeshRendererMesh(comp as any, this.ctx)
+    mesh.userData.entityId = entity.id
+    parentObj.add(mesh)
+  }
 
-    if (comp.name === 'MeshRenderer') {
-      const mr = comp as any
-      // Remove any existing mesh child
-      const existingMesh = parentObj.getObjectByName('__mesh__')
-      if (existingMesh) {
-        parentObj.remove(existingMesh)
-        this.disposeObject(existingMesh)
-      }
-
-      const geom = this.createGeometry(mr.primitive || 'box')
-      const mat = new THREE.MeshStandardMaterial({
-        color: mr.color || '#3b82f6',
-        roughness: mr.roughness ?? 0.5,
-        metalness: mr.metalness ?? 0.1,
-      })
-      const mesh = new THREE.Mesh(geom, mat)
-      mesh.name = '__mesh__'
-      mesh.userData.entityId = entity.id
-      mesh.castShadow = mr.castShadow ?? true
-      mesh.receiveShadow = mr.receiveShadow ?? true
-      mesh.visible = mr.isVisible ?? true
-
-      parentObj.add(mesh)
+  private buildModel(entity: Entity, comp: Component): void {
+    const parentObj = this.objectMap.get(entity.id)
+    if (!parentObj) return
+    this.removeModel(entity.id, parentObj)
+    const raw = comp as any
+    const parsed = ModelSpecSchema.safeParse({
+      parts: raw.parts,
+      src: raw.src || undefined,
+      merge: raw.merge,
+      instances: raw.instances,
+      collider: raw.collider,
+      category: raw.category || undefined,
+      placement: raw.placement,
+      animation: raw.animation || undefined,
+    })
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0]
+      this.warn(`Model pada "${entity.name}" tidak valid: ${issue.path.join('.')} ${issue.message}`)
+      return
     }
+    const spec: ModelSpec = parsed.data
+    const castShadow = raw.castShadow ?? true
+    const receiveShadow = raw.receiveShadow ?? true
+
+    if (!spec.src) {
+      const obj = buildModelObject(spec, { ...materialContext(this.ctx), castShadow, receiveShadow })
+      obj.userData.entityId = entity.id
+      parentObj.add(obj)
+      return
+    }
+
+    if (!this.ctx.assets) return // headless / no asset access: physics uses the stored bounds
+    const token = this.modelTokens.get(entity.id) ?? 0
+    this.ctx.assets.loadModel(spec.src).then(
+      ({ root, animations }) => {
+        if (this.modelTokens.get(entity.id) !== token || this.objectMap.get(entity.id) !== parentObj) return
+        root.name = MODEL
+        root.userData.entityId = entity.id
+        root.traverse((o) => {
+          o.castShadow = castShadow
+          o.receiveShadow = receiveShadow
+        })
+        parentObj.add(root)
+        if (animations.length > 0) {
+          const player = new AnimationPlayer(`${entity.name}:animation`)
+          player.attachMixer(root, animations)
+          const clip = spec.animation ?? animations[0].name
+          if (spec.animation && !player.getClipNames().includes(spec.animation)) {
+            this.warn(`Animasi "${spec.animation}" tidak ada di ${spec.src}; tersedia: ${player.getClipNames().join(', ')}`)
+          } else player.play(clip)
+          this.animators.set(entity.id, player)
+        }
+      },
+      (err) => this.warn(err.message)
+    )
+  }
+
+  private buildLight(entity: Entity, comp: Component): void {
+    const parentObj = this.objectMap.get(entity.id)
+    if (!parentObj) return
+    this.removeChild(parentObj, LIGHT)
+    const light = createLightObject(comp as any)
+    parentObj.add(light)
+  }
+
+  private handleComponentAdded(entity: Entity, comp: Component): void {
+    if (!this.objectMap.has(entity.id)) return
+    if (comp.name === 'MeshRenderer') this.buildMesh(entity, comp)
+    else if (comp.name === 'Model') this.buildModel(entity, comp)
+    else if (comp.name === 'Light') this.buildLight(entity, comp)
   }
 
   private handleComponentRemoved(entity: Entity, comp: Component): void {
     const parentObj = this.objectMap.get(entity.id)
     if (!parentObj) return
-
-    if (comp.name === 'MeshRenderer') {
-      const mesh = parentObj.getObjectByName('__mesh__')
-      if (mesh) {
-        parentObj.remove(mesh)
-        this.disposeObject(mesh)
-      }
-    }
+    if (comp.name === 'MeshRenderer') this.removeChild(parentObj, MESH)
+    else if (comp.name === 'Model') this.removeModel(entity.id, parentObj)
+    else if (comp.name === 'Light') this.removeChild(parentObj, LIGHT)
   }
 
   private handlePropertyChanged(entity: Entity, compType: string, path: string, value: any): void {
@@ -160,28 +267,33 @@ export class SceneBridge {
     if (!obj) return
 
     if (compType === 'Transform') {
-      const transform = entity.getTransform()
-      this.applyTransformToGroup(obj, transform)
-    } else if (compType === 'MeshRenderer') {
-      const mesh = obj.getObjectByName('__mesh__') as THREE.Mesh | undefined
-      if (!mesh) {
-        this.handleComponentAdded(entity, entity.getComponent('MeshRenderer')!)
-        return
-      }
+      this.applyTransformToGroup(obj, entity.getTransform())
+      return
+    }
+    const comp = entity.getComponent(compType)
+    if (!comp) return
 
-      const mr = entity.getComponent('MeshRenderer') as any
-      if (path.startsWith('color') && mesh.material instanceof THREE.MeshStandardMaterial) {
-        mesh.material.color.set(value)
-      } else if (path.startsWith('roughness') && mesh.material instanceof THREE.MeshStandardMaterial) {
-        mesh.material.roughness = Number(value)
-      } else if (path.startsWith('metalness') && mesh.material instanceof THREE.MeshStandardMaterial) {
-        mesh.material.metalness = Number(value)
-      } else if (path.startsWith('isVisible')) {
-        mesh.visible = Boolean(value)
-      } else if (path.startsWith('primitive')) {
+    if (compType === 'MeshRenderer') {
+      const mesh = obj.children.find((c) => c.name === MESH) as THREE.Mesh | undefined
+      if (!mesh) return this.buildMesh(entity, comp)
+      const key = path.split('.')[0]
+      if (key === 'isVisible') mesh.visible = Boolean(value)
+      else if (key === 'castShadow') mesh.castShadow = Boolean(value)
+      else if (key === 'receiveShadow') mesh.receiveShadow = Boolean(value)
+      else if (key === 'size') applyMeshSize(mesh, (comp as any).size)
+      else if (key === 'primitive') {
         mesh.geometry.dispose()
-        mesh.geometry = this.createGeometry(value)
-      }
+        mesh.geometry = createPrimitiveGeometry(value)
+      } else if (key === 'material' || key === 'color' || key === 'roughness' || key === 'metalness') {
+        // Material edits (Inspector sliders) swap only the material; three reuses the compiled program
+        const old = mesh.material
+        mesh.material = createMaterial(meshRendererMaterialSpec(comp as any), materialContext(this.ctx))
+        disposeMaterial(old)
+      } else this.buildMesh(entity, comp)
+    } else if (compType === 'Model') {
+      this.buildModel(entity, comp)
+    } else if (compType === 'Light') {
+      this.buildLight(entity, comp)
     }
   }
 
@@ -219,44 +331,6 @@ export class SceneBridge {
       THREE.MathUtils.degToRad(transform.rotation.z)
     )
     group.scale.set(transform.scale.x, transform.scale.y, transform.scale.z)
-  }
-
-  private createGeometry(primitive: string): THREE.BufferGeometry {
-    switch (primitive.toLowerCase()) {
-      case 'box':
-      case 'cube':
-        return new THREE.BoxGeometry(1, 1, 1)
-      case 'sphere':
-        return new THREE.SphereGeometry(0.5, 32, 16)
-      case 'cylinder':
-        return new THREE.CylinderGeometry(0.5, 0.5, 2, 32)
-      case 'capsule':
-        return new THREE.CapsuleGeometry(0.5, 1, 16, 32)
-      case 'plane':
-        return new THREE.PlaneGeometry(1, 1)
-      case 'torus':
-        return new THREE.TorusGeometry(0.5, 0.2, 16, 32)
-      default:
-        return new THREE.BoxGeometry(1, 1, 1)
-    }
-  }
-
-  private disposeObject(obj: THREE.Object3D): void {
-    obj.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh
-        if (mesh.geometry) {
-          mesh.geometry.dispose()
-        }
-        if (mesh.material) {
-          if (Array.isArray(mesh.material)) {
-            mesh.material.forEach((m) => m.dispose())
-          } else {
-            mesh.material.dispose()
-          }
-        }
-      }
-    })
   }
 
   dispose(): void {

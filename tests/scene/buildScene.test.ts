@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import * as THREE from 'three'
 import { createPrimitiveMesh, buildSceneFromData } from '../../engine/scene/buildScene'
-import { SceneFile } from '../../engine/scene/SceneSchema'
+import { SceneFileV1 } from '../../engine/scene/SceneSchema'
 
 describe('buildScene', () => {
   it('creates primitive mesh with correct transform in degrees converted to radians', () => {
@@ -45,7 +45,7 @@ describe('buildScene', () => {
 
   it('buildSceneFromData attaches meshes and sets up parent-child relationships', () => {
     const scene = new THREE.Scene()
-    const sceneData: SceneFile = {
+    const sceneData: SceneFileV1 = {
       format: 'linden-scene',
       version: 1,
       name: 'TestHierarchy',
