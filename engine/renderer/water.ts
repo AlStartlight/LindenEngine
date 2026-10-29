@@ -22,7 +22,7 @@ export interface WaterRenderOptions {
 }
 
 /** Noise scale of the reflective shaders; the three examples tune theirs for 10 km oceans */
-const WAVE_SCALE = 4
+const WAVE_SCALE = 10
 const DEFAULT_SUN = new THREE.Vector3(0.70707, 0.70707, 0)
 
 /**

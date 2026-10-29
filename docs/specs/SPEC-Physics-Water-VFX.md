@@ -1,6 +1,6 @@
 # SPEC: Physics Joints, Water and Particle VFX
 
-Status: draft (2026-10-29). Target branch: new branch from `feat/realistic-3d`.
+Status: implemented on `feat/physics-water-vfx` (2026-10-29), branched from `feat/realistic-3d`. See *Implementation notes* for where the code differs from the plan.
 
 ## Decision
 
@@ -45,7 +45,7 @@ Real fluid simulation (SPH/PBF/MLS-MPM) is **out of scope** for this spec. It is
 | Component | Properties | Notes |
 |---|---|---|
 | `Rigidbody` (edit) | `ccd: boolean` (default `false`) | Maps to `RigidBodyDesc.setCcdEnabled`. For fast projectiles. |
-| `Joint` (new) | `type: 'fixed' \| 'hinge' \| 'ball' \| 'slider'`, `connectedEntity: string` (entity id, empty = world), `anchor: vec3`, `connectedAnchor: vec3`, `axis: vec3` (hinge/slider), `limits: { enabled, min, max }`, `motor: { enabled, targetVelocity, maxForce }`, `breakForce: number` (0 = unbreakable), `onBreak: EventField` | Rapier `JointData.fixed/revolute/spherical/prismatic`. `menuPath: 'Physics/Joint'`. More than one per entity is allowed. |
+| `Joint` (new) | `type: 'fixed' \| 'hinge' \| 'ball' \| 'slider'`, `connectedEntity: string` (entity id, empty = world), `anchor: vec3`, `autoConnectAnchor: boolean`, `connectedAnchor: vec3`, `axis: vec3` (hinge/slider), `limits: { enabled, min, max }`, `motor: { enabled, targetVelocity, maxForce }`, `breakForce: number` (0 = unbreakable), `onBreak: EventField` | Rapier `JointData.fixed/revoluteWithAxes/spherical/prismatic`. `menuPath: 'Physics/Joint'`. One per entity (an `Entity` holds one component per type). |
 
 Register both in `engine/ecs/ComponentRegistry.ts`, with classes in `engine/physics/components.ts` and `clone()` covering every field.
 
@@ -58,7 +58,7 @@ Register both in `engine/ecs/ComponentRegistry.ts`, with classes in `engine/phys
 
 ### Script API (`ScriptPhysicsApi`)
 
-Add `addForce`, `addTorque`, `setAngularVelocity`, `getAngularVelocity`, and `setMotor(jointIndex, targetVelocity, maxForce)`. Update the `linden` typings in `player/` and the script docs in `linden.md`.
+Add `addForce`, `addTorque`, `setAngularVelocity`, `getAngularVelocity`, and `setMotor(targetVelocity, maxForce?)`. Update the `linden` typings in `player/` and the script docs in `linden.md`.
 
 ### Ragdoll
 
@@ -78,7 +78,7 @@ There is no separate component. A ragdoll is a set of `Rigidbody` + `CapsuleColl
 | `reflections` | `true` | Off on the `low` quality profile. |
 | `buoyancy` | `true` | Enables M2 physics below. |
 | `density` | `1000` | kg/m³. |
-| `linearDrag`, `angularDrag` | `1`, `0.5` | Extra drag while submerged. |
+| `linearDrag`, `angularDrag` | `4`, `2` | Extra drag while submerged. |
 
 `menuPath: 'Environment/Water'`, `disallowMultiple: true`.
 
@@ -135,7 +135,7 @@ drag      = -velocity * linearDrag * submerged * mass; same for angular
 | `light` | `{ enabled: false, color, intensity, flicker }` | Optional `PointLight` for fire/explosion. Counts against the scene light budget. |
 | `onFinished` | `EventField` | Non-looping emitters, after the last particle dies. |
 
-`menuPath: 'Effects/Particle Emitter'`. Several emitters per entity are allowed (fire + smoke).
+`menuPath: 'Effects/Particle Emitter'`. One per entity; fire + smoke use a child entity for the smoke.
 
 ### Engine split
 
@@ -194,6 +194,25 @@ There are no new npm dependencies. The player runtime (`scripts/build-player.mjs
 | M2 | `Water` render (both backends) + buoyancy | Crate floats in Play, editor and web export on WebGL and WebGPU. |
 | M3 | `ParticleEmitter`, presets, `ctx.vfx`, preview | Each preset previews in the viewport; `spawn('explosion')` works from a collision script. |
 | M4 | Agent prompt, docs, packaging smoke test | Prompt "campfire beside a lake with a floating barrel" produces a working scene. |
+
+## Implementation notes
+
+Where the code differs from the plan above, and why:
+
+- **One `Joint` and one `ParticleEmitter` per entity.** `Entity` stores components in a `Map` keyed by type, so a second component of the same type replaces the first. Both components are `disallowMultiple`; chains, ragdolls and fire + smoke use one entity per joint or emitter.
+- **`breakForce` is estimated.** Rapier 0.21's JS API exposes no joint impulses. `RapierBackend.breakJoints` estimates the force as the jointed dynamic body's `mass × |Δv/dt − g|`, so contacts and script forces on that body also count.
+- **Limits and motors** apply to hinge and slider joints only; Rapier's spherical joint has no JS limit API. A slider assumes both bodies share their orientation (Rapier's prismatic joint uses one axis for both frames).
+- **`autoConnectAnchor`** (default on) computes the connected anchor from the placed poses, so scenes and the agent only set `anchor`.
+- **`Rigidbody.mass` now sets the body mass** (it was ignored before); buoyancy needs real masses.
+- **Forces last one step.** Rapier keeps added forces until reset; `RapierBackend.step` resets them, so `addForce` behaves like Unity's `AddForce` in `FixedUpdate`.
+- **Water drag defaults** are `4` / `2`: with `1` / `0.5` a floating crate kept bobbing for more than 6 s (damping ratio ≈ 0.03).
+- **`waveSpeed`** applies to WebGL and the plain surface; `WaterMesh` reads TSL's global `time`, so WebGPU uses a fixed speed.
+- **Reflective water loads lazily.** A plain animated plane shows at once and is replaced when the `Water`/`WaterMesh` chunk has loaded. `SceneBridge.whenIdle()` lets previews wait for it.
+- **`CharacterMovement.inWater`** uses the character's centre (characters are kinematic and get no buoyancy).
+- **Presets.** `preset` is an accessor that copies the preset's values into the fields. The serializer sorts keys alphabetically, so `World.addComponent` applies `preset` before the other data fields; saved tweaks therefore survive a reload. Undoing a preset change in the Inspector restores only the preset name, not the fields.
+- **Billboards** use the camera seen in the last render (`onBeforeRender`), so a rotating camera lags one frame; positions are always current.
+- **Editor preview.** The viewport toolbar has a `VFX` toggle; with it off, only selected emitters simulate.
+- **Tests.** Unit tests: `tests/physics/joints.test.ts`, `tests/physics/water.test.ts`, `tests/vfx/particles.test.ts`. E2E: `tests/e2e/physicsWaterVfx.e2e.mjs` (`npm run test:e2e:physics-vfx`), run against the packaged macOS app in CI. The WebGPU water and particle materials are covered by construction tests only; the e2e renders through WebGL.
 
 ## Later (not in this spec)
 

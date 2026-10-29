@@ -14,8 +14,8 @@ export class Water extends Component {
   public buoyancy: boolean = true
   /** kg/m³ (fresh water 1000) */
   public density: number = 1000
-  public linearDrag: number = 1
-  public angularDrag: number = 0.5
+  public linearDrag: number = 4
+  public angularDrag: number = 2
 
   constructor() {
     super('Water')

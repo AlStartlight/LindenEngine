@@ -308,8 +308,8 @@ ComponentRegistry.register({
     { name: 'reflections', label: 'Reflections', kind: 'boolean', default: true, tooltip: 'Mati otomatis di profil kualitas Low' },
     { name: 'buoyancy', label: 'Buoyancy', kind: 'boolean', default: true, tooltip: 'Benda dinamis mengapung' },
     { name: 'density', label: 'Density', kind: 'number', default: 1000, min: 1, max: 20000, step: 10, tooltip: 'kg/m³ (air tawar 1000, air laut 1025)' },
-    { name: 'linearDrag', label: 'Linear Drag', kind: 'number', default: 1, min: 0, max: 20, step: 0.1 },
-    { name: 'angularDrag', label: 'Angular Drag', kind: 'number', default: 0.5, min: 0, max: 20, step: 0.1 },
+    { name: 'linearDrag', label: 'Linear Drag', kind: 'number', default: 4, min: 0, max: 20, step: 0.1, tooltip: 'Redaman saat terendam; makin besar makin cepat tenang' },
+    { name: 'angularDrag', label: 'Angular Drag', kind: 'number', default: 2, min: 0, max: 20, step: 0.1 },
   ],
 })
 

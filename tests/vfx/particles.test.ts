@@ -309,14 +309,18 @@ describe('M3: particle rendering', () => {
     system.dispose()
   })
 
-  it('prewarm fills a looping emitter for still previews', () => {
+  it('prewarm fills a looping emitter at the entity position for still previews', () => {
     const world = new World()
     const e = world.createEntity('Fire')
+    e.getTransform().position = { x: 10, y: 0, z: 0 }
     world.addComponent(e.id, 'ParticleEmitter', { preset: 'fire', seed: 1 })
     const bridge = new SceneBridge(world)
     bridge.attach(new THREE.Scene(), { backend: 'webgl2' })
     bridge.prewarmParticles(1)
-    expect(bridge.getParticleSystem(e.id)!.mesh.count).toBeGreaterThan(20)
+    const system = bridge.getParticleSystem(e.id)!
+    expect(system.mesh.count).toBeGreaterThan(20)
+    // Born at the campfire, not at the world origin
+    for (let i = 0; i < system.sim.count; i++) expect(Math.abs(system.sim.px[i] - 10)).toBeLessThan(1)
     bridge.dispose()
   })
 })

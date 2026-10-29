@@ -107,7 +107,10 @@ Units: 1 unit = 1 meter, Y is up. Primitives are 1 m (box 1×1×1, sphere Ø1, c
 - `MeshRenderer`: `{ primitive: 'box'|'sphere'|'cylinder'|'capsule'|'cone'|'torus'|'plane', material: { preset: 'wood_teak', ...overrides } }`. Without `material` it uses `color: '#hex', roughness, metalness`.
 - `Model`: an object built from parts, or an imported file. Use `linden_model_build` to create it (see section 6).
 - `Light`: `{ type: 'directional'|'point'|'spot', color, intensity, range, castShadow }`. Directional/spot shine along the entity's -Z. Directional intensity ~2–4 like sunlight; point/spot intensity is in candela (a 60 W bulb ≈ 65).
-- `Rigidbody`: `{ bodyType: 'dynamic'|'kinematic'|'fixed', mass, useGravity }`
+- `Rigidbody`: `{ bodyType: 'dynamic'|'kinematic'|'fixed', mass, useGravity, ccd }` — `mass` in kg; `ccd: true` for fast projectiles so they don't pass through thin walls.
+- `Joint` (one per entity, needs a Rigidbody): `{ type: 'fixed'|'hinge'|'ball'|'slider', connectedEntity: '<entity id>' (empty = the world), anchor: {x,y,z} (local), axis: {x,y,z} (local hinge axis / slider direction), limits: { enabled, min, max } (hinge degrees, slider meters), motor: { enabled, targetVelocity, maxForce } (hinge °/s, slider m/s), breakForce (N, 0 = unbreakable) }`. The connected anchor is computed from the placed positions, so place both bodies where they should be joined.
+- `Water`: `{ size: {x, y} (meters along X and Z), color, distortion, waveSpeed, reflections, buoyancy, density, linearDrag, angularDrag }` — a water surface at the entity's Y. Dynamic bodies over it float (density 1000 = fresh water; a body lighter than 1000 kg/m³ floats).
+- `ParticleEmitter` (one per entity; use child entities for fire + smoke): `{ preset: 'fire'|'smoke'|'sparks'|'explosion'|'magic'|'rain'|'splash'|'custom', ...overrides }`. The preset fills every field; add only the fields to change, e.g. `{ "preset": "fire", "rate": 90 }`. Fields: `playOnStart, loop, duration, rate, bursts: [{time, count}], maxParticles, shape: 'point'|'sphere'|'box'|'cone', shapeSize, coneAngle, lifetime: {min,max}, speed: {min,max}, gravity (negative rises), drag, size: [{t, v}], color: [{t, color, alpha}], blending: 'additive'|'normal', texture: 'soft'|'spark'|'smoke'|'square'|'assets/...', space: 'world'|'local', seed, light: { enabled, color, intensity, flicker }`. Emitters point along the entity's +Y. Visual only: never base gameplay on particles.
 - `BoxCollider`: `{ size: { x, y, z } }`
 - `SphereCollider`: `{ radius }`
 - `CapsuleCollider`: `{ halfHeight, radius }`
@@ -155,9 +158,11 @@ export default class PlayerController {
 
 Lifecycle: `onInit(ctx)` → every fixed step (1/60 s) `onFixedUpdate(dt)` → every frame `onUpdate(dt)` → `onLateUpdate(dt)` → `onDestroy()`.
 Collision hooks: `onTriggerEnter/Exit(other)`, `onCollisionEnter/Exit(other)`. Events between scripts: `ctx.emit(name, data)` → `onEvent(name, data)` / `ctx.on(name, cb)`.
+Water hooks: `onEnterWater(water)`, `onExitWater(water)` (events `water:enter` / `water:exit` with `{ entityId, waterId }`); `ctx.movement.inWater` for characters. Joints: `onJointBreak(force)` (event `joint:break`).
 
 `ctx` contains: `entity`, `world`, `touch` (on-screen buttons, see Player Controls), `input` (`isActionPressed`, `isActionJustPressed`, `getVector`, `getAxis`, `isKeyDown('KeyW')`), `time`,
-`physics` (`setLinearVelocity`, `getLinearVelocity`, `applyImpulse`, `setPosition`, `raycast`), `ui`, `three`, `object3D`, `scene` (`find`, `findByTag`, `load`), `emit`, `on`, `log`.
+`physics` (`setLinearVelocity`, `getLinearVelocity`, `applyImpulse`, `addForce`/`addTorque` (call every `onFixedUpdate`; a force lasts one step), `setAngularVelocity`, `getAngularVelocity`, `setMotor(targetVelocity, maxForce?)` for this entity's hinge/slider Joint, `setPosition`, `raycast`),
+`vfx` (`play(entity?)`, `stop(entity?, { clear })`, `burst(count, entity?)`, `spawn(preset, position, { parent?, autoDestroy?, overrides? })` → a temporary effect entity, e.g. `ctx.vfx.spawn('explosion', hit.point)`), `ui`, `three`, `object3D`, `scene` (`find`, `findByTag`, `load`), `emit`, `on`, `log`.
 
 Movement rules: dynamic Rigidbody → use `ctx.physics` (velocity/impulse); kinematic Rigidbody or no Rigidbody → change `ctx.entity.getTransform().position` directly.
 A script that throws is disabled and reported; fix errors that `linden_play` reports.
@@ -197,6 +202,14 @@ Rules:
 - Contextual buttons: start them hidden (`visible: false`) and call `ctx.touch.show('Use')` / `ctx.touch.hide('Use')` from scripts (e.g. near a door). Also available: `ctx.touch.setLabel/setIcon/setBadge(id, ammo)/setCooldown(id, s)/setEnabled`, and `ctx.touch.setLayout('vehicle')` for a second layout created with `linden_touch_button` `layout: "vehicle"`. All of these are safe no-ops on desktop.
 - `linden_play` reports `touch.layoutIssues` (overlapping/off-screen buttons, missing actions) and `touch.calls` (what scripts did with ctx.touch); fix layout issues it reports.
 - After building the scene, verify movement: `linden_play` with `inputScript` such as `[{"at":0.2,"action":"Move","value":[0,1]},{"at":1,"action":"Jump","press":true},{"at":1.1,"action":"Jump","press":false}]` must report `distanceTravelled > 0` and a `maxJumpHeight` close to `jumpHeight`.
+
+### Physics, water and effect recipes
+- **Swinging door**: door board with `Rigidbody` + `BoxCollider` + `Joint { type: 'hinge', anchor: { x: -halfWidth, y: 0, z: 0 }, axis: { x: 0, y: 1, z: 0 }, limits: { enabled: true, min: -100, max: 100 } }` (no `connectedEntity`: hinged to the world).
+- **Chain / rope bridge**: a row of small dynamic links; each link has `Joint { type: 'ball', connectedEntity: <previous link id>, anchor: <point between the two links> }`; the first link connects to the world or a post.
+- **Ragdoll**: capsules for torso, head, upper/lower arms and legs, each `Rigidbody` + `CapsuleCollider`, and a `Joint { type: 'ball' }` (shoulders, hips, neck) or `{ type: 'hinge', limits }` (elbows, knees: axis X, min 0, max 140) to its parent part, anchored at the shared joint point.
+- **Breakable**: `breakForce` on a `fixed` joint (a hanging sign drops when hit hard); react in `onJointBreak`.
+- **Lake with floating crates**: entity with `Water { size: { x: 30, y: 30 } }` at y = 0 above a sunken ground; crates with `Rigidbody { mass: 300 }` + 1 m `BoxCollider` float (300 kg in 1 m³ < 1000).
+- **Campfire**: fire entity with `ParticleEmitter { preset: 'fire' }` (it adds a flickering light) and a child entity 0.6 m above with `{ preset: 'smoke' }`. Torches: `fire` with `maxParticles: 120`. Hit effects: `ctx.vfx.spawn('sparks' | 'explosion' | 'splash', point)` from collision hooks.
 
 ---
 

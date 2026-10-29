@@ -25,6 +25,7 @@
     "test:e2e:preview": "npm run build:electron && node tests/e2e/renderPreview.e2e.mjs",
     "test:e2e:move": "npm run build:electron && node tests/e2e/movement.e2e.mjs",
     "test:e2e:touch": "npm run build:electron && node tests/e2e/touchButtons.e2e.mjs",
+    "test:e2e:physics-vfx": "node tests/e2e/physicsWaterVfx.e2e.mjs",
     "test:e2e:packaged-agent": "node tests/e2e/packagedOpencode.e2e.mjs",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",

@@ -127,18 +127,7 @@ export class ParticleSystem {
 
   /** Advance and redraw; returns true once when a non-looping emitter finished */
   update(dt: number): boolean {
-    const parent = this.object.parent
-    if (this.worldSpace && parent) {
-      parent.updateWorldMatrix(true, false)
-      // Cancel the entity transform: instance positions are already world space
-      this.object.matrix.copy(parent.matrixWorld).invert()
-      this.object.matrixWorldNeedsUpdate = true
-      const p = new THREE.Vector3()
-      const q = new THREE.Quaternion()
-      parent.matrixWorld.decompose(p, q, new THREE.Vector3())
-      this.pose = { position: { x: p.x, y: p.y, z: p.z }, quaternion: { x: q.x, y: q.y, z: q.z, w: q.w } }
-    }
-
+    this.syncPose()
     for (const cmd of this.emitter._commands) {
       if (cmd.kind === 'play') this.sim.play()
       else if (cmd.kind === 'stop') this.sim.stop(cmd.clear)
@@ -154,8 +143,23 @@ export class ParticleSystem {
 
   /** Simulate ahead (previews) so a looping emitter is not empty on its first frame */
   prewarm(seconds: number, step = 1 / 30): void {
+    this.syncPose()
     for (let t = 0; t < seconds; t += step) this.sim.step(step, this.pose)
     this.writeInstances()
+  }
+
+  /** World space: emit from the entity's world pose and cancel its transform on the group */
+  private syncPose(): void {
+    const parent = this.object.parent
+    if (!this.worldSpace || !parent) return
+    parent.updateWorldMatrix(true, false)
+    // Instance positions are already world space
+    this.object.matrix.copy(parent.matrixWorld).invert()
+    this.object.matrixWorldNeedsUpdate = true
+    const p = new THREE.Vector3()
+    const q = new THREE.Quaternion()
+    parent.matrixWorld.decompose(p, q, new THREE.Vector3())
+    this.pose = { position: { x: p.x, y: p.y, z: p.z }, quaternion: { x: q.x, y: q.y, z: q.z, w: q.w } }
   }
 
   private writeInstances(): void {
