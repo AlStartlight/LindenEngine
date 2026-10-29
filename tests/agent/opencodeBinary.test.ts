@@ -74,5 +74,5 @@ describe('opencode CLI lookup for packaged apps', () => {
     expect(await resolveOpencode({ refresh: true })).toMatchObject({ bin, source: 'OPENCODE_BIN' })
     process.env.OPENCODE_BIN = path.join(d, 'missing')
     expect(await resolveOpencode({ refresh: true })).toMatchObject({ bin: null, source: 'not-found' })
-  })
+  }, 20_000) // falls back to the login shell PATH, which can take seconds with a heavy profile
 })

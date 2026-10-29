@@ -1,6 +1,9 @@
 import { World } from '../ecs/World'
 import { Entity } from '../ecs/Entity'
 import { Component } from '../ecs/Component'
+import { ComponentRegistry } from '../ecs/ComponentRegistry'
+import { normalizeSceneSettings, SceneSettings } from './SceneSettings'
+import { migrateSceneV1ToV2 } from './migrations'
 
 export interface SerializedComponent {
   type: string
@@ -23,12 +26,12 @@ export interface SceneV2Data {
   format: 'linden-scene'
   version: 2
   name: string
-  settings?: {
-    ambientColor?: string
-    skybox?: string | null
-  }
+  /** Render settings, see SceneSettings.ts (unknown keys such as touchLayout are kept) */
+  settings?: Partial<SceneSettings> & Record<string, unknown>
   entities: SerializedEntity[]
 }
+
+export { migrateSceneV1ToV2 }
 
 /**
  * Deterministically sorts object keys for Git-friendly JSON output
@@ -56,69 +59,6 @@ export function stableStringify(obj: any, space = 2): string {
   }
 
   return JSON.stringify(sortObject(obj), null, space)
-}
-
-/**
- * Migrate Scene v1 format to v2 format
- */
-export function migrateSceneV1ToV2(v1Data: any): SceneV2Data {
-  const entities: SerializedEntity[] = []
-
-  if (Array.isArray(v1Data.objects)) {
-    for (const obj of v1Data.objects) {
-      const components: SerializedComponent[] = []
-
-      // 1. Transform component
-      if (obj.transform) {
-        components.push({
-          type: 'Transform',
-          data: {
-            position: obj.transform.position || [0, 0, 0],
-            rotation: obj.transform.rotation || [0, 0, 0],
-            scale: obj.transform.scale || [1, 1, 1],
-          },
-        })
-      }
-
-      // 2. MeshRenderer component
-      if (obj.kind === 'primitive' || obj.primitive || obj.material) {
-        components.push({
-          type: 'MeshRenderer',
-          data: {
-            primitive: obj.primitive || 'box',
-            color: obj.material?.color || '#3b82f6',
-            roughness: obj.material?.roughness ?? 0.5,
-            metalness: obj.material?.metalness ?? 0.1,
-            castShadow: obj.castShadow ?? true,
-            receiveShadow: obj.receiveShadow ?? true,
-            isVisible: obj.visible ?? true,
-          },
-        })
-      }
-
-      entities.push({
-        id: obj.id,
-        name: obj.name || 'GameObject',
-        active: obj.visible ?? true,
-        static: false,
-        tags: [],
-        layer: 0,
-        parentId: obj.parentId || null,
-        components,
-      })
-    }
-  }
-
-  return {
-    format: 'linden-scene',
-    version: 2,
-    name: v1Data.name || 'MigratedScene',
-    settings: {
-      ambientColor: '#666666',
-      skybox: null,
-    },
-    entities,
-  }
 }
 
 /**
@@ -178,10 +118,7 @@ export class SceneSerializer {
       format: 'linden-scene',
       version: 2,
       name: sceneName,
-      settings: {
-        ambientColor: '#666666',
-        skybox: null,
-      },
+      settings: structuredClone(world.getSceneSettings()),
       entities: serializedEntities,
     }
 
@@ -210,6 +147,9 @@ export class SceneSerializer {
     }
 
     world.clear()
+    const { settings, warnings } = normalizeSceneSettings(sceneData.settings)
+    for (const w of warnings) console.warn(`[Scene] ${w}`)
+    world.setSceneSettings(settings, true)
 
     // Pass 1: Create all entities with their IDs and properties
     for (const entData of sceneData.entities) {
@@ -244,6 +184,11 @@ export class SceneSerializer {
             }
           }
         } else {
+          // Scenes saved before a component was removed (Blueprint, Animator) still open; the data is
+          // kept as an inert component so a resave does not lose it
+          if (!ComponentRegistry.get(compData.type)) {
+            console.warn(`[Scene] Komponen tidak dikenal "${compData.type}" pada entity "${entData.name}" diabaikan`)
+          }
           try {
             world.addComponent(entity.id, compData.type, compData.data)
           } catch (_) {

@@ -35,4 +35,4 @@ Laporan: `report/results.json` (mesin) dan `report/html/` (browsable).
 
 ## Belum dicakup
 
-UI editor (React), viewport Three.js, Rapier physics, Blueprint/Material/Animator graph, dan Electron IPC. Bagian itu butuh browser atau Electron (`page` / `_electron`) dan sebaiknya menjadi suite E2E terpisah.
+UI editor (React), viewport Three.js, Rapier physics, dan Electron IPC. Bagian itu butuh browser atau Electron (`page` / `_electron`) dan sebaiknya menjadi suite E2E terpisah.

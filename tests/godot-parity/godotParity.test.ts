@@ -7,6 +7,7 @@ import { Sprite2D, Renderer2D } from '../../engine/renderer2d/Renderer2D'
 import { TileSet } from '../../engine/tilemap/TileSet'
 import { TileMapLayer } from '../../engine/tilemap/TileMap'
 import { AnimationPlayer } from '../../engine/animation/AnimationPlayer'
+import * as THREE from 'three'
 import { CharacterBody2D, StaticBody2D, Area2D } from '../../engine/physics/Physics2D'
 import { InputMap } from '../../engine/input/InputMap'
 import { CommandStack } from '../../editor/commands/CommandStack'
@@ -230,6 +231,24 @@ describe('Godot Parity Features (TC-GF-01 to TC-GF-14)', () => {
 
     expect(target.position.x).toBeCloseTo(100, 4)
     expect(target.modulate.toLowerCase()).toBe('#808080')
+  })
+
+  // TC-GF-10b: the same player drives glTF clips through three's AnimationMixer
+  it('TC-GF-10b: plays a glTF-style clip on an Object3D', () => {
+    const root = new THREE.Object3D()
+    const door = new THREE.Object3D()
+    door.name = 'Door'
+    root.add(door)
+    const clip = new THREE.AnimationClip('Open', 2, [new THREE.NumberKeyframeTrack('Door.position[x]', [0, 2], [0, 4])])
+    const anim = new AnimationPlayer('Player')
+    anim.attachMixer(root, [clip])
+    expect(anim.getClipNames()).toEqual(['Open'])
+    anim.play('Open')
+    anim.advance(0.5)
+    expect(door.position.x).toBeCloseTo(1, 4)
+    anim.seek(1.5)
+    expect(door.position.x).toBeCloseTo(3, 4)
+    anim.detachMixer()
   })
 
   // TC-GF-11: CharacterBody2D movement & collision

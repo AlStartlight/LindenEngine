@@ -8,6 +8,9 @@ import { ScriptRuntime, ScriptErrorInfo } from '../engine/scripting/ScriptRuntim
 import { HtmlUiLayer } from '../engine/ui/HtmlUiLayer'
 import { compiledScriptPath } from '../shared/playProtocol'
 import { createGameRenderer, GameRenderer, RendererBackend, RendererPreference, rendererStats } from '../engine/renderer/createRenderer'
+import { ScenePipeline } from '../engine/renderer/sceneFactory'
+import { AssetLoader } from '../engine/assets/AssetLoader'
+import { resolveQuality } from '../engine/scene/SceneSettings'
 import { TouchControls, shouldShowTouchControls } from './touchControls'
 import { createTouchApi, TouchApi } from './touchApi'
 import { normalizeTouchConfig } from '../engine/input/normalizeActions'
@@ -56,6 +59,9 @@ export class LindenPlayer {
   private cameraEntityId: string | null = null
   private renderer: GameRenderer | null = null
   private backend: RendererBackend = 'webgl2'
+  /** Scene settings → tone mapping, IBL, shadows, post-processing (same code as the editor viewport) */
+  private pipeline: ScenePipeline | null = null
+  private assets: AssetLoader | null = null
   private sim: GameSimulation
   private ui: HtmlUiLayer | null = null
   private touchControls: TouchControls | null = null
@@ -84,7 +90,6 @@ export class LindenPlayer {
     this.bridge = new SceneBridge(this.world)
     this.sim = new GameSimulation(this.world)
     this.scene = new THREE.Scene()
-    this.scene.background = new THREE.Color(0x1a1a2e)
 
     this.defaultCamera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 1000)
     this.defaultCamera.position.set(0, 5, 10)
@@ -102,19 +107,28 @@ export class LindenPlayer {
       this.updateLoadingStatus('Memeriksa kapabilitas grafis...', 20)
       await this.initRenderer()
 
-      // 3. Setup Default Lighting
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
-      this.scene.add(ambientLight)
-
-      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8)
-      dirLight.position.set(10, 20, 15)
-      dirLight.castShadow = true
-      dirLight.shadow.mapSize.width = 2048
-      dirLight.shadow.mapSize.height = 2048
-      this.scene.add(dirLight)
+      // 3. Lighting, environment and shadows come from the scene settings (ScenePipeline)
+      this.assets = new AssetLoader({
+        resolveUrl: (rel) => this.resolveUrl(rel),
+        // Draco/Basis decoders ship next to game.js (scripts/copy-decoders.mjs); no CDN
+        decoderPath: new URL('decoders/', import.meta.url).href,
+        renderer: this.renderer,
+        warn: (msg) => this.warn(msg),
+      })
+      this.pipeline = new ScenePipeline(this.renderer!, this.scene, {
+        backend: this.backend,
+        quality: resolveQuality(this.projectData?.quality),
+        assets: this.assets,
+        warn: (msg) => this.warn(msg),
+      })
+      this.world.events.on('sceneSettingsChanged', (settings: any) => this.pipeline?.applySettings(settings))
 
       // 4. Attach bridge to sync ECS world to Three.js scene
-      this.bridge.attach(this.scene)
+      this.bridge.attach(this.scene, {
+        assets: this.assets,
+        allowTransmission: this.pipeline.caps.transmission,
+        warn: (msg) => this.warn(msg),
+      })
       this.ui = new HtmlUiLayer({
         container: this.container,
         fetchText: (src) => this.fetchText(src),
@@ -158,6 +172,7 @@ export class LindenPlayer {
     const sceneLayout = scene?.settings?.touchLayout
     if (typeof sceneLayout === 'string' && sceneLayout) this.touch.setLayout(sceneLayout)
     SceneSerializer.deserialize(typeof sceneData === 'string' ? sceneData : JSON.stringify(sceneData), this.world)
+    this.pipeline?.applySettings(this.world.getSceneSettings())
     this.resolveActiveCamera()
 
     this.updateLoadingStatus('Menginisialisasi simulasi fisika...', 75)
@@ -377,9 +392,11 @@ export class LindenPlayer {
 
     if (!this.isPaused) {
       this.sim.frame(frameDt)
+      this.bridge.update(frameDt * this.sim.timeScale)
     } else if (this.pendingSteps > 0) {
       this.pendingSteps--
       this.sim.frame(1 / 60)
+      this.bridge.update(1 / 60)
     }
 
     // Scripts mutate transforms directly; push them to the scene graph before rendering
@@ -389,7 +406,8 @@ export class LindenPlayer {
     this.ui?.flush()
 
     if (this.renderer) {
-      this.renderer.render(this.scene, this.camera)
+      if (this.pipeline) this.pipeline.render(this.camera)
+      else this.renderer.render(this.scene, this.camera)
       this.ui?.renderWorld(this.scene, this.camera)
     }
 
@@ -443,8 +461,9 @@ export class LindenPlayer {
       this.camera.updateProjectionMatrix()
     }
 
-    this.renderer.setSize(width, height)
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.pipeline?.caps.maxPixelRatio ?? 2))
+    if (this.pipeline) this.pipeline.setSize(width, height)
+    else this.renderer.setSize(width, height)
     this.ui?.setSize(width, height)
   }
 
@@ -505,6 +524,8 @@ export class LindenPlayer {
     this.sim.dispose()
     this.ui?.dispose()
     this.bridge.detach()
+    this.pipeline?.dispose()
+    this.assets?.dispose()
     this.renderer?.dispose()
   }
 }

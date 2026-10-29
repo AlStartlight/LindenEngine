@@ -2,4 +2,5 @@
  * Animation System - Index Export
  */
 
-export * from './AnimatorController'
+export * from './AnimationPlayer'
+export * from './AnimationTree'

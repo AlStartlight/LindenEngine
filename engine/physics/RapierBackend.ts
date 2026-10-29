@@ -2,6 +2,7 @@ import type { PhysicsBackend } from './PhysicsBackend'
 import type { Transform } from '../ecs/Component'
 import type { Rigidbody, BaseCollider, RaycastHit } from './components'
 import { BoxCollider, SphereCollider, CapsuleCollider } from './components'
+import type { ModelColliderShape } from '../model/modelCollider'
 import * as THREE from 'three'
 
 let RAPIER: any = null
@@ -155,15 +156,34 @@ export class RapierBackend implements PhysicsBackend {
     }
 
     colDesc.setTranslation(collider.center.x, collider.center.y, collider.center.z)
-    colDesc.setSensor(collider.isTrigger)
-    colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
-    colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL)
-    colDesc.setCollisionGroups(this.getCollisionGroups(layer))
-
     if (collider.material) {
       colDesc.setFriction(collider.material.friction ?? 0.5)
       colDesc.setRestitution(collider.material.bounciness ?? 0.1)
     }
+    this.attachCollider(entityId, colDesc, transform, collider.isTrigger, layer)
+  }
+
+  /** Auto collider of a Model component (bounding box or convex hull of its geometry) */
+  createModelCollider(entityId: string, shape: ModelColliderShape, transform: Transform, layer: number = 0): void {
+    if (!this.rapierWorld) return
+    let colDesc: any
+    if (shape.kind === 'hull') {
+      colDesc = RAPIER.ColliderDesc.convexHull(shape.points)
+      if (!colDesc) return // degenerate (flat) hull
+    } else {
+      colDesc = RAPIER.ColliderDesc.cuboid(...shape.halfExtents)
+      colDesc.setTranslation(...shape.center)
+    }
+    colDesc.setFriction(0.5)
+    colDesc.setRestitution(0.1)
+    this.attachCollider(entityId, colDesc, transform, false, layer)
+  }
+
+  private attachCollider(entityId: string, colDesc: any, transform: Transform, isTrigger: boolean, layer: number): void {
+    colDesc.setSensor(isTrigger)
+    colDesc.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
+    colDesc.setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.ALL)
+    colDesc.setCollisionGroups(this.getCollisionGroups(layer))
 
     const parentBody = this.bodies.get(entityId)
     let rapierCollider: any
@@ -185,7 +205,7 @@ export class RapierBackend implements PhysicsBackend {
     }
     this.colliders.get(entityId)!.push(rapierCollider)
     this.colliderToEntity.set(rapierCollider.handle, entityId)
-    this.colliderToIsTrigger.set(rapierCollider.handle, collider.isTrigger)
+    this.colliderToIsTrigger.set(rapierCollider.handle, isTrigger)
   }
 
   removeCollider(entityId: string): void {

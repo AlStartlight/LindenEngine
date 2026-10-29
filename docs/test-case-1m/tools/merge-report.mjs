@@ -39,7 +39,7 @@ for (const b of batches) {
   }
 }
 
-const md = `# Hasil 1.000.000 Test Case
+const md = `# Hasil 680.000 Test Case
 
 Dibuat ${new Date().toISOString()} oleh \`tools/merge-report.mjs\`.
 

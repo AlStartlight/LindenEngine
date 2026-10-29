@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // App management
   getVersion: () => invoke('app:getVersion'),
   getProjectPath: () => invoke('app:getProjectPath'),
+  listAssets: () => invoke('assets:list'),
   getUserDataPath: () => invoke('app:getUserDataPath'),
   setWindowTitle: (title: string) => invoke('window:setTitle', title),
   getIpcChannels: () => invoke('app:ipcChannels'),
@@ -31,6 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openProject: (opts?: any) => invoke('project:open', opts),
   saveProjectSettings: (opts: any) => invoke('project:saveSettings', opts),
   saveProjectInput: (opts: { projectPath: string; input: { actions?: unknown[]; touch?: unknown } }) => invoke('project:saveInput', opts),
+  saveProjectGraphics: (opts: { projectPath: string; quality?: string; renderer?: string }) => invoke('project:saveGraphics', opts),
   getRecentProjects: () => invoke('project:recent:list'),
   addRecentProject: (project: any) => invoke('project:recent:add', project),
   removeRecentProject: (path: string) => invoke('project:recent:remove', path),
@@ -213,6 +215,7 @@ declare global {
     electronAPI: {
       getVersion: () => Promise<string>
       getProjectPath: () => Promise<string>
+      listAssets?: () => Promise<import('../shared/assetProtocol').AssetEntry[]>
       getUserDataPath: () => Promise<string>
       setWindowTitle: (title: string) => Promise<void>
       getIpcChannels?: () => Promise<string[]>

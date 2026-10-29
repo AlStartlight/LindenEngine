@@ -11,7 +11,6 @@ export const MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.lscene': 'application/json; charset=utf-8',
-  '.lbp': 'application/json; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
   '.wasm': 'application/wasm',
   '.png': 'image/png',

@@ -8,13 +8,11 @@ import { subscribeAgentEvents } from './agent/agentEvents'
 import { isAgentSceneForOpenScene } from './agent/agentSceneSync'
 import { phaseLabel } from './agent/TurnView'
 import { ProjectPanel } from './panels/ProjectPanel'
+import { AssetBrowser } from './panels/AssetBrowser'
+import { SceneSettingsPanel } from './panels/SceneSettingsPanel'
 import { Toolbar } from './ui/Toolbar'
 import { ConsolePanel } from './panels/ConsolePanel'
 import { OutputPanel } from './panels/OutputPanel'
-import { BlueprintEditor } from './panels/BlueprintEditor'
-import { MaterialEditor } from './panels/MaterialEditor'
-import { AnimatorEditor } from './panels/AnimatorEditor'
-import { SequencerEditor } from './panels/SequencerEditor'
 import { BridgePanel } from './panels/BridgePanel'
 import { GodotBridge } from '../engine/godot/GodotBridge'
 import { ConfirmDialog } from './ui/ConfirmDialog'
@@ -74,8 +72,8 @@ export const EditorLayout: React.FC = () => {
   } = useEditorStore()
 
   // Bottom panel tab: 'project' | 'console' | 'output' | 'all'
-  const [bottomTab, setBottomTab] = useState<'project' | 'console' | 'output' | 'all' | 'hidden'>('all')
-  const [rightTab, setRightTab] = useState<'inspector' | 'agent'>('inspector')
+  const [bottomTab, setBottomTab] = useState<'project' | 'assets' | 'console' | 'output' | 'all' | 'hidden'>('all')
+  const [rightTab, setRightTab] = useState<'inspector' | 'scene' | 'agent'>('inspector')
   const isAgentGenerating = useAgentStore((s) => s.isGenerating)
   const agentDiffs = useAgentStore((s) => s.pendingDiffs)
   const agentPendingDiffs = agentDiffs.filter((d) => d.status !== 'rejected')
@@ -729,10 +727,6 @@ export const EditorLayout: React.FC = () => {
           await clearRecentProjects()
           setRecentProjects([])
         }}
-        onOpenBlueprintEditor={() => setActiveEditorPanel('blueprint')}
-        onOpenMaterialEditor={() => setActiveEditorPanel('material')}
-        onOpenAnimatorEditor={() => setActiveEditorPanel('animator')}
-        onOpenSequencerEditor={() => setActiveEditorPanel('sequencer')}
         onOpenInputActions={() => setActiveWindow('inputActions')}
         onOpenProjectSettings={() => setActiveWindow('projectSettings')}
         onOpenAgent={() => setRightTab('agent')}
@@ -770,50 +764,6 @@ export const EditorLayout: React.FC = () => {
                 <span>Viewport</span>
               </button>
               <button
-                onClick={() => setActiveEditorPanel('blueprint')}
-                className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center ${
-                  activeEditorPanel === 'blueprint'
-                    ? 'bg-[#16213e] text-white border-t-2 border-cyan-500'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Icons.Blueprint className="w-3.5 h-3.5 mr-1.5" />
-                <span>Blueprint</span>
-              </button>
-              <button
-                onClick={() => setActiveEditorPanel('material')}
-                className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center ${
-                  activeEditorPanel === 'material'
-                    ? 'bg-[#16213e] text-white border-t-2 border-green-500'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Icons.Material className="w-3.5 h-3.5 mr-1.5" />
-                <span>Material</span>
-              </button>
-              <button
-                onClick={() => setActiveEditorPanel('animator')}
-                className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center ${
-                  activeEditorPanel === 'animator'
-                    ? 'bg-[#16213e] text-white border-t-2 border-orange-500'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Icons.Animator className="w-3.5 h-3.5 mr-1.5" />
-                <span>Animator</span>
-              </button>
-              <button
-                onClick={() => setActiveEditorPanel('sequencer')}
-                className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center ${
-                  activeEditorPanel === 'sequencer'
-                    ? 'bg-[#16213e] text-white border-t-2 border-purple-500'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Icons.Sequencer className="w-3.5 h-3.5 mr-1.5" />
-                <span>Sequencer</span>
-              </button>
-              <button
                 onClick={() => setActiveEditorPanel('bridge')}
                 className={`px-4 py-1.5 text-xs font-medium transition-colors flex items-center ${
                   activeEditorPanel === 'bridge' || (activeEditorPanel as string) === 'godot'
@@ -849,10 +799,6 @@ export const EditorLayout: React.FC = () => {
                   <SceneViewport key={viewportKey} onConsoleMessage={addConsoleMessage} />
                 </ErrorBoundary>
               )}
-              {activeEditorPanel === 'blueprint' && <BlueprintEditor />}
-              {activeEditorPanel === 'material' && <MaterialEditor />}
-              {activeEditorPanel === 'animator' && <AnimatorEditor />}
-              {activeEditorPanel === 'sequencer' && <SequencerEditor />}
               {(activeEditorPanel === 'bridge' || (activeEditorPanel as string) === 'godot') && (
                 <BridgePanel
                   bridge={godotBridgeRef.current}
@@ -877,6 +823,16 @@ export const EditorLayout: React.FC = () => {
                   }`}
                 >
                   Project
+                </button>
+                <button
+                  onClick={() => setBottomTab('assets')}
+                  className={`px-4 py-1.5 text-xs font-medium ${
+                    bottomTab === 'assets'
+                      ? 'bg-[#16213e] text-white border-t-2 border-blue-500'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  Assets
                 </button>
                 <button
                   onClick={() => setBottomTab('console')}
@@ -923,6 +879,11 @@ export const EditorLayout: React.FC = () => {
                 {bottomTab === 'project' && (
                   <div className="flex-1 overflow-hidden">
                     <ProjectPanel />
+                  </div>
+                )}
+                {bottomTab === 'assets' && (
+                  <div className="flex-1 overflow-hidden">
+                    <AssetBrowser />
                   </div>
                 )}
                 {bottomTab === 'console' && (
@@ -982,6 +943,17 @@ export const EditorLayout: React.FC = () => {
               <span>Inspector</span>
             </button>
             <button
+              onClick={() => setRightTab('scene')}
+              title="Environment, tone mapping, exposure, fog, bayangan, post-processing"
+              className={`flex-1 py-1.5 px-3 text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors ${
+                rightTab === 'scene'
+                  ? 'bg-[#16213e] text-white border-t-2 border-blue-500'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <span>Scene</span>
+            </button>
+            <button
               onClick={() => setRightTab('agent')}
               className={`flex-1 py-1.5 px-3 text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors relative ${
                 rightTab === 'agent'
@@ -1002,7 +974,7 @@ export const EditorLayout: React.FC = () => {
             </button>
           </div>
           <div className="flex-1 overflow-hidden">
-            {rightTab === 'inspector' ? <InspectorPanel /> : <AgentPanel />}
+            {rightTab === 'inspector' ? <InspectorPanel /> : rightTab === 'scene' ? <SceneSettingsPanel /> : <AgentPanel />}
           </div>
         </div>
       </div>

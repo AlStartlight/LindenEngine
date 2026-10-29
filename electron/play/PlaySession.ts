@@ -108,6 +108,28 @@ export async function startPlaySession(opts: StartPlayOptions): Promise<PlayStar
 }
 
 /**
+ * Session for an offscreen render preview: serves the project and the runtime (preview.html),
+ * without compiling scripts. Stop it with stopPlaySession when the preview is done.
+ */
+export async function startPreviewSession(opts: { projectPath: string; cacheRoot: string; preferSourceRuntime: boolean }): Promise<{ id: string; url: string }> {
+  const projectRoot = fs.realpathSync(opts.projectPath)
+  const config = readProjectConfig(projectRoot)
+  const runtimeDir = await ensurePlayerRuntime({ preferSource: opts.preferSourceRuntime, cacheDir: path.join(opts.cacheRoot, 'runtime') })
+  const id = crypto.randomUUID()
+  sessions.set(id, {
+    id,
+    projectRoot,
+    mode: 'scene',
+    runtimeDir,
+    compiledDir: null,
+    injectBridge: false,
+    allowNetwork: [],
+    projectConfig: { name: config.name, input: config.input ?? {} },
+  })
+  return { id, url: `${GAME_ORIGIN}/${id}/__linden/runtime/preview.html` }
+}
+
+/**
  * Hot reload for scene projects: scripts/ changes are recompiled (one compile at a time) and
  * announced with a new version; ui/ changes are forwarded as a list of fragments.
  */

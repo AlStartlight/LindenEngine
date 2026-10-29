@@ -12,24 +12,11 @@ import { ComponentMap } from '../../engine/godot/mapping/ComponentMap'
 import { GodotPassthroughComponent } from '../../engine/godot/mapping/GodotPassthroughComponent'
 import { World } from '../../engine/ecs/World'
 import { Light, LightType } from '../../engine/renderer/Components'
-import { BlueprintGraph } from '../../engine/blueprints/BlueprintGraph'
-import {
-  EventBeginPlay,
-  EventTick,
-  RotateNode,
-  BranchNode,
-  ForLoopNode,
-  DelayNode,
-  PrintStringNode,
-  BlueprintNode,
-  NodeCategory,
-} from '../../engine/blueprints/BlueprintNode'
-import { BlueprintToGd, BlueprintTranspileError } from '../../engine/godot/transpiler/BlueprintToGd'
 import { DiffEngine, EntitySnapshot } from '../../engine/godot/sync/DiffEngine'
 import { ConflictResolver } from '../../engine/godot/sync/ConflictResolver'
 import { CompatReport } from '../../engine/godot/report/CompatReport'
 
-describe('Bridge (Godot) - Unit Tests (UT-01 to UT-16)', () => {
+describe('Bridge (Godot) - Unit Tests (UT-01 to UT-09, UT-15 to UT-16)', () => {
   // UT-01: TscnWriter - Single entity with Transform
   it('UT-01: exports single entity with position (1,2,3) and Y rotation 90 deg', () => {
     const world = new World()
@@ -218,135 +205,6 @@ amount = 64
     expect(passthrough?.rawType).toBe('GPUParticles3D')
     expect(passthrough?.rawProperties['amount']).toBe(64)
     expect(report.skippedCount).toBe(1)
-  })
-
-  // UT-10: BlueprintToGd - Event Tick + Rotate
-  it('UT-10: transpiles rotating cube graph to _process and rotate_y', () => {
-    const graph = new BlueprintGraph('RotatingCube')
-    const tick = graph.createNode('EventTick') as EventTick
-    const rotate = graph.createNode('Rotate') as RotateNode
-
-    expect(tick).toBeDefined()
-    expect(rotate).toBeDefined()
-
-    const tickExec = tick.outputPins.find((p) => p.name === 'Then')!
-    const rotateExec = rotate.inputPins.find((p) => p.name === 'Execute')!
-    graph.connect(tick.id, tickExec.id, rotate.id, rotateExec.id)
-
-    const { code } = BlueprintToGd.transpile(graph)
-
-    expect(code).toContain('extends Node3D')
-    expect(code).toContain('func _process(delta: float) -> void:')
-    expect(code).toContain('rotate_y(deg_to_rad(90) * delta)')
-  })
-
-  // UT-11: BlueprintToGd - Branch + Loop
-  it('UT-11: generates valid tab indentation for nested Branch and For Loop', () => {
-    const graph = new BlueprintGraph('BranchLoop')
-    const begin = graph.createNode('EventBeginPlay')!
-    const branch = graph.createNode('Branch')!
-    const loop = graph.createNode('ForLoop')!
-    const print = graph.createNode('PrintString')!
-
-    const beginExec = begin.outputPins.find((p) => p.name === 'Then')!
-    const branchExec = branch.inputPins.find((p) => p.name === 'Execute')!
-    graph.connect(begin.id, beginExec.id, branch.id, branchExec.id)
-
-    const branchTrue = branch.outputPins.find((p) => p.name === 'True')!
-    const loopExec = loop.inputPins.find((p) => p.name === 'Execute')!
-    graph.connect(branch.id, branchTrue.id, loop.id, loopExec.id)
-
-    const loopBody = loop.outputPins.find((p) => p.name === 'Loop Body')!
-    const printExec = print.inputPins.find((p) => p.name === 'Execute')!
-    graph.connect(loop.id, loopBody.id, print.id, printExec.id)
-
-    const { code } = BlueprintToGd.transpile(graph)
-
-    expect(code).toContain('func _ready() -> void:')
-    expect(code).toContain('\tif false:')
-    expect(code).toContain('\t\tfor i in range(0, (10) + 1):')
-    expect(code).toContain('\t\t\tprint("Hello")')
-  })
-
-  // UT-12: BlueprintToGd - Delay
-  it('UT-12: BeginPlay -> Delay 2s -> Print produces await create_timer(2.0)', () => {
-    const graph = new BlueprintGraph('DelayGraph')
-    const begin = graph.createNode('EventBeginPlay')!
-    const delay = graph.createNode('Delay')!
-    const print = graph.createNode('PrintString')!
-
-    // Set delay duration to 2.0
-    const durPin = delay.inputPins.find((p) => p.name === 'Duration')!
-    durPin.defaultValue = 2.0
-
-    const beginExec = begin.outputPins.find((p) => p.name === 'Then')!
-    const delayExec = delay.inputPins.find((p) => p.name === 'Execute')!
-    graph.connect(begin.id, beginExec.id, delay.id, delayExec.id)
-
-    const delayComp = delay.outputPins.find((p) => p.name === 'Completed')!
-    const printExec = print.inputPins.find((p) => p.name === 'Execute')!
-    graph.connect(delay.id, delayComp.id, print.id, printExec.id)
-
-    const { code } = BlueprintToGd.transpile(graph)
-
-    expect(code).toContain('await get_tree().create_timer(2).timeout')
-    expect(code).toContain('print("Hello")')
-  })
-
-  // UT-13: BlueprintToGd - Unsupported node
-  it('UT-13: marks unsupported nodes with comment and continues generating remaining graph', () => {
-    class CustomPluginNode extends BlueprintNode {
-      constructor() {
-        super('CustomPluginNode', 'Fancy Shader Effect', NodeCategory.CUSTOM)
-        this.addExecInput()
-        this.addExecOutput()
-      }
-      execute() {
-        return new Map()
-      }
-    }
-
-    const graph = new BlueprintGraph('UnsupportedGraph')
-    const begin = graph.createNode('EventBeginPlay')!
-    const custom = new CustomPluginNode()
-    graph.addNode(custom)
-    const print = graph.createNode('PrintString')!
-
-    const beginExec = begin.outputPins.find((p) => p.name === 'Then')!
-    const customExecIn = custom.inputPins[0]
-    graph.connect(begin.id, beginExec.id, custom.id, customExecIn.id)
-
-    const customExecOut = custom.outputPins[0]
-    const printExec = print.inputPins.find((p) => p.name === 'Execute')!
-    graph.connect(custom.id, customExecOut.id, print.id, printExec.id)
-
-    const { code, report } = BlueprintToGd.transpile(graph)
-
-    expect(code).toContain('# UNSUPPORTED: Fancy Shader Effect')
-    expect(code).toContain('print("Hello")')
-    expect(report.warnings.length).toBeGreaterThanOrEqual(1)
-  })
-
-  // UT-14: BlueprintToGd - Execution cycle
-  it('UT-14: rejects infinite execution loop with clear error message', () => {
-    const graph = new BlueprintGraph('CycleGraph')
-    const begin = graph.createNode('EventBeginPlay')!
-    const print1 = graph.createNode('PrintString')!
-    const print2 = graph.createNode('PrintString')!
-
-    const beginExec = begin.outputPins.find((p) => p.name === 'Then')!
-    const p1In = print1.inputPins.find((p) => p.name === 'Execute')!
-    graph.connect(begin.id, beginExec.id, print1.id, p1In.id)
-
-    const p1Out = print1.outputPins.find((p) => p.name === 'Then')!
-    const p2In = print2.inputPins.find((p) => p.name === 'Execute')!
-    graph.connect(print1.id, p1Out.id, print2.id, p2In.id)
-
-    // Direct cycle back to p1 without branch or exit
-    const p2Out = print2.outputPins.find((p) => p.name === 'Then')!
-    graph.connect(print2.id, p2Out.id, print1.id, p1In.id)
-
-    expect(() => BlueprintToGd.transpile(graph)).toThrowError(BlueprintTranspileError)
   })
 
   // UT-15: DiffEngine - Property diff

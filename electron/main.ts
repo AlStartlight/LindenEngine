@@ -10,11 +10,15 @@ import { runGodotImportJob, cancelImportJob } from './bridge/importRunner'
 import { importSingleGodotScene } from './bridge/sceneImport'
 import { syncServerInstance } from './bridge/syncServer'
 import { AgentHost } from './agent/AgentHost'
+import { LINDEN_TOOLS, setPreviewRenderer } from './agent/lindenTools'
+import { createPreviewRenderer } from './agent/previewWindow'
 import { WebBuildRunner } from './build/WebBuildRunner'
 import { resolveGameRequest } from './play/GameProtocol'
 import { resolveAppResource } from './resourcePaths'
 import { getPlaySession, readUiFragment, startPlaySession, stopAllPlaySessions, stopPlaySession } from './play/PlaySession'
 import { GAME_SCHEME } from '../shared/playProtocol'
+import { ASSET_SCHEME } from '../shared/assetProtocol'
+import { listProjectAssets, resolveAssetRequest, setAssetRoot } from './assets/AssetProtocol'
 
 // Check if in development mode
 const isDev = !app.isPackaged
@@ -25,7 +29,20 @@ protocol.registerSchemesAsPrivileged([
     scheme: GAME_SCHEME,
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
   },
+  {
+    scheme: ASSET_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
 ])
+
+/** Serve linden-asset://project/assets/... from the open project (editor viewport textures, HDR, models) */
+function installAssetProtocol() {
+  protocol.handle(ASSET_SCHEME, async (request) => {
+    const res = resolveAssetRequest(request.url)
+    const body = res.filePath ? new Uint8Array(await fs.promises.readFile(res.filePath)) : null
+    return new Response(body, { status: res.status, headers: res.headers })
+  })
+}
 
 /** Serve linden-game://play/<session>/... from the active Play session only */
 function installGameProtocol() {
@@ -229,6 +246,13 @@ if (exportArgIdx !== -1) {
   app.on('ready', () => {
     setBridgeSettingsDir(app.getPath('userData'))
     installGameProtocol()
+    installAssetProtocol()
+    // linden_render_preview renders through the player runtime in a hidden window
+    setPreviewRenderer(createPreviewRenderer({ cacheRoot: join(app.getPath('userData'), 'play-cache'), preferSourceRuntime: isDev }))
+    // E2E only: run agent tools from the test (tests/e2e/renderPreview.e2e.mjs)
+    if (process.env.LINDEN_E2E === '1') {
+      ;(globalThis as any).__lindenRunTool = (projectPath: string, name: string, args: unknown) => LINDEN_TOOLS[name].execute(projectPath, args)
+    }
     mainWindow = createWindow()
     guardGameFrame(mainWindow)
     setupMenu()
@@ -447,31 +471,6 @@ async function setupMenu(): Promise<void> {
             mainWindow?.webContents.send('menu:projectSettings')
           },
         },
-        { type: 'separator' },
-        {
-          label: 'Blueprint Editor',
-          click: () => {
-            mainWindow?.webContents.send('menu:openBlueprint')
-          },
-        },
-        {
-          label: 'Material Editor',
-          click: () => {
-            mainWindow?.webContents.send('menu:openMaterial')
-          },
-        },
-        {
-          label: 'Animator Editor',
-          click: () => {
-            mainWindow?.webContents.send('menu:openAnimator')
-          },
-        },
-        {
-          label: 'Sequencer Editor',
-          click: () => {
-            mainWindow?.webContents.send('menu:openSequencer')
-          },
-        },
       ],
     },
     {
@@ -673,6 +672,7 @@ handle('project:create', async (_event, opts: { name: string; location: string; 
     await saveRecentProjects(updated)
     setupMenu()
 
+    setAssetRoot(targetDir)
     return {
       status: 'ok',
       projectPath: targetDir,
@@ -764,6 +764,7 @@ handle('project:open', async (_event, opts?: { projectPath?: string }) => {
     await saveRecentProjects(updated)
     setupMenu()
 
+    setAssetRoot(dirPath)
     return {
       status: 'ok',
       projectPath: dirPath,
@@ -793,6 +794,20 @@ handle('project:saveInput', async (_event, opts: { projectPath: string; input: {
     const configPath = join(opts.projectPath, 'project.linden.json')
     const current = fs.existsSync(configPath) ? JSON.parse(await readFile(configPath, 'utf-8')) : {}
     current.input = { ...(current.input ?? {}), ...opts.input }
+    await writeFile(configPath, JSON.stringify(current, null, 2), 'utf-8')
+    return { status: 'ok' }
+  } catch (err: any) {
+    return { status: 'error', message: err.message || String(err) }
+  }
+})
+
+// Project: graphics (quality profile Low/Medium/High, renderer backend)
+handle('project:saveGraphics', async (_event, opts: { projectPath: string; quality?: unknown; renderer?: unknown }) => {
+  try {
+    const configPath = join(opts.projectPath, 'project.linden.json')
+    const current = fs.existsSync(configPath) ? JSON.parse(await readFile(configPath, 'utf-8')) : {}
+    if (opts.quality === 'low' || opts.quality === 'medium' || opts.quality === 'high') current.quality = opts.quality
+    if (opts.renderer === 'webgl' || opts.renderer === 'webgpu') current.renderer = opts.renderer
     await writeFile(configPath, JSON.stringify(current, null, 2), 'utf-8')
     return { status: 'ok' }
   } catch (err: any) {
@@ -853,6 +868,8 @@ handle('file:load', async (_event, filePath) => {
   }
   return { success: false, data: null }
 })
+
+handle('assets:list', () => listProjectAssets())
 
 handle('app:getProjectPath', () => {
   return app.getPath('documents')

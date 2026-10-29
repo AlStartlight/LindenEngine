@@ -10,8 +10,8 @@ import * as ui from '../ui/ui-bundle.mjs'
 //    5.000 Toolbar: scene name and dirty marker in the title (one seed each)
 //    5.000 Project Settings window lists the project's tags (one seed each)
 //    5.000 Input Actions window lists the project's actions (one seed each)
-//    4.995 Inspector shows the selected GameObject and its components (one seed each)
-//        5 Project panel, Blueprint / Material / Animator / Sequencer editors render
+//    4.999 Inspector shows the selected GameObject and its components (one seed each)
+//        1 Project panel renders
 export const COUNT = 40_000
 
 const h = ui.createElement
@@ -94,7 +94,7 @@ export function* cases(): Generator<Case> {
     } }
   }
 
-  for (let s = 0; s < 4_995; s++) {
+  for (let s = 0; s < 4_999; s++) {
     const seed = seedOf(1205, s)
     yield { title: `Inspector shows the selected GameObject and its components seed=${s}`, run: () => {
       const rng = mulberry32(seed)
@@ -113,10 +113,6 @@ export function* cases(): Generator<Case> {
 
   const PANELS: Array<[string, string[]]> = [
     ['ProjectPanel', ['assets', 'prefabs', 'scenes', 'materials', 'scripts']],
-    ['BlueprintEditor', ['EventBeginPlay', 'Branch', 'PrintString']],
-    ['MaterialEditor', ['Material']],
-    ['AnimatorEditor', ['Base Layer']],
-    ['SequencerEditor', ['Add Track', '10.00s']],
   ]
   for (const [panel, labels] of PANELS) {
     yield { title: `${panel} renders its default content`, run: () => {

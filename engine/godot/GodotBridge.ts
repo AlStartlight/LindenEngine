@@ -51,11 +51,9 @@ function baseName(p: string): string {
 }
 
 import { World } from '../ecs/World'
-import { BlueprintGraph } from '../blueprints/BlueprintGraph'
 import { TscnParser } from './tscn/TscnParser'
 import { TscnWriter } from './tscn/TscnWriter'
 import { ComponentMap } from './mapping/ComponentMap'
-import { BlueprintToGd } from './transpiler/BlueprintToGd'
 import { SyncServer } from './sync/SyncServer'
 import { ConflictResolver, ConflictStrategy } from './sync/ConflictResolver'
 import { DiffEngine, EntitySnapshot, SyncMessage } from './sync/DiffEngine'
@@ -158,13 +156,6 @@ export class GodotBridge {
     this.currentWorld = world
 
     return { world, report }
-  }
-
-  /**
-   * Transpile Blueprint Graph to GDScript
-   */
-  transpileBlueprint(graph: BlueprintGraph): { code: string; report: CompatReport } {
-    return BlueprintToGd.transpile(graph)
   }
 
   /**

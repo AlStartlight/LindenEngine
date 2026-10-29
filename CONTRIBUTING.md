@@ -179,7 +179,7 @@ Fixes #123
 **Examples:**
 
 ```bash
-git commit -m "feat(blueprints): add delay node for visual scripting"
+git commit -m "feat(scripting): expose ctx.scene.findByTag to scripts"
 git commit -m "fix(editor): resolve viewport rendering issue on Firefox"
 git commit -m "docs(readme): update installation instructions"
 ```
@@ -397,7 +397,6 @@ LindenEngine/
 ├── engine/             # Core engine
 │   ├── core/          # Engine lifecycle
 │   ├── ecs/           # Entity Component System
-│   ├── blueprints/    # Visual scripting
 │   ├── renderer/      # Graphics
 │   └── utils/         # Utilities
 └── docs/              # Documentation

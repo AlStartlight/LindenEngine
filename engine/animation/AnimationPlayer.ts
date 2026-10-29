@@ -1,9 +1,12 @@
 /**
  * AnimationPlayer Node (GF-08)
  * Property track animation system with keyframe interpolation and playback controls.
+ * Also plays skeletal/morph clips of imported glTF models through three's AnimationMixer
+ * (attachMixer), so both kinds share play/pause/stop/seek/advance.
  */
 
-import { Node, Node2D, Node3D } from '../scene/Node'
+import * as THREE from 'three'
+import { Node } from '../scene/Node'
 
 export interface Keyframe<T = any> {
   time: number // in seconds
@@ -35,6 +38,10 @@ export class AnimationPlayer extends Node {
     super(name, id)
   }
 
+  private mixer: THREE.AnimationMixer | null = null
+  private meshClips: Map<string, THREE.AnimationClip> = new Map()
+  private action: THREE.AnimationAction | null = null
+
   addClip(clip: AnimationClip): void {
     this.clips.set(clip.name, clip)
   }
@@ -43,7 +50,44 @@ export class AnimationPlayer extends Node {
     return this.clips.get(name)
   }
 
-  play(name: string): void {
+  /** Drive a glTF model's clips (skinning, morph targets, node TRS) from this player */
+  attachMixer(root: THREE.Object3D, clips: THREE.AnimationClip[]): void {
+    this.detachMixer()
+    this.mixer = new THREE.AnimationMixer(root)
+    for (const clip of clips) this.meshClips.set(clip.name, clip)
+  }
+
+  detachMixer(): void {
+    if (this.mixer) {
+      this.mixer.stopAllAction()
+      this.mixer.uncacheRoot(this.mixer.getRoot())
+    }
+    this.mixer = null
+    this.action = null
+    this.meshClips.clear()
+  }
+
+  /** Names of every playable clip (property tracks and glTF) */
+  getClipNames(): string[] {
+    return [...this.clips.keys(), ...this.meshClips.keys()]
+  }
+
+  play(name: string, opts: { loop?: boolean; fade?: number } = {}): void {
+    const meshClip = this.meshClips.get(name)
+    if (meshClip && this.mixer) {
+      const next = this.mixer.clipAction(meshClip)
+      next.reset()
+      next.setLoop(opts.loop === false ? THREE.LoopOnce : THREE.LoopRepeat, Infinity)
+      next.clampWhenFinished = opts.loop === false
+      if (this.action && this.action !== next && opts.fade) next.crossFadeFrom(this.action, opts.fade, true)
+      else if (this.action && this.action !== next) this.action.stop()
+      next.play()
+      this.action = next
+      this.currentAnimation = name
+      this.currentTime = 0
+      this.isPlaying = true
+      return
+    }
     if (!this.clips.has(name)) {
       console.warn(`[AnimationPlayer] Clip "${name}" not found`)
       return
@@ -60,15 +104,27 @@ export class AnimationPlayer extends Node {
   stop(): void {
     this.isPlaying = false
     this.currentTime = 0
+    this.action?.stop()
   }
 
   seek(time: number): void {
     this.currentTime = time
+    if (this.action) {
+      this.action.time = time
+      this.mixer?.update(0)
+      return
+    }
     this.applyCurrentFrame()
   }
 
   advance(delta: number): void {
     if (!this.isPlaying || !this.currentAnimation) return
+
+    if (this.action && this.mixer) {
+      this.mixer.update(delta * this.playbackSpeed)
+      this.currentTime = this.action.time
+      return
+    }
 
     const clip = this.clips.get(this.currentAnimation)
     if (!clip) return

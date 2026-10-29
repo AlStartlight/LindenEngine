@@ -4,6 +4,7 @@ import { Entity } from '../../engine/ecs/Entity'
 import { ComponentRegistry } from '../../engine/ecs/ComponentRegistry'
 import { SceneSerializer } from '../../engine/scene/serializer'
 import { generatePrefabChildId } from '../../engine/scene/prefab'
+import type { SceneSettings } from '../../engine/scene/SceneSettings'
 
 /**
  * Create Entity Command
@@ -313,6 +314,42 @@ export function setLayerCommand(entityId: string, newLayer: number, applyToChild
         const ent = world.getEntity(id)
         if (ent) ent.layer = lyr
       }
+    },
+  }
+}
+
+/**
+ * Change scene render settings (environment, tone mapping, fog, shadows, post-processing); undoable
+ */
+export function setSceneSettingsCommand(patch: Partial<SceneSettings>, mergeKey?: string): EditorCommand {
+  let before: SceneSettings | null = null
+  return {
+    label: `Scene settings: ${Object.keys(patch).join(', ')}`,
+    mergeKey,
+    do: (world: World) => {
+      before ??= structuredClone(world.getSceneSettings())
+      world.setSceneSettings(patch)
+    },
+    undo: (world: World) => {
+      if (before) world.setSceneSettings(before, true)
+    },
+  }
+}
+
+/**
+ * Create an entity with components in one undoable step (Asset Browser "add to scene")
+ */
+export function createEntityWithComponentsCommand(name: string, components: Record<string, Record<string, unknown>>): EditorCommand {
+  let createdId: string | null = null
+  return {
+    label: `Create ${name}`,
+    do: (world: World) => {
+      const ent = world.createEntity(name, null, undefined, createdId || undefined)
+      createdId = ent.id
+      for (const [type, data] of Object.entries(components)) world.addComponent(ent.id, type, data)
+    },
+    undo: (world: World) => {
+      if (createdId) world.destroyEntity(createdId)
     },
   }
 }

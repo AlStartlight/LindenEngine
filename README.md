@@ -21,7 +21,7 @@
 [![MIT License][license-shield]][license-url]
 
 <p align="center">
-Build stunning games with visual scripting, real-time 3D rendering, and a professional-grade editor — all powered by modern web technologies.
+Build games with TypeScript scripting, HTML/CSS UI, real-time 3D rendering, and a professional-grade editor — all powered by modern web technologies.
 </p>
 
 </div>
@@ -36,12 +36,10 @@ Whether you're a solo indie developer, a student learning game development, or a
 
 With Linden Engine, you can:
 
-- **Create games visually** using Blueprint visual scripting (no coding required!)
 - **Build in real-time** with a professional 3D viewport and live editing
 - **Script with TypeScript** for advanced gameplay logic with hot-reload support
-- **Design materials** with a node-based material editor
-- **Animate characters** using a state machine animator
-- **Create cinematics** with a timeline-based sequencer
+- **Build HUDs and menus** in plain HTML/CSS (HtmlUI)
+- **Let the AI agent help** — it writes scenes, scripts and UI for you, then playtests them headless
 - **Deploy everywhere** — Windows, macOS, Linux, and Web
 
 > **Note:** Linden Engine is currently in **active development** (v0.1 Alpha). Features and APIs may change. We welcome contributions and feedback from the community!
@@ -50,30 +48,16 @@ With Linden Engine, you can:
 
 ## 🎯 Core Features
 
-### Visual Scripting (Blueprints)
-
-Create game logic without writing code using our **Blueprint visual scripting system** — inspired by Unreal Engine's Blueprints.
-
-- **Event-driven**: BeginPlay, Tick, Input events
-- **Flow control**: Branch, Loops, Sequences, Gates
-- **Math & Logic**: Add, Multiply, Compare, Random
-- **Game actions**: Spawn actors, Play sounds, Move objects
-- **Variables**: Store and manipulate data visually
-
-**[Learn more about Blueprints →](docs/BLUEPRINT_GUIDE.md)**
-
 ### Professional Editor
 
 A complete editing environment with all the tools you need:
 
 - **Scene Viewport**: Real-time 3D rendering with transform gizmos
 - **Hierarchy Panel**: Organize entities in a tree structure
-- **Inspector Panel**: Edit properties and add components
-- **Asset Browser**: Manage textures, models, sounds, and scripts
+- **Inspector Panel**: Edit properties and add components, including PBR materials (preset dropdown, sliders, live preview)
+- **Scene Settings**: Environment lighting (HDR/EXR), tone mapping, exposure, fog, shadows and post-processing per scene
+- **Asset Browser**: The project's `assets/` with thumbnails for glTF/GLB/OBJ models and HDR environments
 - **Console**: Debug output and error tracking
-- **Material Editor**: Node-based shader authoring
-- **Animator**: State machine for character animations
-- **Sequencer**: Timeline-based cinematic editing
 
 ### Modern Architecture
 
@@ -118,10 +102,7 @@ Build once, deploy everywhere:
 <details>
 <summary>Features & Guides</summary>
 
-- [Blueprint Visual Scripting](#blueprint-visual-scripting)
-- [Material Editor](#material-editor)
-- [Animator System](#animator-system)
-- [Sequencer](#sequencer)
+- [Realistic 3D Objects & Rendering](#realistic-3d-objects--rendering)
 - [Scripting with TypeScript](#scripting-with-typescript)
 - [Plugin Development](#plugin-development)
 
@@ -264,36 +245,32 @@ npm run dev
 1. Select the "Rotating Cube" entity in the Hierarchy
 2. In the **Inspector** panel (right side), click **"+ Add Component"**
 3. Choose **"Mesh Renderer"**
-4. In the Mesh Renderer properties, select **"Cube"** as the mesh type
+4. In the Mesh Renderer properties, select **"box"** as the primitive (1 m cube) and pick a material preset
 
-### Step 4: Add a Blueprint Component
+### Step 4: Add Rotation Logic with a Script
 
-1. Click **"+ Add Component"** again
-2. Choose **"📝 Blueprint"**
-3. Click **"Edit Blueprint"** button to open the Blueprint Editor
+1. In your project folder, create **`scripts/Rotator.ts`**:
 
-### Step 5: Create Rotation Logic
+   ```typescript
+   export default class Rotator {
+     speed = 90 // degrees per second
+     ctx: any
 
-In the Blueprint Editor:
+     onInit(ctx: any) {
+       this.ctx = ctx
+     }
 
-1. From the **left palette**, drag **"Event Tick"** to the canvas
-2. Drag **"Get Actor Location"** and place it to the right
-3. Drag **"Rotate"** node and connect it
-4. Set rotation values:
-   - X: `0`
-   - Y: `1` (rotate on Y-axis)
-   - Z: `0`
-5. Drag **"Set Actor Location"** and connect the execution flow
+     onUpdate(dt: number) {
+       const t = this.ctx.entity.getTransform()
+       t.rotation = { ...t.rotation, y: t.rotation.y + this.speed * dt }
+     }
+   }
+   ```
 
-Your blueprint should look like this:
+2. Select the "Rotating Cube", click **"+ Add Component"** and choose **"Script"**
+3. Set **Script** to `scripts/Rotator.ts` (optionally set `{ "speed": 180 }` in **Properties**)
 
-```
-[Event Tick] ──exec──> [Get Transform] ──transform──> [Rotate] ──transform──> [Set Transform]
-                                                         ↑
-                                                    [Y = 1.0]
-```
-
-### Step 6: Test Your Scene
+### Step 5: Test Your Scene
 
 1. Click the **Play** button (▶) in the top toolbar
 2. Your cube should now rotate smoothly!
@@ -377,10 +354,7 @@ LindenEngine/
 │   │   ├── HierarchyPanel.tsx
 │   │   ├── InspectorPanel.tsx
 │   │   ├── AssetBrowser.tsx
-│   │   ├── BlueprintEditor.tsx
-│   │   ├── MaterialEditor.tsx
-│   │   ├── AnimatorEditor.tsx
-│   │   └── SequencerEditor.tsx
+│   │   └── AgentPanel.tsx
 │   └── EditorLayout.tsx   # Main layout component
 │
 ├── 📂 engine/             # Core engine code
@@ -392,10 +366,6 @@ LindenEngine/
 │   ├── 📂 renderer/      # WebGPU + Three.js renderer
 │   ├── 📂 physics/       # Physics engine (Rapier)
 │   ├── 📂 scripting/     # Script system & lifecycle
-│   ├── 📂 blueprints/    # Blueprint visual scripting
-│   │   ├── BlueprintGraph.ts
-│   │   ├── BlueprintNode.ts
-│   │   └── BlueprintComponent.ts
 │   ├── 📂 assets/        # Asset loader & cache
 │   └── 📂 utils/         # Utilities & helpers
 │
@@ -406,7 +376,6 @@ LindenEngine/
 ├── 📂 shared/             # Shared utilities
 ├── 📂 public/             # Static assets
 ├── 📂 docs/               # Documentation
-│   └── BLUEPRINT_GUIDE.md
 │
 ├── 📄 package.json
 ├── 📄 tsconfig.json
@@ -430,7 +399,7 @@ const player = new Entity('Player')
 player.addComponent(new Transform())
 player.addComponent(new MeshRenderer('character.gltf'))
 player.addComponent(new RigidBody())
-player.addComponent(new BlueprintComponent(playerBlueprint))
+player.addComponent(new Script()) // src: 'scripts/Player.ts'
 
 // ⚙️ Systems = Logic that operates on entities
 world.addSystem(new PhysicsSystem())
@@ -508,129 +477,41 @@ export class GameScript implements IGameScript {
 
 ---
 
-## Blueprint Visual Scripting
+## Realistic 3D Objects & Rendering
 
-Blueprints allow you to create game logic **visually** without writing code. Perfect for designers, artists, and anyone who wants to prototype quickly!
+The editor viewport, Play and the web export render through one module,
+`engine/renderer/sceneFactory.ts`, so a scene looks the same everywhere. 1 unit = 1 meter; primitives are 1 m
+(the capsule is Ø1×2 m to match the default capsule collider).
 
-### Getting Started with Blueprints
+**Rendering** (per scene, `settings` in the `.lscene`, editable in the **Scene** tab):
 
-1. **Select an entity** in the Hierarchy
-2. **Add Blueprint Component** from the Inspector
-3. **Click "Edit Blueprint"** to open the editor
-4. **Drag nodes** from the palette to the canvas
-5. **Connect nodes** by dragging from output pins to input pins
-6. **Test immediately** by clicking Play
+- sRGB output, AgX/ACES/Neutral tone mapping and exposure
+- Image-based lighting: procedural RoomEnvironment by default, or an HDR/EXR from `assets/` as environment and background
+- Soft shadows (PCF) with the sun's shadow camera fitted to the scene and texel-scaled bias
+- Optional post-processing: GTAO ambient occlusion, bloom, SMAA/FXAA (EffectComposer on WebGL, TSL `RenderPipeline` on WebGPU; an effect that is unavailable is skipped with a warning)
+- Project quality profile (**Project Settings → Graphics**): Low (no post-processing, 1024 shadows, no transmission), Medium, High
 
-### Available Node Types
+**Materials** (`engine/materials`): 30+ PBR presets (teak/oak/walnut, steel, chrome, gold, copper, brushed aluminium,
+plastics, rubber, glass, water, ceramic, marble, concrete, brick, fabric, leather, grass, soil, sand, stone, car paint...)
+with overrides for clearcoat, transmission/IOR/thickness, sheen, iridescence, anisotropy and emission. Wood grain, bricks,
+tiles, weave, brushed and scratched metal are generated at runtime (albedo, roughness and normal maps, no downloads);
+project textures (`map`, `normalMap`, `roughnessMap`, `metalnessMap`, `aoMap`) are supported with the right color space.
 
-| Category | Nodes | Color |
-|----------|-------|-------|
-| **Events** | BeginPlay, Tick, Input, Collision | 🔴 Red |
-| **Flow Control** | Branch, Sequence, Loop, Delay, Gate | 🔵 Blue |
-| **Math** | Add, Subtract, Multiply, Divide, Lerp | 🟡 Yellow |
-| **Comparison** | Equal, Greater, Less | 🟢 Green |
-| **Actions** | Print, Spawn, Destroy, Move, Rotate | 🟣 Purple |
-| **Variables** | Get, Set | 🟢 Green |
+**Models** (`Model` component, `engine/model`): objects built from parts (rounded boxes, lathe profiles for vases and
+glasses, extrusions, spline tubes, tapered cylinders, displaced planes) in a hierarchy, merged per material, with GPU
+instancing for repeated objects and an optional box/convex-hull collider. glTF/GLB (Draco, Meshopt, KTX2, decoders bundled
+locally) and OBJ files from `assets/` are supported, with glTF animations played through `AnimationPlayer`.
 
-### Example: Player Movement
+**From a prompt**: the Linden Agent looks up real sizes (`linden_dimensions`, 90+ objects), builds the object part by part
+(`linden_model_build`, which validates floating or disconnected parts, buried parts, ground contact, scale against the
+real object and inverted normals), looks at offscreen renders from four angles (`linden_render_preview`) and corrects
+the model before placing it.
 
-```
-[Event Tick]
-     │ exec
-     ▼
-[Get Axis Value (Horizontal)]
-     │ float
-     ▼
-[Multiply: Speed]
-     │ float
-     ▼
-[Add Movement Input]
-```
+![Realistic showcase](docs/showcase/scene-threeQuarter.png)
 
-**[Full Blueprint Guide →](docs/BLUEPRINT_GUIDE.md)**
-
----
-
-## Material Editor
-
-Create stunning visuals with our **node-based material editor** — similar to Unreal Engine's Material Editor or Unity's Shader Graph.
-
-### Features
-
-- **PBR Materials**: Albedo, Metallic, Roughness, Normal maps
-- **Math Operations**: Add, Multiply, Lerp, Clamp
-- **Texture Sampling**: UV mapping, tiling, offset
-- **Vertex Manipulation**: Displace, morph, animate
-- **Real-time Preview**: See changes instantly
-
-### Example: Animated Water Material
-
-```
-[Time] ──> [Sine] ──> [Multiply: 0.1] ──> [Vertex Offset]
-                              │
-                              ▼
-[Base Color] ──> [Lerp] ──> [Output]
-                    ▲
-                    │
-            [Fresnel: Edge Color]
-```
-
----
-
-## Animator System
-
-Create character animations with a **state machine animator** — similar to Unity's Animator or Unreal's Animation Blueprint.
-
-### Features
-
-- **State Machine**: Define animation states and transitions
-- **Blend Trees**: Smooth blending between animations
-- **Parameters**: Boolean, Float, Integer, Trigger
-- **Conditions**: Control transitions with logic
-- **Animation Events**: Trigger code at specific frames
-
-### Example: Character States
-
-```
-     ┌──────┐
-     │ Idle │ ◄─────────────────┐
-     └───┬──┘                   │
-         │ Speed > 0            │ Speed = 0
-         ▼                      │
-     ┌──────────┐               │
-     │ Running  │ ──────────────┘
-     └──────────┘
-         │ Jump Trigger
-         ▼
-     ┌──────────┐
-     │ Jumping  │
-     └──────────┘
-```
-
----
-
-## Sequencer
-
-Create cinematic sequences and cutscenes with our **timeline-based sequencer** — similar to Unreal's Sequencer or Unity's Timeline.
-
-### Features
-
-- **Timeline Editor**: Drag and arrange keyframes
-- **Multiple Tracks**: Transform, Animation, Audio, Events
-- **Keyframe Animation**: Animate any property over time
-- **Camera Cuts**: Switch between cameras
-- **Audio Sync**: Sync animations to music/sound effects
-
-### Example: Opening Cutscene
-
-```
-Track 1 (Camera):     [Dolly In] ────────────────> [Pan to Character]
-Track 2 (Character):  [Idle] ──> [Wave Animation] ──────────────────>
-Track 3 (Audio):      [Music Start] ──────────────> [Fade Out]
-Track 4 (Events):     [TriggerDialogue] ────────────> [EndCutscene]
-```
-
----
+`fixtures/realistic-showcase.lscene` (teak table, rattan chair, metal desk lamp, a glass of water, a lathe-turned ceramic
+vase, a GLB teapot, HDR environment) is generated with `node scripts/generate-showcase.mjs`; `npm run test:e2e:preview`
+renders it with `linden_render_preview` into `docs/showcase/`.
 
 ## Scripting with TypeScript
 
@@ -857,7 +738,8 @@ const allComponents = player.getComponents()
 | `RigidBody` | Physics simulation |
 | `Collider` | Collision detection |
 | `AudioSource` | 3D positional audio |
-| `BlueprintComponent` | Visual scripting |
+| `Script` | TypeScript gameplay script |
+| `HtmlUI` | HTML/CSS overlay (HUD, menus) |
 
 ---
 
@@ -960,10 +842,6 @@ Linden Engine is actively developed. Here's what's coming:
 - [x] ECS architecture foundation
 - [x] WebGPU renderer with Three.js fallback
 - [x] Professional editor UI (Hierarchy, Inspector, Viewport)
-- [x] Blueprint visual scripting system
-- [x] Material node editor
-- [x] Animator state machine
-- [x] Sequencer timeline editor
 - [x] TypeScript scripting with hot-reload
 - [x] Electron desktop app
 
@@ -988,7 +866,6 @@ Linden Engine is actively developed. Here's what's coming:
 ### 🔮 Future (v1.0+)
 
 - [ ] Mobile support (iOS, Android)
-- [ ] Visual shader editor
 - [ ] Advanced post-processing effects
 - [ ] Lua scripting support
 - [ ] Marketplace for assets and plugins
@@ -1093,10 +970,10 @@ Fixes #123
 **Example:**
 
 ```
-feat(blueprints): add delay node
+feat(input): add touch button cooldowns
 
-Added a Delay node to the Blueprint editor that pauses
-execution for a specified duration.
+Touch buttons can show a cooldown overlay driven by
+ctx.touch.cooldown() from scripts.
 
 Closes #45
 ```

@@ -5,6 +5,7 @@ import { CharacterMovementSystem } from '../movement/CharacterMovement'
 import { Input } from '../input/InputActions'
 import { Tween } from '../time/Tween'
 import type { ScriptRuntime } from '../scripting/ScriptRuntime'
+import { modelColliderShape } from '../model/modelCollider'
 
 export const FIXED_DT = 1 / 60
 /** Cap catch-up after a long frame (tab switch, breakpoint) so physics doesn't spiral */
@@ -72,6 +73,12 @@ export class GameSimulation {
         if (rb.bodyType === 'dynamic') this.dynamicIds.push(ent.id)
         else if (rb.bodyType === 'kinematic') this.kinematicIds.push(ent.id)
       }
+      // Model auto collider, only when the entity has no collider of its own
+      const model = ent.getComponent('Model') as any
+      if (model && !ent.getComponents().some((c) => COLLIDER_TYPES.includes(c.name))) {
+        const shape = modelColliderShape(model, transform.scale)
+        if (shape) backend.createModelCollider(ent.id, shape, transform, ent.layer)
+      }
       for (const comp of ent.getComponents()) {
         if (COLLIDER_TYPES.includes(comp.name)) {
           backend.createCollider(ent.id, comp as any, transform, rb, ent.layer)
@@ -87,7 +94,7 @@ export class GameSimulation {
     return this.dynamicIds
   }
 
-  /** Call onBeginPlay/start on built-in components (Blueprint, Timer, ...) */
+  /** Call onBeginPlay/start on built-in components (Timer, ...) */
   startComponents(): void {
     for (const ent of this.world.getEntities()) {
       for (const comp of ent.getComponents()) {

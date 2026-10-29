@@ -5,6 +5,9 @@ interface Window {
     getVersion: () => Promise<string>
     getProjectPath: () => Promise<string>
     getUserDataPath: () => Promise<string>
+    /** Files under the open project's assets/ (Asset Browser, Scene settings) */
+    listAssets?: () => Promise<import('../shared/assetProtocol').AssetEntry[]>
+    saveProjectGraphics?: (opts: { projectPath: string; quality?: string; renderer?: string }) => Promise<{ status: string; message?: string }>
     setWindowTitle?: (title: string) => Promise<void>
     getIpcChannels?: () => Promise<string[]>
     relaunchApp?: () => Promise<void>

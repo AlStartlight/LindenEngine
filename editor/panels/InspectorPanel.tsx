@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useEditorStore } from '../store/editorStore'
+import { MaterialPropertyField } from './MaterialPropertyField'
 import { ComponentRegistry, PropertySchema } from '../../engine/ecs/ComponentRegistry'
 import {
   setPropertyCommand,
@@ -15,7 +16,6 @@ import {
   addEventListenerCommand,
   removeEventListenerCommand,
 } from '../commands/prefabAndEventCommands'
-import { BlueprintComponent } from '../../engine/blueprints/BlueprintComponent'
 
 export const InspectorPanel: React.FC = () => {
   const {
@@ -490,8 +490,8 @@ const PropertyFieldRow: React.FC<{
               executeCommand(
                 addEventListenerCommand(primaryEntity.id, componentType, schema.name, {
                   targetId: defaultTarget,
-                  component: 'Blueprint',
-                  method: 'OpenDoor',
+                  component: '',
+                  method: '',
                   mode: 'runtime',
                 })
               )
@@ -508,10 +508,6 @@ const PropertyFieldRow: React.FC<{
             </div>
           ) : (
             listeners.map((listener: any, idx: number) => {
-              const targetEntity = world.getEntity(listener.targetId)
-              const bpComp = targetEntity?.getComponent('Blueprint') as BlueprintComponent | undefined
-              const bpEvents = bpComp?.getBlueprint()?.getCustomEvents() || []
-
               return (
                 <div key={idx} className="flex items-center gap-1.5 bg-gray-900/50 p-1 rounded">
                   {/* Target Entity Select */}
@@ -550,15 +546,7 @@ const PropertyFieldRow: React.FC<{
                     }}
                     className="flex-1 bg-black/50 border border-gray-700 rounded px-1 py-0.5 text-[10px]"
                   >
-                    {bpEvents.length > 0 && (
-                      <optgroup label="Blueprint">
-                        {bpEvents.map((evt) => (
-                          <option key={evt.name} value={`Blueprint:${evt.name}`}>
-                            {evt.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
+                    <option value=":">— Select —</option>
                     <optgroup label="Component">
                       <option value="Door:open">Door.open</option>
                       <option value="Alarm:ring">Alarm.ring</option>
@@ -770,6 +758,21 @@ const PropertyFieldRow: React.FC<{
           ))}
         </select>
       </div>
+    )
+  }
+
+  if (schema.kind === 'material') {
+    return (
+      <MaterialPropertyField
+        label={schema.label || schema.name}
+        value={isMixed ? undefined : rawValue}
+        legacy={{ color: (comp as any)?.color, roughness: (comp as any)?.roughness, metalness: (comp as any)?.metalness }}
+        onCommit={(val, mergeKey) => {
+          for (const ent of entities) {
+            executeCommand(setPropertyCommand(ent.id, componentType, schema.name, val, undefined, mergeKey ? `${mergeKey}:${ent.id}` : undefined))
+          }
+        }}
+      />
     )
   }
 

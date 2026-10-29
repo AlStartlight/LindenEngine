@@ -1,26 +1,31 @@
 import { describe, it, expect } from 'vitest'
 import { parseSceneFile } from '../../engine/scene/parseSceneFile'
 import { SCENE_FORMAT, SCENE_VERSION } from '../../engine/scene/SceneSchema'
+import { PRIMITIVE_SIZES } from '../../engine/renderer/primitives'
 import fs from 'fs'
 import path from 'path'
 
 describe('parseSceneFile', () => {
-  it('parses minimal valid scene with 0 objects', () => {
-    const json = JSON.stringify({
-      format: SCENE_FORMAT,
-      version: SCENE_VERSION,
-      name: 'EmptyScene',
-      camera: {
-        position: [10, 10, 10],
-        target: [0, 0, 0],
-      },
-      objects: [],
-    })
+  it('parses minimal valid v2 scene with 0 entities', () => {
+    const json = JSON.stringify({ format: SCENE_FORMAT, version: SCENE_VERSION, name: 'EmptyScene', entities: [] })
     const res = parseSceneFile(json)
     expect(res.ok).toBe(true)
     if (res.ok) {
       expect(res.scene.name).toBe('EmptyScene')
-      expect(res.scene.objects).toHaveLength(0)
+      expect(res.scene.entities).toHaveLength(0)
+      expect(res.migratedFrom).toBeUndefined()
+    }
+  })
+
+  it('migrates a v1 scene with 0 objects to v2', () => {
+    const json = JSON.stringify({ format: SCENE_FORMAT, version: 1, name: 'EmptyScene', camera: { position: [10, 10, 10], target: [0, 0, 0] }, objects: [] })
+    const res = parseSceneFile(json)
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.migratedFrom).toBe(1)
+      expect(res.scene.version).toBe(2)
+      expect(res.scene.entities).toHaveLength(0)
+      expect(res.scene.settings?.editorCamera).toEqual({ position: [10, 10, 10], target: [0, 0, 0] })
     }
   })
 
@@ -30,12 +35,16 @@ describe('parseSceneFile', () => {
     const res = parseSceneFile(content)
     expect(res.ok).toBe(true)
     if (res.ok) {
+      expect(res.migratedFrom).toBe(1)
       expect(res.scene.name).toBe('Level01')
-      expect(res.scene.objects).toHaveLength(3)
-      expect(res.scene.objects[0].id).toBe('cube-1')
-      expect(res.scene.objects[1].id).toBe('sphere-1')
-      expect(res.scene.objects[2].id).toBe('cylinder-1')
-      expect(res.scene.camera.position).toEqual([15, 12, 18])
+      expect(res.scene.entities.map((e) => e.id)).toEqual(['cube-1', 'sphere-1', 'cylinder-1'])
+      expect((res.scene.settings?.editorCamera as any).position).toEqual([15, 12, 18])
+      // v1 primitives were 2 m (box), v2 are 1 m: the mesh size keeps the visible size
+      const cube = res.scene.entities[0].components.find((c) => c.type === 'MeshRenderer')!
+      expect(cube.data.size).toEqual([2, 2, 2])
+      expect(cube.data.color).toBe('#ff3333')
+      const box = PRIMITIVE_SIZES.box
+      expect(cube.data.size.map((s: number, i: number) => s * box[i])).toEqual([2, 2, 2])
     }
   })
 
@@ -45,14 +54,14 @@ describe('parseSceneFile', () => {
     const res = parseSceneFile(content)
     expect(res.ok).toBe(true)
     if (res.ok) {
-      expect(res.scene.objects[1].parentId).toBe('parent-box')
+      expect(res.scene.entities[1].parentId).toBe('parent-box')
     }
   })
 
   it('ignores unknown extra fields (FR-12 forward-compatibility)', () => {
     const json = JSON.stringify({
       format: SCENE_FORMAT,
-      version: SCENE_VERSION,
+      version: 1,
       name: 'TestScene',
       extraTopLevel: 12345,
       camera: {
@@ -85,7 +94,7 @@ describe('parseSceneFile', () => {
     expect(res.ok).toBe(true)
     if (res.ok) {
       expect((res.scene as any).extraTopLevel).toBeUndefined()
-      expect((res.scene.objects[0] as any).unknownObjectProp).toBeUndefined()
+      expect((res.scene.entities[0] as any).unknownObjectProp).toBeUndefined()
     }
   })
 
@@ -123,7 +132,7 @@ describe('parseSceneFile', () => {
     expect(res.ok).toBe(false)
     if (!res.ok) {
       expect(res.code).toBe('UNSUPPORTED_VERSION')
-      expect(res.message).toContain('Scene dibuat dengan versi engine yang lebih baru (v2).')
+      expect(res.message).toContain('Scene dibuat dengan versi engine yang lebih baru (v3).')
     }
   })
 
@@ -182,6 +191,17 @@ describe('parseSceneFile', () => {
       expect(res.code).toBe('SCHEMA_INVALID')
       expect(res.message).toContain('Parent cycle detected')
     }
+  })
+
+  it('validates v2 entities: duplicate ids, missing parents and cycles', () => {
+    const ent = (id: string, parentId: string | null) => ({ id, name: id, parentId, components: [] })
+    const parse = (entities: unknown[]) => parseSceneFile(JSON.stringify({ format: SCENE_FORMAT, version: 2, name: 'S', entities }))
+    const dup = parse([ent('a', null), ent('a', null)])
+    expect(!dup.ok && dup.message).toContain('Duplicate entity id')
+    const missing = parse([ent('a', 'x')])
+    expect(!missing.ok && missing.message).toContain('invalid parent')
+    const cycle = parse([ent('a', 'b'), ent('b', 'a')])
+    expect(!cycle.ok && cycle.message).toContain('Parent cycle')
   })
 
   it('returns SCHEMA_INVALID when parentId refers to self or non-existent parent', () => {

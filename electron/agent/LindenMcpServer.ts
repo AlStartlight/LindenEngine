@@ -1,12 +1,12 @@
 import http from 'node:http'
 import crypto from 'node:crypto'
 import { AgentDiffItem } from '../../shared/agentTypes'
-import { LINDEN_TOOLS } from './lindenTools'
+import { LINDEN_TOOLS, ToolResult } from './lindenTools'
 
 export interface LindenMcpServerOptions {
   projectPath: string
   onDiff?: (diff: AgentDiffItem) => void
-  onToolCall?: (name: string, args: unknown, result: { success: boolean; data?: any; error?: string }) => void
+  onToolCall?: (name: string, args: unknown, result: ToolResult) => void
 }
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024
@@ -129,7 +129,12 @@ export class LindenMcpServer {
         const out = await tool.execute(this.options.projectPath, args, { onDiff: this.options.onDiff })
         this.options.onToolCall?.(tool.name, args, out)
         const text = out.success ? JSON.stringify(out.data ?? { ok: true }, null, 2) : `Error: ${out.error}`
-        return { result: { content: [{ type: 'text', text }], isError: !out.success } }
+        const content: any[] = [{ type: 'text', text }]
+        for (const img of out.images ?? []) {
+          if (img.label) content.push({ type: 'text', text: `[${img.label}]` })
+          content.push({ type: 'image', data: img.data, mimeType: img.mimeType })
+        }
+        return { result: { content, isError: !out.success } }
       }
       default:
         return { error: { code: -32601, message: `Method not found: ${method}` } }

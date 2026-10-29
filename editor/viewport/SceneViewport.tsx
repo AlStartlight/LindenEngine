@@ -4,6 +4,11 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { HierarchyItem } from '../panels/HierarchyPanel'
 import { SceneFile } from '../../engine/scene'
+import { createWebGLRenderer } from '../../engine/renderer/createRenderer'
+import { ScenePipeline } from '../../engine/renderer/sceneFactory'
+import { AssetLoader } from '../../engine/assets/AssetLoader'
+import { resolveQuality } from '../../engine/scene/SceneSettings'
+import { projectAssetUrl } from '../../shared/assetProtocol'
 import { useEditorStore } from '../store/editorStore'
 import { setPropertyCommand } from '../commands/entityCommands'
 import { GameFrame, GameFrameStats } from './GameFrame'
@@ -37,6 +42,9 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | THREE.OrthographicCamera | null>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+  const pipelineRef = useRef<ScenePipeline | null>(null)
+  const consoleRef = useRef(onConsoleMessage)
+  consoleRef.current = onConsoleMessage
   const orbitControlsRef = useRef<OrbitControls | null>(null)
   const transformControlsRef = useRef<TransformControls | null>(null)
   const gridRef = useRef<THREE.GridHelper | null>(null)
@@ -161,7 +169,6 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
     canvasRef.current = canvas
 
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x1a1a2e)
     sceneRef.current = scene
 
     const camera = new THREE.PerspectiveCamera(
@@ -174,16 +181,26 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
     camera.lookAt(0, 0, 0)
     cameraRef.current = camera
 
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      alpha: true,
-    })
-    renderer.setSize(container.clientWidth, container.clientHeight)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    // Same renderer setup, scene settings pipeline and asset loading as the player (sceneFactory.ts)
+    const renderer = createWebGLRenderer(canvas, container.clientWidth, container.clientHeight).renderer as unknown as THREE.WebGLRenderer
     rendererRef.current = renderer
+    const warn = (msg: string) => consoleRef.current?.('warn', msg)
+    const assets = new AssetLoader({
+      resolveUrl: projectAssetUrl,
+      decoderPath: new URL('decoders/', document.baseURI).href,
+      renderer,
+      warn,
+    })
+    const pipeline = new ScenePipeline(renderer as any, scene, {
+      backend: 'webgl2',
+      quality: resolveQuality(useEditorStore.getState().projectSettings.quality),
+      assets,
+      warn,
+    })
+    pipeline.setSize(container.clientWidth, container.clientHeight)
+    pipeline.applySettings(world.getSceneSettings())
+    pipelineRef.current = pipeline
+    const offSettings = world.events.on('sceneSettingsChanged', (s: any) => pipeline.applySettings(s))
 
     const orbitControls = new OrbitControls(camera, canvas)
     orbitControls.enableDamping = true
@@ -248,25 +265,18 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
 
     // three r169+: TransformControls is not an Object3D; its gizmo lives in getHelper()
     const transformGizmo = transformControls.getHelper()
+    transformGizmo.userData.editorHelper = true
     scene.add(transformGizmo)
     transformControlsRef.current = transformControls
 
     // Grid
     const grid = new THREE.GridHelper(100, 100, 0x444444, 0x333333)
+    grid.userData.editorHelper = true
     scene.add(grid)
     gridRef.current = grid
 
-    // Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4)
-    scene.add(ambientLight)
-
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1)
-    directionalLight.position.set(50, 50, 50)
-    directionalLight.castShadow = true
-    scene.add(directionalLight)
-
-    // Attach Bridge!
-    bridge.attach(scene)
+    // Lights, environment and shadows come from the scene settings (ScenePipeline)
+    bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, warn })
 
     // Raycast on click to select entity
     const raycaster = new THREE.Raycaster()
@@ -312,7 +322,7 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       if (!container || !rendererRef.current || !cameraRef.current) return
       const w = container.clientWidth
       const h = container.clientHeight
-      rendererRef.current.setSize(w, h)
+      pipeline.setSize(w, h)
       if (cameraRef.current instanceof THREE.PerspectiveCamera) {
         cameraRef.current.aspect = w / h
         cameraRef.current.updateProjectionMatrix()
@@ -362,8 +372,9 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       }
 
       orbitControls.update()
-      if (rendererRef.current && cameraRef.current) {
-        rendererRef.current.render(scene, cameraRef.current)
+      bridge.update(dt)
+      if (cameraRef.current) {
+        pipeline.render(cameraRef.current)
       }
 
       frameCount++
@@ -388,12 +399,16 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       orbitControls.dispose()
       transformControls.dispose()
       bridge.detach()
+      offSettings()
+      pipeline.dispose()
+      pipelineRef.current = null
+      assets.dispose()
       renderer.dispose()
       renderer.forceContextLoss()
       canvas.remove()
       canvasRef.current = null
     }
-  }, [bridge])
+  }, [bridge, world])
 
   return (
     <div ref={containerRef} className="relative w-full h-full overflow-hidden select-none bg-[#1a1a2e]">

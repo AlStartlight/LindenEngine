@@ -1,20 +1,27 @@
 import { z } from 'zod'
 
+/**
+ * `.lscene` schemas. v2 (entities + components + settings) is the only format the engine, the
+ * editor and the agent write; v1 (objects + camera, the first editor format) is still read and
+ * migrated by migrations.ts.
+ */
+
 export const SCENE_FORMAT = 'linden-scene'
-export const SCENE_VERSION = 1
+export const SCENE_VERSION = 2
 export const MAX_SCENE_BYTES = 50 * 1024 * 1024
 
-const Vec3 = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()])
+// Typed explicitly: with `strict: false` (tsconfig.electron.json) zod infers tuple elements as optional
+const Vec3 = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]) as unknown as z.ZodType<[number, number, number]>
 const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 
-export const PrimitiveKind = z.enum(['box', 'sphere', 'cylinder', 'torus', 'cone', 'plane'])
+export const PrimitiveKindV1 = z.enum(['box', 'sphere', 'cylinder', 'torus', 'cone', 'plane'])
 
-export const SceneObjectSchema = z.object({
+export const SceneObjectV1Schema = z.object({
   id: z.string().min(1).max(128),
   name: z.string().max(256),
   parentId: z.string().nullable().default(null),
   kind: z.literal('primitive'),
-  primitive: PrimitiveKind,
+  primitive: PrimitiveKindV1,
   transform: z.object({
     position: Vec3,
     rotation: Vec3,
@@ -30,20 +37,20 @@ export const SceneObjectSchema = z.object({
   visible: z.boolean().default(true),
 })
 
-export const SceneFileSchema = z
+export const SceneFileV1Schema = z
   .object({
     format: z.literal(SCENE_FORMAT),
-    version: z.number().int().min(1),
+    version: z.literal(1),
     name: z.string().min(1).max(256),
     camera: z.object({
       position: Vec3,
       target: Vec3,
     }),
-    objects: z.array(SceneObjectSchema).max(10_000),
+    objects: z.array(SceneObjectV1Schema).max(10_000),
   })
   .superRefine((scene, ctx) => {
     const seenIds = new Set<string>()
-    const idMap = new Map<string, z.infer<typeof SceneObjectSchema>>()
+    const idMap = new Map<string, z.infer<typeof SceneObjectV1Schema>>()
 
     // Check unique ids
     for (let i = 0; i < scene.objects.length; i++) {
@@ -104,6 +111,62 @@ export const SceneFileSchema = z
     }
   })
 
+export type SceneFileV1 = z.infer<typeof SceneFileV1Schema>
+export type SceneObjectDataV1 = SceneFileV1['objects'][number]
+export type PrimitiveKindV1Type = z.infer<typeof PrimitiveKindV1>
+
+// ---- v2 -------------------------------------------------------------------
+
+export const SerializedComponentSchema = z.object({
+  type: z.string().min(1).max(128),
+  data: z.record(z.string(), z.any()).default({}),
+})
+
+export const SerializedEntitySchema = z.object({
+  id: z.string().min(1).max(128),
+  name: z.string().max(256),
+  active: z.boolean().default(true),
+  static: z.boolean().default(false),
+  tags: z.array(z.string()).default([]),
+  layer: z.number().int().default(0),
+  parentId: z.string().nullable().default(null),
+  prefab: z.any().optional(),
+  components: z.array(SerializedComponentSchema).max(256),
+})
+
+export const SceneFileSchema = z
+  .object({
+    format: z.literal(SCENE_FORMAT),
+    version: z.literal(2),
+    name: z.string().min(1).max(256),
+    /** Validated leniently by normalizeSceneSettings (SceneSettings.ts) */
+    settings: z.record(z.string(), z.unknown()).optional(),
+    entities: z.array(SerializedEntitySchema).max(10_000),
+  })
+  .superRefine((scene, ctx) => {
+    const ids = new Map<string, number>()
+    scene.entities.forEach((e, i) => {
+      if (ids.has(e.id)) ctx.addIssue({ code: 'custom', message: `Duplicate entity id: "${e.id}"`, path: ['entities', i, 'id'] })
+      ids.set(e.id, i)
+    })
+    const byId = new Map(scene.entities.map((e) => [e.id, e]))
+    scene.entities.forEach((e, i) => {
+      if (e.parentId === null) return
+      if (e.parentId === e.id || !byId.has(e.parentId)) {
+        ctx.addIssue({ code: 'custom', message: `Entity "${e.id}" references invalid parent "${e.parentId}"`, path: ['entities', i, 'parentId'] })
+        return
+      }
+      const seen = new Set<string>([e.id])
+      let cur: string | null = e.parentId
+      while (cur) {
+        if (seen.has(cur)) {
+          ctx.addIssue({ code: 'custom', message: `Parent cycle detected involving entity "${e.id}"`, path: ['entities', i, 'parentId'] })
+          break
+        }
+        seen.add(cur)
+        cur = byId.get(cur)?.parentId ?? null
+      }
+    })
+  })
+
 export type SceneFile = z.infer<typeof SceneFileSchema>
-export type SceneObjectData = SceneFile['objects'][number]
-export type PrimitiveKindType = z.infer<typeof PrimitiveKind>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs all 1.000.000 cases, one Playwright invocation per category (keeps memory bounded),
+# Runs all 680.000 cases, one Playwright invocation per category (keeps memory bounded),
 # then merges the per-batch summaries into report/REPORT.md.
 set -u
 cd "$(dirname "$0")/.."

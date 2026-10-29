@@ -12,6 +12,8 @@ export class MeshRenderer extends Component {
   public castShadow: boolean = true
   public receiveShadow: boolean = true
   public isVisible: boolean = true
+  /** PBR material: { preset: 'wood_teak', ...overrides } (engine/materials). Empty = color/roughness/metalness */
+  public material: Record<string, any> = {}
 
   constructor(meshId: string = '', materialId: string = '') {
     super('MeshRenderer')
@@ -24,6 +26,10 @@ export class MeshRenderer extends Component {
     cloned.castShadow = this.castShadow
     cloned.receiveShadow = this.receiveShadow
     cloned.isVisible = this.isVisible
+    cloned.material = JSON.parse(JSON.stringify(this.material ?? {}))
+    for (const key of ['primitive', 'color', 'roughness', 'metalness', 'size'] as const) {
+      if ((this as any)[key] !== undefined) (cloned as any)[key] = JSON.parse(JSON.stringify((this as any)[key]))
+    }
     return cloned
   }
 }
