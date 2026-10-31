@@ -19,6 +19,7 @@
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
+    "build:native": "bash native/build.sh",
     "bench:mesh": "vitest run --config vitest.bench.config.ts --silent=false",
     "check:licenses": "node scripts/check-licenses.mjs",
     "test:cases": "playwright test -c docs/test-case/playwright.config.ts",

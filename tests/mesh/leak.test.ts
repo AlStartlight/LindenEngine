@@ -79,6 +79,41 @@ describe('no WASM leaks after 1000 operations', () => {
     expect(memoryBytes()).toBe(baseline)
   }, 60_000)
 
+  it('OpenSubdiv subdivide', async () => {
+    const { subdivideMesh } = await import('../../engine/mesh/subdiv/opensubdivAdapter')
+    const { editablePrimitive } = await import('../../engine/mesh/core/editablePrimitives')
+    const cage = editablePrimitive('cylinder') // n-gons + uvs (face-varying path)
+    const before = memories.length
+    for (let i = 0; i < 20; i++) await subdivideMesh(cage, 2, 'catmull-clark')
+    expect(memories.length).toBeGreaterThan(before)
+    const baseline = memoryBytes()
+    for (let i = 0; i < ITERATIONS; i++) {
+      const r = await subdivideMesh(cage, 2, 'catmull-clark')
+      expect(r.ok).toBe(true)
+      expect((await subdivideMesh(cage, 1, 'loop')).ok).toBe(false) // error path
+    }
+    expect(memoryBytes()).toBe(baseline)
+  }, 60_000)
+
+  it('Geogram smooth / repair / unwrap', async () => {
+    const g = await import('../../engine/mesh/uv/geogramAdapter')
+    const m = linden(makeUvSphere(1, 16, 8))
+    const before = memories.length
+    for (let i = 0; i < 20; i++) {
+      await g.smooth(m, 2)
+      await g.repair(m)
+      await g.unwrapUV(m, 'lscm')
+    }
+    expect(memories.length).toBeGreaterThan(before)
+    const baseline = memoryBytes()
+    for (let i = 0; i < ITERATIONS; i++) {
+      expect((await g.smooth(m, 2)).ok).toBe(true)
+      expect((await g.repair(m)).ok).toBe(true)
+      if (i % 10 === 0) expect((await g.unwrapUV(m, 'lscm')).ok).toBe(true)
+    }
+    expect(memoryBytes()).toBe(baseline)
+  }, 120_000)
+
   it('all tracked objects were released', () => {
     expect(liveWasmObjects()).toBe(0)
   })

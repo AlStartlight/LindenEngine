@@ -1,3 +1,4 @@
+import { HalfEdgeMesh } from '../core/HalfEdgeMesh'
 import { ok } from '../core/result'
 import type { DracoWasmSource } from '../io/draco'
 import { baseBackend } from './handler'
@@ -22,7 +23,18 @@ export function createWasmBackend(options: WasmBackendOptions = {}): WorkerBacke
   }
   return {
     ...baseBackend,
-    boolean: async (a, b, op) => (await import('../boolean/manifoldAdapter')).booleanMeshes(a, b, op),
+    // A non-manifold input gets one Geogram repair attempt before the boolean gives up
+    boolean: async (a, b, op) => (await import('../boolean/manifoldAdapter')).booleanMeshes(a, b, op, {
+      repair: async (mesh) => (await import('../uv/geogramAdapter')).repair(mesh),
+    }),
+    subdivide: async (data, levels, scheme) => {
+      const r = await (await import('../subdiv/opensubdivAdapter')).subdivideMesh(HalfEdgeMesh.fromData(data), levels, scheme)
+      return r.ok ? ok(r.value.toData()) : r
+    },
+    unwrapUV: async (mesh, method) => (await import('../uv/geogramAdapter')).unwrapUV(mesh, method),
+    remesh: async (mesh, target) => (await import('../uv/geogramAdapter')).remesh(mesh, target),
+    smooth: async (mesh, iterations) => (await import('../uv/geogramAdapter')).smooth(mesh, iterations),
+    repair: async (mesh) => (await import('../uv/geogramAdapter')).repair(mesh),
     simplify: async (mesh, ratio, maxError) => {
       const r = await (await import('../optimize/meshoptAdapter')).simplifyMesh(mesh, ratio, maxError)
       return r.ok ? ok(r.value.mesh) : r

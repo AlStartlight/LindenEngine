@@ -83,6 +83,7 @@ async function pass(mode, url) {
       const has = (re) => inWorker.some((n) => re.test(n))
       report(mode, { name: 'manifold.wasm fetched by the worker', ok: has(/^manifold.*\.wasm$/) })
       report(mode, { name: 'Draco encoder + decoder .wasm fetched by the worker', ok: has(/^draco_encoder.*\.wasm$/) && has(/^draco_decoder.*\.wasm$/) })
+      report(mode, { name: 'opensubdiv.wasm and geogram.wasm fetched by the worker', ok: has(/^opensubdiv.*\.wasm$/) && has(/^geogram.*\.wasm$/) })
       report(mode, { name: 'adapters arrive as separate lazy chunks', ok: inWorker.filter((n) => n.endsWith('.js')).length >= 2, detail: inWorker.filter((n) => n.endsWith('.js')).join(', ') })
       report(mode, { name: 'page itself never fetched WASM', ok: !(await pageResources()).some((n) => n.endsWith('.wasm')) })
     }

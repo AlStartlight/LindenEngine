@@ -1,6 +1,7 @@
 import { it } from 'vitest'
 import { booleanMeshes } from '../../../engine/mesh/boolean/manifoldAdapter'
 import { simplifyMesh } from '../../../engine/mesh/optimize/meshoptAdapter'
+import { subdivideMesh } from '../../../engine/mesh/subdiv/opensubdivAdapter'
 import { makeUvSphere } from '../../../engine/mesh/core/primitives'
 import { toLindenMesh } from '../../../engine/mesh/core/convert'
 import type { LindenMesh } from '../../../engine/mesh/core/LindenMesh'
@@ -29,6 +30,7 @@ async function time(fn: () => Promise<void>, runs = 5): Promise<number> {
   return samples[Math.floor(runs / 2)]
 }
 
+/** For subdivide the count is input faces (quads), for the others triangles */
 const rows: { operation: string; triangles: number; 'median ms': string }[] = []
 
 for (const size of [10_000, 100_000]) {
@@ -44,7 +46,14 @@ for (const size of [10_000, 100_000]) {
       const r = await simplifyMesh(a, 0.5, 0.01)
       if (!r.ok) throw new Error(r.message)
     })).toFixed(1) })
-  }, 120_000)
+    // Quad cage with about `size` faces, one Catmull-Clark level (x4 faces)
+    const rings = Math.round(Math.sqrt(size / 2))
+    const cage = makeUvSphere(1, Math.round(size / rings), rings)
+    rows.push({ operation: 'subdivide CC level 1 (OpenSubdiv)', triangles: cage.faceCount, 'median ms': (await time(async () => {
+      const r = await subdivideMesh(cage, 1, 'catmull-clark')
+      if (!r.ok) throw new Error(r.message)
+    })).toFixed(1) })
+  }, 240_000)
 }
 
 it('report', () => {

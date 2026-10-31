@@ -18,9 +18,16 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  // Pre-bundle from the editor entry only: the default scans every HTML file under the root, which
+  // includes player/index.html (unresolvable game.js) and native/.emsdk (the local Emscripten toolchain)
+  optimizeDeps: {
+    entries: ['index.html'],
+  },
   server: {
     port: 5173,
     strictPort: false,
+    // native/ holds ~40k toolchain files (native/build.sh); nothing there is served
+    watch: { ignored: ['**/native/**'] },
   },
   build: {
     target: 'es2020',

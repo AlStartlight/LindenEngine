@@ -34,8 +34,17 @@ async function run(): Promise<Check[]> {
     diff.ok ? `${diff.value.indices.length / 3} tris in ${(performance.now() - t0).toFixed(0)} ms` : `${diff.code}: ${diff.message}`)
   check('caller mesh still usable (copy ownership)', cube.positions.byteLength > 0)
 
-  const bad = await ops.boolean(cube, { positions: cube.positions, indices: cube.indices.slice(6) }, 'union')
-  check('typed NON_MANIFOLD_INPUT error', !bad.ok && bad.code === 'NON_MANIFOLD_INPUT', bad.ok ? 'unexpected ok' : bad.message)
+  const open = { positions: cube.positions, indices: cube.indices.slice(6) }
+  const repaired = await ops.boolean(open, sphere, 'subtract')
+  check('boolean auto-repairs a non-manifold input (Geogram repair)', repaired.ok, repaired.ok ? `${repaired.value.indices.length / 3} tris` : repaired.message)
+
+  const sub = await ops.subdivide(makeCube(1), 2, 'catmull-clark')
+  check('subdivide (OpenSubdiv WASM) in worker: cube level 2 = 96 faces', sub.ok && sub.value.faceCount === 96, sub.ok ? `${sub.value.faceCount} faces` : sub.message)
+  const badSub = await ops.subdivide(makeCube(1), 1, 'loop')
+  check('typed INVALID_TOPOLOGY error from the worker', !badSub.ok && badSub.code === 'INVALID_TOPOLOGY', badSub.ok ? 'unexpected ok' : badSub.message)
+
+  const uv = await ops.unwrapUV(toLindenMesh(makeUvSphere(1, 24, 12), { polygons: false }), 'abf')
+  check('unwrapUV (Geogram ABF++ WASM) in worker', uv.ok && (uv.value.uvs?.length ?? 0) > 0, uv.ok ? `${uv.value.positions.length / 3} vertices` : uv.message)
 
   const simp = await ops.simplify(toLindenMesh(makeUvSphere(1, 64, 32), { polygons: false }), 0.5, 0.01)
   check('simplify (meshoptimizer WASM) in worker', simp.ok, simp.ok ? `${simp.value.indices.length / 3} tris` : simp.message)

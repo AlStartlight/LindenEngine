@@ -7,6 +7,7 @@ import { validateTopology } from '../../../engine/mesh/core/validate'
 import { exportGlb } from '../../../engine/mesh/io/gltf'
 import { bbox, isClosedManifold, signedVolume } from '../helpers'
 import { buildElf } from './elfModel'
+import { subdivideMesh } from '../../../engine/mesh/subdiv/opensubdivAdapter'
 
 describe('box-modeling test: low-poly female elf', () => {
   it('builds with only Edit Mode operations, valid after every step, closed and symmetric', async () => {
@@ -53,6 +54,9 @@ describe('box-modeling test: low-poly female elf', () => {
     const out = process.env.ELF_OUT
     if (!out) return
     const { editor } = await buildElf()
+    // Phase 4: the same cage smoothed with Catmull-Clark (OpenSubdiv), shown next to it
+    const smooth = await subdivideMesh(editor.mesh, 2, 'catmull-clark')
+    if (!smooth.ok) throw new Error(smooth.message)
     fs.mkdirSync(out, { recursive: true })
     const scene = {
       format: 'linden-scene', version: 2, name: 'Elf',
@@ -65,9 +69,13 @@ describe('box-modeling test: low-poly female elf', () => {
           { type: 'Transform', data: { position: [0, -0.05, 0], rotation: [0, 0, 0], scale: [4, 0.1, 4] } },
           { type: 'MeshRenderer', data: { primitive: 'box', color: '#4b5563', roughness: 0.9 } },
         ] },
-        { id: 'elf', name: 'Elf', active: true, static: false, tags: [], layer: 0, parentId: null, components: [
-          { type: 'Transform', data: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+        { id: 'elf', name: 'Elf (cage)', active: true, static: false, tags: [], layer: 0, parentId: null, components: [
+          { type: 'Transform', data: { position: [-0.65, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } },
           { type: 'EditableMesh', data: { mesh: encodeHalfEdgeMesh(editor.mesh), color: '#e9c9b0', roughness: 0.65, metalness: 0 } },
+        ] },
+        { id: 'elfSmooth', name: 'Elf (subdivided)', active: true, static: false, tags: [], layer: 0, parentId: null, components: [
+          { type: 'Transform', data: { position: [0.65, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+          { type: 'EditableMesh', data: { mesh: encodeHalfEdgeMesh(smooth.value), color: '#e9c9b0', roughness: 0.55, metalness: 0 } },
         ] },
       ],
     }

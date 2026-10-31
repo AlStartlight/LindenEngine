@@ -24,16 +24,20 @@ let failed = 0
 const app = await electron.launch({ args: [path.join(repo, 'dist-electron/main.cjs'), `--user-data-dir=${path.join(work, 'userData')}`], env: { ...process.env, LINDEN_E2E: '1' } })
 try {
   for (let i = 0; i < 100 && !(await app.evaluate(() => typeof globalThis.__lindenRunTool === 'function')); i++) await new Promise((r) => setTimeout(r, 100))
-  const res = await app.evaluate(async (_e, a) => globalThis.__lindenRunTool(a.project, 'linden_render_preview', a.args), {
-    project, args: { scenePath: 'scenes/Elf.lscene', entityId: 'elf', views: ['front', 'side', 'threeQuarter'], size: 768 },
-  })
-  console.log(`${res.success ? 'PASS' : 'FAIL'} render_preview ${res.error ?? (res.data?.warnings?.join('; ') || '')}`)
-  if (!res.success) failed++
+  const shots = [
+    { label: 'pair', args: { scenePath: 'scenes/Elf.lscene', views: ['front', 'threeQuarter'], size: 900 } },
+    { label: 'smooth', args: { scenePath: 'scenes/Elf.lscene', entityId: 'elfSmooth', views: ['front', 'side', 'threeQuarter'], size: 768 } },
+  ]
   fs.mkdirSync(outDir, { recursive: true })
-  for (const img of res.images ?? []) {
-    const file = path.join(outDir, `elf-${img.label}.png`)
-    fs.writeFileSync(file, Buffer.from(img.data, 'base64'))
-    console.log(`  ${file}`)
+  for (const shot of shots) {
+    const res = await app.evaluate(async (_e, a) => globalThis.__lindenRunTool(a.project, 'linden_render_preview', a.args), { project, args: shot.args })
+    console.log(`${res.success ? 'PASS' : 'FAIL'} render_preview ${shot.label} ${res.error ?? (res.data?.warnings?.join('; ') || '')}`)
+    if (!res.success) failed++
+    for (const img of res.images ?? []) {
+      const file = path.join(outDir, `elf-${shot.label}-${img.label}.png`)
+      fs.writeFileSync(file, Buffer.from(img.data, 'base64'))
+      console.log(`  ${file}`)
+    }
   }
 } finally {
   await app.close().catch(() => {})

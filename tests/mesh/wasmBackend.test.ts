@@ -35,10 +35,9 @@ describe('geometry worker with the WASM backend', () => {
   })
 
   it('typed errors cross the worker boundary intact', async () => {
-    const cube = linden(makeCube(1))
-    const r = await ops.boolean(cube, { positions: cube.positions, indices: cube.indices.slice(6) }, 'union')
+    const r = await ops.subdivide(makeCube(), 1, 'loop')
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.code).toBe('NON_MANIFOLD_INPUT')
+    if (!r.ok) expect(r.code).toBe('INVALID_TOPOLOGY')
   })
 
   it('simplify, LODs and vertex-cache optimisation', async () => {
@@ -61,8 +60,24 @@ describe('geometry worker with the WASM backend', () => {
     if (back.ok) expect(back.value.mesh.indices.length).toBe(s.indices.length)
   })
 
-  it('ops still waiting for the native build answer NOT_IMPLEMENTED', async () => {
+  it('subdivide (OpenSubdiv) through the worker: cube level 2 = 96 quads', async () => {
     const r = await ops.subdivide(makeCube(), 2, 'catmull-clark')
-    expect(r.ok || r.code).toBe('NOT_IMPLEMENTED')
+    expect(r.ok && r.value.faceCount).toBe(96)
+  })
+
+  it('unwrapUV, smooth, remesh and repair (Geogram) through the worker', async () => {
+    const s = linden(makeUvSphere(1, 24, 12))
+    const uv = await ops.unwrapUV(s, 'abf')
+    expect(uv.ok && uv.value.uvs!.length).toBe(uv.ok ? (uv.value.positions.length / 3) * 2 : -1)
+    expect((await ops.smooth(s, 2)).ok).toBe(true)
+    expect((await ops.remesh(s, 150)).ok).toBe(true)
+    expect((await ops.repair(s)).ok).toBe(true)
+  })
+
+  it('boolean auto-repairs a non-manifold input through Geogram', async () => {
+    const cube = linden(makeCube(1))
+    const r = await ops.boolean({ positions: cube.positions, indices: cube.indices.slice(6) }, linden(makeUvSphere(0.6)), 'subtract')
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(isClosedManifold(r.value)).toBe(true)
   })
 })
