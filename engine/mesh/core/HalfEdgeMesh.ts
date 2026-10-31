@@ -225,6 +225,50 @@ export class HalfEdgeMesh {
     this.aliveFaces--
   }
 
+  /**
+   * Re-points vertexHalfEdge for the given vertices (all when omitted) at an outgoing half-edge, or -1 when
+   * no face uses them. removeFace keeps it right for manifold fans; a vertex shared by several fans (bow-tie)
+   * may need this after faces are removed. One O(H) scan, only when some vertex is actually stale.
+   */
+  repairVertexHalfEdges(vertices?: Iterable<number>): void {
+    const list = vertices ? [...vertices] : Array.from({ length: this.vertexSlots }, (_, i) => i)
+    const stale = list.filter((v) => {
+      if (!this.isVertexAlive(v)) return false
+      const h = this.vertexHalfEdge[v]
+      return h < 0 || !this.isHalfEdgeAlive(h) || this.heVertex[h] !== v
+    })
+    if (stale.length === 0) return
+    const wanted = new Set(stale)
+    for (const v of stale) this.vertexHalfEdge[v] = -1
+    for (let h = 0; h < this.halfEdgeSlots && wanted.size > 0; h++) {
+      if (this.heFace[h] < 0) continue
+      const v = this.heVertex[h]
+      if (wanted.has(v)) {
+        this.vertexHalfEdge[v] = h
+        wanted.delete(v)
+      }
+    }
+  }
+
+  /** Replaces this mesh's contents with a snapshot copy, keeping the object identity (used by undo) */
+  restore(data: HalfEdgeMeshData): void {
+    const m = HalfEdgeMesh.fromData({
+      ...data,
+      positions: data.positions.slice(),
+      vertexAlive: data.vertexAlive.slice(),
+      vertexHalfEdge: data.vertexHalfEdge.slice(),
+      heNext: data.heNext.slice(),
+      hePrev: data.hePrev.slice(),
+      heTwin: data.heTwin.slice(),
+      heVertex: data.heVertex.slice(),
+      heFace: data.heFace.slice(),
+      faceHalfEdge: data.faceHalfEdge.slice(),
+      cornerUvs: data.cornerUvs?.slice(),
+      cornerNormals: data.cornerNormals?.slice(),
+    })
+    Object.assign(this, m)
+  }
+
   /** Removes an isolated vertex; returns false if faces still use it */
   removeVertex(v: number): boolean {
     if (!this.isVertexAlive(v) || this.vertexHalfEdge[v] >= 0) return false

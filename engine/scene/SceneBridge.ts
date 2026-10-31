@@ -11,6 +11,8 @@ import {
   RenderContext,
   applyMeshSize,
   createPrimitiveGeometry,
+  createEditableMeshObject,
+  EDITABLE_MESH,
 } from '../renderer/sceneFactory'
 import { createMaterial, disposeMaterial } from '../materials/createMaterial'
 import { ModelSpecSchema, ModelSpec } from '../model/ModelSpec'
@@ -297,6 +299,15 @@ export class SceneBridge {
     parentObj.add(mesh)
   }
 
+  private buildEditableMesh(entity: Entity, comp: Component): void {
+    const parentObj = this.objectMap.get(entity.id)
+    if (!parentObj) return
+    this.removeChild(parentObj, EDITABLE_MESH)
+    const mesh = createEditableMeshObject(comp as any, this.ctx, (m) => this.warn(`${m} pada "${entity.name}"`))
+    mesh.userData.entityId = entity.id
+    parentObj.add(mesh)
+  }
+
   private buildModel(entity: Entity, comp: Component): void {
     const parentObj = this.objectMap.get(entity.id)
     if (!parentObj) return
@@ -365,6 +376,7 @@ export class SceneBridge {
   private handleComponentAdded(entity: Entity, comp: Component): void {
     if (!this.objectMap.has(entity.id)) return
     if (comp.name === 'MeshRenderer') this.buildMesh(entity, comp)
+    else if (comp.name === 'EditableMesh') this.buildEditableMesh(entity, comp)
     else if (comp.name === 'Model') this.buildModel(entity, comp)
     else if (comp.name === 'Light') this.buildLight(entity, comp)
     else if (comp.name === 'Water') this.buildWater(entity, comp)
@@ -375,6 +387,7 @@ export class SceneBridge {
     const parentObj = this.objectMap.get(entity.id)
     if (!parentObj) return
     if (comp.name === 'MeshRenderer') this.removeChild(parentObj, MESH)
+    else if (comp.name === 'EditableMesh') this.removeChild(parentObj, EDITABLE_MESH)
     else if (comp.name === 'Model') this.removeModel(entity.id, parentObj)
     else if (comp.name === 'Light') this.removeChild(parentObj, LIGHT)
     else if (comp.name === 'Water') this.removeWater(entity.id, parentObj)
@@ -409,6 +422,18 @@ export class SceneBridge {
         mesh.material = createMaterial(meshRendererMaterialSpec(comp as any), materialContext(this.ctx))
         disposeMaterial(old)
       } else this.buildMesh(entity, comp)
+    } else if (compType === 'EditableMesh') {
+      const mesh = obj.children.find((c) => c.name === EDITABLE_MESH) as THREE.Mesh | undefined
+      const key = path.split('.')[0]
+      if (!mesh || key === 'mesh') return this.buildEditableMesh(entity, comp)
+      if (key === 'isVisible') mesh.visible = Boolean(value)
+      else if (key === 'castShadow') mesh.castShadow = Boolean(value)
+      else if (key === 'receiveShadow') mesh.receiveShadow = Boolean(value)
+      else if (key === 'material' || key === 'color' || key === 'roughness' || key === 'metalness') {
+        const old = mesh.material
+        mesh.material = createMaterial(meshRendererMaterialSpec(comp as any), materialContext(this.ctx))
+        disposeMaterial(old)
+      } else this.buildEditableMesh(entity, comp)
     } else if (compType === 'Model') {
       this.buildModel(entity, comp)
     } else if (compType === 'Light') {

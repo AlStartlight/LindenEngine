@@ -14,6 +14,9 @@ import {
 import { createPostPipeline, PostPipeline } from './postProcessing'
 import type { GameRenderer, RendererBackend } from './createRenderer'
 import { PRIMITIVE_KINDS, PRIMITIVE_SIZES, normalizePrimitive, PrimitiveKind } from './primitives'
+import { toLindenMesh } from '../mesh/core/convert'
+import { decodeHalfEdgeMesh } from '../mesh/core/encoding'
+import type { HalfEdgeMesh } from '../mesh/core/HalfEdgeMesh'
 
 /**
  * The one place that turns scene data into three.js objects, shared by the editor viewport
@@ -92,6 +95,39 @@ export function createMeshRendererMesh(mr: Record<string, any>, ctx: RenderConte
   mesh.receiveShadow = mr.receiveShadow ?? true
   mesh.visible = mr.isVisible ?? true
   applyMeshSize(mesh, mr.size)
+  return mesh
+}
+
+// ---- EditableMesh ---------------------------------------------------------
+
+/** Child name of an entity's EditableMesh (distinct from MeshRenderer's '__mesh__') */
+export const EDITABLE_MESH = '__editable_mesh__'
+
+/** Triangulated, flat-shaded render geometry of a half-edge mesh (n-gons fanned or ear-clipped) */
+export function editableMeshGeometry(mesh: HalfEdgeMesh): THREE.BufferGeometry {
+  const l = toLindenMesh(mesh, { polygons: false })
+  const indexed = new THREE.BufferGeometry()
+  indexed.setAttribute('position', new THREE.BufferAttribute(l.positions, 3))
+  if (l.uvs) indexed.setAttribute('uv', new THREE.BufferAttribute(l.uvs, 2))
+  indexed.setIndex(new THREE.BufferAttribute(l.indices, 1))
+  // Non-indexed so every triangle gets its face normal (hard edges, as in a modeling tool)
+  const flat = indexed.toNonIndexed()
+  indexed.dispose()
+  flat.computeVertexNormals()
+  flat.computeBoundingSphere()
+  return flat
+}
+
+/** The EDITABLE_MESH child of an entity with an EditableMesh; undecodable data renders nothing and warns */
+export function createEditableMeshObject(comp: Record<string, any>, ctx: RenderContext = {}, warn?: (m: string) => void): THREE.Mesh {
+  const decoded = decodeHalfEdgeMesh(comp.mesh)
+  if (!decoded.ok) warn?.(`EditableMesh: ${decoded.message}`)
+  const geometry = decoded.ok ? editableMeshGeometry(decoded.value) : new THREE.BufferGeometry()
+  const mesh = new THREE.Mesh(geometry, createMaterial(meshRendererMaterialSpec(comp), materialContext(ctx)))
+  mesh.name = EDITABLE_MESH
+  mesh.castShadow = comp.castShadow ?? true
+  mesh.receiveShadow = comp.receiveShadow ?? true
+  mesh.visible = comp.isVisible ?? true
   return mesh
 }
 

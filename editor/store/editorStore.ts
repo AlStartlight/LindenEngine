@@ -13,6 +13,17 @@ import { LayerMask } from '../../engine/scene/LayerMask'
 import { ExportPreset, RecentProject } from '../../shared/types/project'
 import { getSceneNameFromPath } from '../ui/windowTitle'
 import type { PlayStartResult } from '../../shared/playProtocol'
+import type { SelectMode } from '../../engine/mesh/modeling/selection'
+import type { Pivot } from '../../engine/mesh/modeling/ops'
+
+/** Mesh Edit Mode of one entity's EditableMesh; the viewport's MeshEditController does the work */
+export interface MeshEditState {
+  entityId: string
+  selectMode: SelectMode
+  pivot: Pivot
+  /** Last operation message (errors from extrude/merge...), shown in the viewport toolbar */
+  status: string | null
+}
 
 export interface ProjectSettingsState {
   /** Quality profile: Low = no post-processing, 1024 shadows, no transmission (SceneSettings.ts QUALITY_CAPS) */
@@ -68,7 +79,15 @@ export interface EditorState {
   recentProjects: RecentProject[]
   openLastProjectOnStartup: boolean
 
+  /** Non-null while a mesh is in Edit Mode */
+  meshEdit: MeshEditState | null
+
   // Actions
+  /** Enters Edit Mode for an entity with an EditableMesh (only while stopped); false if not possible */
+  enterMeshEdit: (entityId: string) => boolean
+  /** Leaves Edit Mode; the viewport commits the edited mesh as one undo step */
+  exitMeshEdit: () => void
+  setMeshEdit: (patch: Partial<Omit<MeshEditState, 'entityId'>>) => void
   selectEntity: (id: string | null, multi?: boolean) => void
   setSelectedEntityIds: (ids: string[]) => void
   executeCommand: (cmd: EditorCommand) => void
@@ -221,6 +240,27 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     scenesInBuild: ['scenes/Level01.lscene'],
   },
 
+  meshEdit: null,
+
+  enterMeshEdit: (entityId: string) => {
+    const { world, playState, meshEdit } = get()
+    if (playState !== 'stopped') return false
+    if (!world.getEntity(entityId)?.hasComponent('EditableMesh')) return false
+    if (meshEdit?.entityId === entityId) return true
+    if (meshEdit) set({ meshEdit: null })
+    set({ meshEdit: { entityId, selectMode: 'vertex', pivot: 'median', status: null }, selectedEntityIds: [entityId] })
+    return true
+  },
+
+  exitMeshEdit: () => {
+    if (get().meshEdit) set({ meshEdit: null })
+  },
+
+  setMeshEdit: (patch) => {
+    const current = get().meshEdit
+    if (current) set({ meshEdit: { ...current, ...patch } })
+  },
+
   selectEntity: (id: string | null, multi: boolean = false) => {
     if (!id) {
       set({ selectedEntityIds: [] })
@@ -273,6 +313,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   startPlay: async () => {
+    // Commit an open mesh edit first so the game runs the edited geometry
+    get().exitMeshEdit()
     const { world, projectSettings, projectPath } = get()
 
     // Run in the sandboxed Game Frame (same LindenPlayer as the web build) when a project is open
@@ -424,6 +466,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   saveScene: (path?: string, name?: string) => {
+    get().exitMeshEdit()
     const { world, commandStack } = get()
     const finalName = name || (path ? getSceneNameFromPath(path) : get().sceneName)
     const json = SceneSerializer.serialize(world, finalName)
@@ -451,6 +494,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   applyAgentSceneChange: (jsonString: string) => {
+    // The world is reloaded: commit an open mesh edit so it becomes part of the undo history
+    get().exitMeshEdit()
     const { world, commandStack, playState, sceneName } = get()
     if (playState !== 'stopped') return false
     const before = SceneSerializer.serialize(world, sceneName)

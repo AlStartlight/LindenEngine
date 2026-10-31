@@ -332,7 +332,7 @@ export const InspectorPanel: React.FC = () => {
               {/* Component Properties */}
               {!folded && (
                 <div className="p-2.5 space-y-2">
-                  {compDef?.properties.map((propSchema) => (
+                  {compDef?.properties.filter((p) => !p.hideInInspector).map((propSchema) => (
                     <PropertyFieldRow
                       key={propSchema.name}
                       schema={propSchema}

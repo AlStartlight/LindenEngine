@@ -9,6 +9,7 @@ import { Script, HtmlUI } from '../scripting/ScriptComponents'
 import { CharacterMovement } from '../movement/CharacterMovement'
 import { ModelComponent } from '../model/ModelComponent'
 import { PRIMITIVE_KINDS } from '../renderer/primitives'
+import { EditableMesh } from '../mesh/EditableMeshComponent'
 
 export type PropertyKind =
   | 'number'
@@ -127,6 +128,24 @@ ComponentRegistry.register({
     { name: 'roughness', label: 'Roughness', kind: 'number', default: 0.5, min: 0, max: 1, step: 0.05 },
     { name: 'metalness', label: 'Metalness', kind: 'number', default: 0.1, min: 0, max: 1, step: 0.05 },
     { name: 'size', label: 'Mesh Size', kind: 'vector3', default: { x: 1, y: 1, z: 1 }, hideInInspector: true, tooltip: 'Skala mesh saja (tidak diwarisi child); dipakai migrasi scene v1' },
+    { name: 'castShadow', label: 'Cast Shadows', kind: 'boolean', default: true },
+    { name: 'receiveShadow', label: 'Receive Shadows', kind: 'boolean', default: true },
+    { name: 'isVisible', label: 'Visible', kind: 'boolean', default: true },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'EditableMesh',
+  menuPath: 'Rendering/Editable Mesh',
+  icon: 'Box',
+  disallowMultiple: true,
+  create: () => new EditableMesh(),
+  properties: [
+    { name: 'mesh', label: 'Mesh', kind: 'json', default: {}, hideInInspector: true, tooltip: 'Geometri hasil Edit Mode (linden-mesh, base64)' },
+    { name: 'material', label: 'Material', kind: 'material', default: {}, tooltip: 'Preset PBR + override; kosong = pakai Color/Roughness/Metalness' },
+    { name: 'color', label: 'Color', kind: 'color', default: '#3b82f6' },
+    { name: 'roughness', label: 'Roughness', kind: 'number', default: 0.5, min: 0, max: 1, step: 0.05 },
+    { name: 'metalness', label: 'Metalness', kind: 'number', default: 0.1, min: 0, max: 1, step: 0.05 },
     { name: 'castShadow', label: 'Cast Shadows', kind: 'boolean', default: true },
     { name: 'receiveShadow', label: 'Receive Shadows', kind: 'boolean', default: true },
     { name: 'isVisible', label: 'Visible', kind: 'boolean', default: true },

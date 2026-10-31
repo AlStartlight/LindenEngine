@@ -10,10 +10,11 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": false,
+    "strictNullChecks": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "declaration": false
   },
   "include": ["electron", "shared", "engine"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "engine/mesh/worker/geometry.worker.ts"]
 }
