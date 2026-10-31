@@ -45,6 +45,7 @@
     "draco3d": "1.5.9",
     "manifold-3d": "3.5.4",
     "meshoptimizer": "1.1.1",
+    "nixie-fx": "0.1.24",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "rolldown": "^1.2.15",
@@ -146,5 +147,10 @@
       "node_modules/@rolldown/binding-*/**"
     ]
   },
-  "author": "Linden Engine Contributors"
+  "author": "Linden Engine Contributors",
+  "overrides": {
+    "nixie-fx": {
+      "three": "$three"
+    }
+  }
 }

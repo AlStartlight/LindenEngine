@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-/** Packages added for the modeling subsystem; all of them and their transitive deps must stay non-copyleft */
-export const GEOMETRY_ROOTS = ['manifold-3d', 'meshoptimizer', 'draco3d', 'three-mesh-bvh']
+/** Packages added for the modeling subsystem and NixieFX VFX; they and their transitive deps must stay non-copyleft */
+export const GEOMETRY_ROOTS = ['manifold-3d', 'meshoptimizer', 'draco3d', 'three-mesh-bvh', 'nixie-fx']
 
 /**
  * Approved exceptions (name prefix -> reason). Keep this list short and explicit.
