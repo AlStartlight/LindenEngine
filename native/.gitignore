@@ -1,0 +1,6 @@
+# Local toolchain, downloads and build trees (recreated by native/build.sh)
+.emsdk/
+.venv/
+.cache/
+build/
+.python/

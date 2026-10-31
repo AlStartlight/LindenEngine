@@ -415,6 +415,18 @@ export class InputManager {
     return best
   }
 
+  /** True when any action lists this binding, directly or in a composite */
+  private isBindingUsed(binding: string): boolean {
+    for (const a of this.actions.values()) {
+      if (a.bindings?.includes(binding)) return true
+      for (const c of a.composites ?? []) {
+        if (Object.values(c).some((keys) => Array.isArray(keys) && keys.includes(binding))) return true
+      }
+      if (a.composite && Object.values(a.composite).includes(binding)) return true
+    }
+    return false
+  }
+
   private maxValue(bindings: string[] | undefined): number {
     let best = 0
     for (const b of bindings ?? []) best = Math.max(best, Math.abs(this.bindingValue(b)))
@@ -499,11 +511,15 @@ export class InputManager {
     if (typeof window === 'undefined') return
 
     window.addEventListener('keydown', (e) => {
-      // If focused in input/textarea, ignore
-      const activeTag = (document.activeElement?.tagName || '').toLowerCase()
-      if (activeTag === 'input' || activeTag === 'textarea') return
+      // If focused in input/textarea (also inside an HtmlUI shadow root), ignore
+      let active = document.activeElement
+      while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement
+      const activeTag = (active?.tagName || '').toLowerCase()
+      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') return
 
       const binding = `Keyboard/${e.code || e.key}`
+      // Tab bound to a game action must not also move browser focus onto UI buttons
+      if (e.code === 'Tab' && this.isBindingUsed(binding)) e.preventDefault()
       if (this.listeningCallback) {
         this.listeningCallback(binding)
         this.listeningCallback = null

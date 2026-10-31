@@ -1,11 +1,15 @@
 import { Component, Transform } from './Component'
 import { MeshRenderer, Camera, Light, LightType } from '../renderer/Components'
-import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, CharacterController } from '../physics/components'
+import { Water } from '../environment/Water'
+import { ParticleEmitter } from '../vfx/ParticleEmitter'
+import { DEFAULT_PARTICLE_VALUES as PD, PARTICLE_PRESETS } from '../vfx/presets'
+import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, CharacterController, Joint } from '../physics/components'
 import { TimerComponent } from '../time/Timer'
 import { Script, HtmlUI } from '../scripting/ScriptComponents'
 import { CharacterMovement } from '../movement/CharacterMovement'
 import { ModelComponent } from '../model/ModelComponent'
 import { PRIMITIVE_KINDS } from '../renderer/primitives'
+import { EditableMesh } from '../mesh/EditableMeshComponent'
 
 export type PropertyKind =
   | 'number'
@@ -13,6 +17,7 @@ export type PropertyKind =
   | 'boolean'
   | 'string'
   | 'color'
+  | 'vector2'
   | 'vector3'
   | 'enum'
   | 'entityRef'
@@ -130,6 +135,27 @@ ComponentRegistry.register({
 })
 
 ComponentRegistry.register({
+  type: 'EditableMesh',
+  menuPath: 'Rendering/Editable Mesh',
+  icon: 'Box',
+  disallowMultiple: true,
+  create: () => new EditableMesh(),
+  properties: [
+    { name: 'mesh', label: 'Mesh', kind: 'json', default: {}, hideInInspector: true, tooltip: 'Geometri hasil Edit Mode (linden-mesh, base64)' },
+    { name: 'modifiers', label: 'Modifiers', kind: 'json', default: [], tooltip: 'Urutan modifier: {type:"subdivision",levels:2} | {type:"mirror",axis:"x"} | {type:"boolean",op:"subtract",operand:"<entityId>"}' },
+    { name: 'shading', label: 'Shading', kind: 'enum', default: 'flat', options: ['flat', 'smooth'] },
+    { name: 'modifierCache', label: 'Modifier Cache', kind: 'json', default: null, hideInInspector: true, tooltip: 'Hasil modifier yang dievaluasi editor; dipakai apa adanya oleh player' },
+    { name: 'material', label: 'Material', kind: 'material', default: {}, tooltip: 'Preset PBR + override; kosong = pakai Color/Roughness/Metalness' },
+    { name: 'color', label: 'Color', kind: 'color', default: '#3b82f6' },
+    { name: 'roughness', label: 'Roughness', kind: 'number', default: 0.5, min: 0, max: 1, step: 0.05 },
+    { name: 'metalness', label: 'Metalness', kind: 'number', default: 0.1, min: 0, max: 1, step: 0.05 },
+    { name: 'castShadow', label: 'Cast Shadows', kind: 'boolean', default: true },
+    { name: 'receiveShadow', label: 'Receive Shadows', kind: 'boolean', default: true },
+    { name: 'isVisible', label: 'Visible', kind: 'boolean', default: true },
+  ],
+})
+
+ComponentRegistry.register({
   type: 'Model',
   menuPath: 'Rendering/Model',
   icon: 'Box',
@@ -192,6 +218,27 @@ ComponentRegistry.register({
     { name: 'useGravity', label: 'Use Gravity', kind: 'boolean', default: true },
     { name: 'freezePosition', label: 'Freeze Position', kind: 'vector3', default: { x: false, y: false, z: false } },
     { name: 'freezeRotation', label: 'Freeze Rotation', kind: 'vector3', default: { x: false, y: false, z: false } },
+    { name: 'ccd', label: 'Continuous Collision', kind: 'boolean', default: false, tooltip: 'Untuk benda cepat (peluru) agar tidak menembus dinding tipis' },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'Joint',
+  menuPath: 'Physics/Joint',
+  icon: 'Link',
+  disallowMultiple: true,
+  create: () => new Joint(),
+  properties: [
+    { name: 'type', label: 'Type', kind: 'enum', default: 'hinge', options: ['fixed', 'hinge', 'ball', 'slider'] },
+    { name: 'connectedEntity', label: 'Connected Entity', kind: 'string', default: '', tooltip: 'ID entity tujuan; kosong = terpasang ke world' },
+    { name: 'anchor', label: 'Anchor', kind: 'vector3', default: { x: 0, y: 0, z: 0 }, tooltip: 'Titik sambungan (lokal entity ini)' },
+    { name: 'autoConnectAnchor', label: 'Auto Connected Anchor', kind: 'boolean', default: true },
+    { name: 'connectedAnchor', label: 'Connected Anchor', kind: 'vector3', default: { x: 0, y: 0, z: 0 } },
+    { name: 'axis', label: 'Axis', kind: 'vector3', default: { x: 0, y: 1, z: 0 }, tooltip: 'Sumbu engsel / arah slider (lokal)' },
+    { name: 'limits', label: 'Limits', kind: 'json', default: { enabled: false, min: -45, max: 45 }, tooltip: 'Hinge: derajat, slider: meter' },
+    { name: 'motor', label: 'Motor', kind: 'json', default: { enabled: false, targetVelocity: 0, maxForce: 100 }, tooltip: 'Hinge: derajat/detik, slider: m/detik' },
+    { name: 'breakForce', label: 'Break Force', kind: 'number', default: 0, min: 0, max: 1e6, step: 10, tooltip: 'Newton; 0 = tidak bisa putus' },
+    { name: 'onBreak', label: 'On Break', kind: 'event', default: [] },
   ],
 })
 
@@ -266,6 +313,57 @@ ComponentRegistry.register({
     { name: 'stepOffset', label: 'Step Offset', kind: 'number', default: 0.3, min: 0, max: 2, step: 0.05 },
     { name: 'slopeLimit', label: 'Slope Limit', kind: 'number', default: 45, min: 0, max: 90, step: 1 },
     { name: 'skinWidth', label: 'Skin Width', kind: 'number', default: 0.08, min: 0.001, max: 0.5, step: 0.01 },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'Water',
+  menuPath: 'Environment/Water',
+  icon: 'Waves',
+  disallowMultiple: true,
+  create: () => new Water(),
+  properties: [
+    { name: 'size', label: 'Size', kind: 'vector2', default: { x: 20, y: 20 }, tooltip: 'Lebar (X) dan panjang (Z) permukaan, meter' },
+    { name: 'color', label: 'Color', kind: 'color', default: '#1e5f74' },
+    { name: 'distortion', label: 'Distortion', kind: 'number', default: 3.7, min: 0, max: 20, step: 0.1 },
+    { name: 'waveSpeed', label: 'Wave Speed', kind: 'number', default: 1, min: 0, max: 10, step: 0.1, tooltip: 'WebGPU memakai kecepatan tetap' },
+    { name: 'reflections', label: 'Reflections', kind: 'boolean', default: true, tooltip: 'Mati otomatis di profil kualitas Low' },
+    { name: 'buoyancy', label: 'Buoyancy', kind: 'boolean', default: true, tooltip: 'Benda dinamis mengapung' },
+    { name: 'density', label: 'Density', kind: 'number', default: 1000, min: 1, max: 20000, step: 10, tooltip: 'kg/m³ (air tawar 1000, air laut 1025)' },
+    { name: 'linearDrag', label: 'Linear Drag', kind: 'number', default: 4, min: 0, max: 20, step: 0.1, tooltip: 'Redaman saat terendam; makin besar makin cepat tenang' },
+    { name: 'angularDrag', label: 'Angular Drag', kind: 'number', default: 2, min: 0, max: 20, step: 0.1 },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'ParticleEmitter',
+  menuPath: 'Effects/Particle Emitter',
+  icon: 'Sparkles',
+  disallowMultiple: true,
+  create: () => new ParticleEmitter(),
+  properties: [
+    { name: 'preset', label: 'Preset', kind: 'enum', default: 'custom', options: ['custom', ...PARTICLE_PRESETS], tooltip: 'Memilih preset mengisi ulang semua field di bawah' },
+    { name: 'playOnStart', label: 'Play On Start', kind: 'boolean', default: true },
+    { name: 'loop', label: 'Loop', kind: 'boolean', default: PD.loop },
+    { name: 'duration', label: 'Duration', kind: 'number', default: PD.duration, min: 0.01, max: 60, step: 0.1 },
+    { name: 'rate', label: 'Rate', kind: 'number', default: PD.rate, min: 0, max: 5000, step: 1, tooltip: 'Partikel per detik' },
+    { name: 'bursts', label: 'Bursts', kind: 'json', default: [], tooltip: '[{ "time": 0, "count": 50 }]' },
+    { name: 'maxParticles', label: 'Max Particles', kind: 'int', default: PD.maxParticles, min: 1, max: 2000, step: 10, tooltip: 'Dibatasi profil kualitas (Low 200, Medium 1000, High 2000)' },
+    { name: 'shape', label: 'Shape', kind: 'enum', default: PD.shape, options: ['point', 'sphere', 'box', 'cone'] },
+    { name: 'shapeSize', label: 'Shape Size', kind: 'vector3', default: PD.shapeSize, tooltip: 'sphere/cone: X = radius; box: ukuran' },
+    { name: 'coneAngle', label: 'Cone Angle', kind: 'number', default: PD.coneAngle, min: 0, max: 180, step: 1 },
+    { name: 'lifetime', label: 'Lifetime', kind: 'json', default: PD.lifetime, tooltip: '{ "min": 0.8, "max": 1.2 } detik' },
+    { name: 'speed', label: 'Speed', kind: 'json', default: PD.speed, tooltip: '{ "min": 1, "max": 2 } m/detik' },
+    { name: 'gravity', label: 'Gravity', kind: 'number', default: PD.gravity, min: -5, max: 5, step: 0.05, tooltip: 'Kali gravitasi dunia; negatif = naik (asap)' },
+    { name: 'drag', label: 'Drag', kind: 'number', default: PD.drag, min: 0, max: 20, step: 0.1 },
+    { name: 'size', label: 'Size Over Life', kind: 'json', default: PD.size, tooltip: '[{ "t": 0, "v": 0.2 }, { "t": 1, "v": 0 }] meter' },
+    { name: 'color', label: 'Color Over Life', kind: 'json', default: PD.color, tooltip: '[{ "t": 0, "color": "#ffffff", "alpha": 1 }]' },
+    { name: 'blending', label: 'Blending', kind: 'enum', default: PD.blending, options: ['additive', 'normal'] },
+    { name: 'texture', label: 'Texture', kind: 'string', default: PD.texture, tooltip: 'soft, spark, smoke, square, atau assets/...png' },
+    { name: 'space', label: 'Space', kind: 'enum', default: PD.space, options: ['world', 'local'] },
+    { name: 'seed', label: 'Seed', kind: 'int', default: 0, min: 0, max: 2147483647, step: 1, tooltip: '0 = acak tiap play' },
+    { name: 'light', label: 'Light', kind: 'json', default: PD.light, tooltip: 'PointLight ikut emitter (mati di profil Low)' },
+    { name: 'onFinished', label: 'On Finished', kind: 'event', default: [] },
   ],
 })
 

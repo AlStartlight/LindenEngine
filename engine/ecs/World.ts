@@ -378,7 +378,9 @@ export class World {
     }
 
     if (data) {
-      for (const [key, value] of Object.entries(data)) {
+      // A preset (ParticleEmitter) fills many fields, so it goes first and the saved fields win
+      const entries = Object.entries(data).sort(([a], [b]) => Number(b === 'preset') - Number(a === 'preset'))
+      for (const [key, value] of entries) {
         const current = (comp as any)[key]
         // Serialized scenes store an EventField as its listener array; keep the field object
         // (scripts and physics subscribe to it) and restore only the listeners

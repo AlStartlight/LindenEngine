@@ -271,6 +271,8 @@ export const EditorLayout: React.FC = () => {
 
   // Save Scene
   const handleSaveScene = useCallback(async (isSaveAs: boolean = false) => {
+    // Commit an open mesh edit first, so the file gets the edited geometry
+    useEditorStore.getState().exitMeshEdit()
     try {
       let targetPath: string | null = null
       if (!isSaveAs && currentScenePath) {
@@ -551,14 +553,14 @@ export const EditorLayout: React.FC = () => {
       }
 
       // Ctrl+Z: Undo
-      if (cmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === 'z') {
+      if (!useEditorStore.getState().meshEdit && cmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         undo()
         return
       }
 
       // Ctrl+Y: Redo
-      if (cmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === 'y') {
+      if (!useEditorStore.getState().meshEdit && cmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === 'y') {
         e.preventDefault()
         redo()
         return
@@ -593,7 +595,7 @@ export const EditorLayout: React.FC = () => {
       }
 
       // Ctrl+D: Duplicate Entity
-      if (cmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === 'd') {
+      if (!useEditorStore.getState().meshEdit && cmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === 'd') {
         e.preventDefault()
         for (const id of selectedEntityIds) {
           executeCommand(duplicateEntityCommand(id))
@@ -602,7 +604,7 @@ export const EditorLayout: React.FC = () => {
       }
 
       // Delete: Delete Entity
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (!useEditorStore.getState().meshEdit && e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedEntityIds.length > 0) {
           e.preventDefault()
           for (const id of selectedEntityIds) {

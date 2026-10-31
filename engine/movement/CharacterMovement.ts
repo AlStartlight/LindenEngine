@@ -64,6 +64,8 @@ export class CharacterMovement extends Component {
   _cameraOnSelf = false
   /** Coordinate held by lockAxis, captured on the first step */
   _lockValue: number | null = null
+  /** Set by GameSimulation while the character's centre is below a Water surface */
+  _inWater = false
 
   constructor() {
     super('CharacterMovement')
@@ -86,6 +88,9 @@ export class CharacterMovement extends Component {
   }
   get jumpsUsed(): number {
     return this._jumpsUsed
+  }
+  get inWater(): boolean {
+    return this._inWater
   }
 
   /** Knockback, jump pads... applied on the next fixed step */

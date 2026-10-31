@@ -58,8 +58,11 @@ async function run() {
   pipeline.setSize(size, size)
   pipeline.applySettings(world.getSceneSettings())
   const bridge = new SceneBridge(world)
-  bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, warn })
+  bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, backend: 'webgl2', caps: pipeline.caps, warn })
   await assets.whenIdle()
+  await bridge.whenIdle()
+  // Particle emitters start empty; simulate a second so the still shows the effect
+  bridge.prewarmParticles(1)
   await pipeline.whenReady()
 
   let target: THREE.Object3D = scene
@@ -136,6 +139,8 @@ async function run() {
     pipeline.render(camera)
     await pipeline.whenReady()
     await nextFrame()
+    // Re-face particle billboards to this view's camera (seen during the first render)
+    bridge.update(0)
     pipeline.render(camera)
     images.push({ view, dataUrl: canvas.toDataURL('image/png') })
   }

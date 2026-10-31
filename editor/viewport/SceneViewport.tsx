@@ -11,6 +11,9 @@ import { resolveQuality } from '../../engine/scene/SceneSettings'
 import { projectAssetUrl } from '../../shared/assetProtocol'
 import { useEditorStore } from '../store/editorStore'
 import { setPropertyCommand } from '../commands/entityCommands'
+import { canConvertToEditableMesh, convertToEditableMeshCommand } from '../commands/meshCommands'
+import { MeshEditController } from './MeshEditController'
+import { createGeometryOps } from '../../engine/mesh/worker/createGeometryOps'
 import { GameFrame, GameFrameStats } from './GameFrame'
 import { HtmlUiPreview } from './HtmlUiPreview'
 
@@ -49,6 +52,7 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   const transformControlsRef = useRef<TransformControls | null>(null)
   const gridRef = useRef<THREE.GridHelper | null>(null)
   const animationFrameRef = useRef<number>(0)
+  const meshEditRef = useRef<MeshEditController | null>(null)
 
   const {
     world,
@@ -60,6 +64,10 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
     stepPlay,
     playSession,
     projectRuntime,
+    meshEdit,
+    enterMeshEdit,
+    exitMeshEdit,
+    setMeshEdit,
   } = useEditorStore()
 
   const [transformMode, setTransformMode] = useState<TransformMode>('translate')
@@ -67,6 +75,10 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   const [stats, setStats] = useState({ fps: 0, triangles: 0, drawCalls: 0 })
   const [gameStats, setGameStats] = useState<GameFrameStats | null>(null)
   const [showUiPreview, setShowUiPreview] = useState(true)
+  // Particle emitters simulate only when selected, unless VFX preview is on (saves CPU on idle scenes)
+  const [previewVfx, setPreviewVfx] = useState(false)
+  const previewVfxRef = useRef(previewVfx)
+  previewVfxRef.current = previewVfx
 
   useEffect(() => {
     if (!playSession) setGameStats(null)
@@ -78,6 +90,8 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   useEffect(() => {
     const transformControls = transformControlsRef.current
     if (!transformControls) return
+    // In Edit Mode the gizmo drives the mesh selection (MeshEditController attaches its pivot)
+    if (meshEdit) return
 
     if (primarySelectedId) {
       const obj = bridge.getObject(primarySelectedId)
@@ -89,7 +103,12 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
     } else {
       transformControls.detach()
     }
-  }, [primarySelectedId, bridge])
+  }, [primarySelectedId, bridge, meshEdit])
+
+  // Selecting another entity (e.g. in the Hierarchy) leaves Edit Mode
+  useEffect(() => {
+    if (meshEdit && primarySelectedId !== meshEdit.entityId) exitMeshEdit()
+  }, [meshEdit, primarySelectedId, exitMeshEdit])
 
   // Set transform mode
   useEffect(() => {
@@ -276,13 +295,31 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
     gridRef.current = grid
 
     // Lights, environment and shadows come from the scene settings (ScenePipeline)
-    bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, warn })
+    // EditableMesh modifiers are evaluated in the geometry worker (started lazily, on the first modifier)
+    const geometryOps = createGeometryOps()
+    bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, backend: 'webgl2', caps: pipeline.caps, warn, geometry: geometryOps })
+
+    const meshEditController = new MeshEditController({
+      scene,
+      canvas,
+      overlayRoot: container,
+      getCamera: () => cameraRef.current,
+      transformControls,
+      orbitControls,
+      bridge,
+      world,
+      executeCommand: (cmd) => useEditorStore.getState().executeCommand(cmd),
+      setGizmoMode: setTransformMode,
+      warn,
+    })
+    meshEditRef.current = meshEditController
 
     // Raycast on click to select entity
     const raycaster = new THREE.Raycaster()
     const mouse = new THREE.Vector2()
 
     const handleClick = (e: MouseEvent) => {
+      if (meshEditController.handleClick(e)) return
       const rect = canvas.getBoundingClientRect()
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
@@ -344,6 +381,7 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (document.activeElement?.tagName || '').toLowerCase()
       if (activeTag === 'input' || activeTag === 'textarea') return
+      if (meshEditController.handleKeyDown(e)) return
 
       if (e.key.toLowerCase() === 'w') setTransformMode('translate')
       else if (e.key.toLowerCase() === 'e') setTransformMode('rotate')
@@ -372,6 +410,11 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       }
 
       orbitControls.update()
+      if (previewVfxRef.current) bridge.setParticlePreview(null)
+      else {
+        const selected = editorState.selectedEntityIds
+        bridge.setParticlePreview((id) => selected.includes(id))
+      }
       bridge.update(dt)
       if (cameraRef.current) {
         pipeline.render(cameraRef.current)
@@ -396,6 +439,9 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       resizeObserver.disconnect()
       window.removeEventListener('keydown', handleKeyDown)
       canvas.removeEventListener('click', handleClick)
+      meshEditController.dispose()
+      meshEditRef.current = null
+      geometryOps.dispose()
       orbitControls.dispose()
       transformControls.dispose()
       bridge.detach()
@@ -444,7 +490,7 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
 
       {/* Top Viewport Controls (edit tools; hidden while the Game Frame owns the viewport) */}
       <div
-        className={`absolute top-2 left-2 z-30 flex items-center gap-1.5 bg-black/60 backdrop-blur-xs rounded-lg p-1 border border-gray-700/60 text-xs ${
+        className={`absolute top-2 left-2 right-2 sm:right-auto z-30 flex flex-wrap items-center gap-1.5 whitespace-nowrap bg-black/60 backdrop-blur-xs rounded-lg p-1 border border-gray-700/60 text-xs ${
           playSession || projectRuntime === 'html' ? 'hidden' : ''
         }`}
       >
@@ -460,33 +506,89 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
 
         <div className="w-px h-4 bg-gray-700/60" />
 
-        <button
-          className={`px-2 py-1 rounded text-xs transition-colors ${
-            transformMode === 'translate' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
-          }`}
-          onClick={() => setTransformMode('translate')}
-          title="Move (W)"
-        >
-          Move (W)
-        </button>
-        <button
-          className={`px-2 py-1 rounded text-xs transition-colors ${
-            transformMode === 'rotate' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
-          }`}
-          onClick={() => setTransformMode('rotate')}
-          title="Rotate (E)"
-        >
-          Rotate (E)
-        </button>
-        <button
-          className={`px-2 py-1 rounded text-xs transition-colors ${
-            transformMode === 'scale' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
-          }`}
-          onClick={() => setTransformMode('scale')}
-          title="Scale (R)"
-        >
-          Scale (R)
-        </button>
+        {(
+          [
+            ['translate', 'Move', meshEdit ? 'G' : 'W'],
+            ['rotate', 'Rotate', meshEdit ? 'R' : 'E'],
+            ['scale', 'Scale', meshEdit ? 'S' : 'R'],
+          ] as const
+        ).map(([mode, label, key]) => (
+          <button
+            key={mode}
+            className={`px-2 py-1 rounded text-xs transition-colors ${
+              transformMode === mode ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+            }`}
+            onClick={() => setTransformMode(mode)}
+            title={`${label} (${key})`}
+          >
+            {label} ({key})
+          </button>
+        ))}
+
+        <div className="w-px h-4 bg-gray-700/60" />
+
+        {/* Mesh Edit Mode (Tab) */}
+        {meshEdit ? (
+          <>
+            <button
+              className="px-2 py-1 rounded text-xs bg-orange-600 text-white"
+              onClick={() => exitMeshEdit()}
+              title="Keluar dari Edit Mode (Tab); perubahan jadi satu langkah undo"
+            >
+              Edit Mode
+            </button>
+            {(['vertex', 'edge', 'face'] as const).map((mode, i) => (
+              <button
+                key={mode}
+                className={`px-2 py-1 rounded text-xs transition-colors ${
+                  meshEdit.selectMode === mode ? 'bg-orange-600/80 text-white' : 'text-gray-300 hover:bg-white/10'
+                }`}
+                onClick={() => setMeshEdit({ selectMode: mode })}
+                title={`${mode === 'vertex' ? 'Vertex' : mode === 'edge' ? 'Edge' : 'Face'} (${i + 1})`}
+              >
+                {mode === 'vertex' ? 'Vert' : mode === 'edge' ? 'Edge' : 'Face'}
+              </button>
+            ))}
+            <button
+              className="px-2 py-1 rounded text-xs text-gray-300 hover:bg-white/10"
+              onClick={() => setMeshEdit({ pivot: meshEdit.pivot === 'median' ? 'individual' : 'median' })}
+              title="Pivot transform (P): median atau individual origins"
+            >
+              Pivot: {meshEdit.pivot === 'median' ? 'Median' : 'Individual'}
+            </button>
+            <div className="w-px h-4 bg-gray-700/60" />
+            {(
+              [
+                ['Extrude', 'E', () => meshEditRef.current?.run('Extrude', (ed) => ed.extrude(0))],
+                ['Inset', 'I', () => meshEditRef.current?.inset()],
+                ['Delete', 'X', () => meshEditRef.current?.run('Delete', (ed) => ed.delete())],
+                ['Merge', 'M', () => meshEditRef.current?.run('Merge', (ed) => ed.mergeAtCenter())],
+                ['Bevel', 'Ctrl+B', () => meshEditRef.current?.bevel()],
+                ['Loop Cut', 'Ctrl+R', () => meshEditRef.current?.run('Loop Cut', (ed) => ed.loopCut(undefined, 1))],
+              ] as const
+            ).map(([label, key, action]) => (
+              <button key={label} className="px-2 py-1 rounded text-xs text-gray-300 hover:bg-white/10" onClick={action} title={`${label} (${key})`}>
+                {label}
+              </button>
+            ))}
+          </>
+        ) : primarySelectedId && world.getEntity(primarySelectedId)?.hasComponent('EditableMesh') ? (
+          <button
+            className="px-2 py-1 rounded text-xs text-gray-300 hover:bg-white/10"
+            onClick={() => enterMeshEdit(primarySelectedId)}
+            title="Edit vertex/edge/face (Tab)"
+          >
+            Edit Mesh
+          </button>
+        ) : primarySelectedId && canConvertToEditableMesh(world, primarySelectedId) ? (
+          <button
+            className="px-2 py-1 rounded text-xs text-gray-300 hover:bg-white/10"
+            onClick={() => executeCommand(convertToEditableMeshCommand(primarySelectedId))}
+            title="Ubah primitif menjadi mesh yang bisa diedit (bisa di-undo)"
+          >
+            Convert to Editable
+          </button>
+        ) : null}
 
         <div className="w-px h-4 bg-gray-700/60" />
 
@@ -499,7 +601,29 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
         >
           UI
         </button>
+        <button
+          className={`px-2 py-1 rounded text-xs transition-colors ${
+            previewVfx ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+          }`}
+          onClick={() => setPreviewVfx((v) => !v)}
+          title="Jalankan semua efek partikel (mati: hanya entity terpilih)"
+        >
+          VFX
+        </button>
       </div>
+
+      {/* Edit Mode hint and last operation error */}
+      {meshEdit && !playSession && (
+        <div className="absolute bottom-9 left-2 right-2 z-30 pointer-events-none bg-black/60 backdrop-blur-xs rounded px-2 py-1 border border-gray-700/60 text-[10px] text-gray-300">
+          {meshEdit.status ? (
+            <span className="text-orange-300">{meshEdit.status}</span>
+          ) : (
+            <span>
+              Klik pilih · Shift tambah · Alt loop · B kotak · A semua · Ctrl+L terhubung · 1/2/3 mode · E extrude · I inset · Ctrl+B bevel · Ctrl+R loop cut · J sambung · F isi/jembatan · X hapus · Shift+X larutkan · M gabung · Alt/Shift+N normal · Ctrl+Z undo · Tab selesai
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Stats Overlay */}
       <div className="absolute bottom-2 left-2 z-50 bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded border border-gray-700/50 text-[10px] text-gray-400 font-mono flex items-center gap-3">

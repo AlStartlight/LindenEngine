@@ -17,6 +17,11 @@ const BASE_CSS = `
 [hidden] { display: none !important; }
 `
 
+function isTextEntry(el: Element): boolean {
+  const tag = el.tagName.toLowerCase()
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || (el as HTMLElement).isContentEditable
+}
+
 interface UiEntry {
   entityId: string
   src: string
@@ -97,6 +102,11 @@ export class HtmlUiLayer {
     }
     content.appendChild(fragment)
     shadow.append(style, content)
+    // A clicked button keeps focus, so Space/Enter meant for the game would click it again
+    content.addEventListener('click', () => {
+      const active = shadow.activeElement as HTMLElement | null
+      if (active && !isTextEntry(active)) active.blur()
+    })
     if (comp.pointerEvents) host.style.pointerEvents = 'auto'
 
     const entry: UiEntry = { entityId: entity.id, src: comp.src, host, shadow, content }

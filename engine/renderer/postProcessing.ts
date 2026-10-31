@@ -136,7 +136,9 @@ async function createTslPipeline(
   if (fx.ao) {
     try {
       const { ao } = await import('three/examples/jsm/tsl/display/GTAONode.js')
-      const prePass = tsl.pass(scene, camera)
+      // Single-sampled: GTAO samples depth with textureGather, which WGSL has no multisampled overload
+      // for, so an MSAA prepass (the renderer's default with antialias on) breaks the whole frame
+      const prePass = tsl.pass(scene, camera, { samples: 0 })
       prePass.setMRT(tsl.mrt({ output: tsl.normalView }))
       const aoPass: any = ao(prePass.getTextureNode('depth'), prePass.getTextureNode(), camera)
       const aoValue = aoPass.getTextureNode().sample(tsl.screenUV).r

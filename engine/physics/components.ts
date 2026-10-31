@@ -19,6 +19,8 @@ export class Rigidbody extends Component {
   public freezeRotation = { x: false, y: false, z: false }
   public velocity = { x: 0, y: 0, z: 0 }
   public angularVelocity = { x: 0, y: 0, z: 0 }
+  /** Continuous collision detection, for fast bodies (projectiles) that would tunnel through thin walls */
+  public ccd: boolean = false
 
   constructor() {
     super('Rigidbody')
@@ -35,6 +37,7 @@ export class Rigidbody extends Component {
     c.freezeRotation = { ...this.freezeRotation }
     c.velocity = { ...this.velocity }
     c.angularVelocity = { ...this.angularVelocity }
+    c.ccd = this.ccd
     return c
   }
 }
@@ -163,6 +166,51 @@ export class CharacterController extends Component {
     c.radius = this.radius
     c.height = this.height
     c.isGrounded = this.isGrounded
+    return c
+  }
+}
+
+export type JointType = 'fixed' | 'hinge' | 'ball' | 'slider'
+
+/**
+ * Connects this entity's body to another entity's body (or to the world when connectedEntity is empty).
+ * Anchors and axis are in local space. With autoConnectAnchor the connected anchor is computed so the
+ * joint keeps the bodies where they are placed in the scene.
+ */
+export class Joint extends Component {
+  public type: JointType = 'hinge'
+  public connectedEntity: string = ''
+  public anchor = { x: 0, y: 0, z: 0 }
+  public autoConnectAnchor: boolean = true
+  public connectedAnchor = { x: 0, y: 0, z: 0 }
+  /** Hinge rotation axis or slider direction */
+  public axis = { x: 0, y: 1, z: 0 }
+  /** Hinge: degrees; slider: meters. Not applied to fixed and ball joints */
+  public limits = { enabled: false, min: -45, max: 45 }
+  /** Hinge: degrees/s; slider: m/s */
+  public motor = { enabled: false, targetVelocity: 0, maxForce: 100 }
+  /** Newtons; 0 = unbreakable */
+  public breakForce: number = 0
+  public onBreak = new EventField()
+  /** Runtime only: set when the joint broke during play */
+  public _broken = false
+
+  constructor() {
+    super('Joint')
+  }
+
+  clone(): Joint {
+    const c = new Joint()
+    c.type = this.type
+    c.connectedEntity = this.connectedEntity
+    c.anchor = { ...this.anchor }
+    c.autoConnectAnchor = this.autoConnectAnchor
+    c.connectedAnchor = { ...this.connectedAnchor }
+    c.axis = { ...this.axis }
+    c.limits = { ...this.limits }
+    c.motor = { ...this.motor }
+    c.breakForce = this.breakForce
+    c.onBreak = this.onBreak.clone()
     return c
   }
 }

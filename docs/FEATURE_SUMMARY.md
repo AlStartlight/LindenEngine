@@ -83,6 +83,13 @@ const rigidbody = entity.getComponent(RigidBody)
 rigidbody.applyForce({ x: 0, y: 10, z: 0 }, deltaTime)
 ```
 
+#### ✅ Joints, Water and Particle VFX
+- Rapier joints (`Joint`: fixed, hinge, ball, slider) with limits, motors and breakable joints; ragdolls from ball/hinge joints
+- Forces and torque from scripts (`ctx.physics.addForce`), continuous collision detection (`Rigidbody.ccd`)
+- `Water` surface with reflections (WebGL and WebGPU), buoyancy and water drag, enter/exit hooks
+- `ParticleEmitter` with fire, smoke, sparks, explosion, magic, rain and splash presets, `ctx.vfx.spawn` for one-shot effects
+- Spec: `docs/specs/SPEC-Physics-Water-VFX.md`
+
 #### ✅ Scripting System
 - **TypeScript-based** - Type-safe gameplay code
 - **Hot-reload** - Change scripts tanpa restart

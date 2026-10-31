@@ -86,6 +86,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Smoke-test the packaged app (physics, water, particles)
+        # Starts the packaged app and runs linden_play + linden_render_preview on a lake scene;
+        # catches main-process imports that only resolve from node_modules in dev
+        if: matrix.platform == 'mac'
+        timeout-minutes: 5
+        run: npm run test:e2e:physics-vfx
+        env:
+          LINDEN_APP: release/mac-arm64/Linden Engine.app/Contents/MacOS/Linden Engine
+          LINDEN_E2E_OUT: release/e2e-previews
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:

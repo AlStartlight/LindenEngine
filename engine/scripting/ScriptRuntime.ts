@@ -5,6 +5,7 @@ import { Input } from '../input/InputActions'
 import { Physics } from '../physics/components'
 import { isValidScriptSrc } from '../../shared/playProtocol'
 import { NULL_TOUCH, type TouchApi } from '../input/TouchApi'
+import type { ParticleEmitter } from '../vfx/ParticleEmitter'
 
 type Vec3 = { x: number; y: number; z: number }
 
@@ -31,8 +32,33 @@ export interface ScriptPhysicsApi {
   setLinearVelocity(v: Vec3): void
   getLinearVelocity(): Vec3 | null
   applyImpulse(v: Vec3): void
+  /** Continuous force in newtons for the next fixed step; call it every onFixedUpdate */
+  addForce(v: Vec3): void
+  addTorque(v: Vec3): void
+  setAngularVelocity(v: Vec3): void
+  getAngularVelocity(): Vec3 | null
+  /** Drive this entity's hinge (degrees/s) or slider (m/s) Joint */
+  setMotor(targetVelocity: number, maxForce?: number): void
   /** Teleport this entity's body (and Transform) */
   setPosition(v: Vec3): void
+}
+
+/** Particle effects. Visual only: calls are harmless no-ops in headless play */
+export interface VfxApi {
+  /** Start the ParticleEmitter on `entity` (default: this script's entity) */
+  play(entity?: Entity): void
+  stop(entity?: Entity, opts?: { clear?: boolean }): void
+  /** Emit `count` particles at once */
+  burst(count: number, entity?: Entity): void
+  /**
+   * Create a temporary entity with a ParticleEmitter preset at `position` (world space, or local to
+   * `parent`). Non-looping presets are destroyed when done unless autoDestroy is false.
+   */
+  spawn(
+    preset: string,
+    position: Vec3,
+    opts?: { parent?: Entity; autoDestroy?: boolean; overrides?: Record<string, unknown> }
+  ): Entity
 }
 
 export interface GameScriptContext {
@@ -48,6 +74,7 @@ export interface GameScriptContext {
   readonly movement: any
   /** On-screen touch buttons: show/hide, label, badge, cooldown, layout (no-op on desktop) */
   touch: TouchApi
+  vfx: VfxApi
   scene: {
     find(name: string): Entity | null
     findByTag(tag: string): Entity[]
@@ -121,6 +148,8 @@ export class ScriptRuntime {
   private listeners = new Map<string, Set<(data: unknown) => void>>()
   readonly time: TimeInfo = { deltaTime: 0, time: 0, frameCount: 0, timeScale: 1 }
   readonly errors: ScriptErrorInfo[] = []
+  /** Entities made by ctx.vfx.spawn, destroyed once their effect has played out */
+  private vfxDeadlines: { id: string; at: number }[] = []
 
   private offEntityRemoved: () => void
 
@@ -295,6 +324,13 @@ export class ScriptRuntime {
         setLinearVelocity: (v) => backend()?.setLinearVelocity?.(entity.id, v),
         getLinearVelocity: () => backend()?.getLinearVelocity?.(entity.id) ?? null,
         applyImpulse: (v) => backend()?.applyImpulse?.(entity.id, v),
+        addForce: (v) => backend()?.addForce?.(entity.id, v),
+        addTorque: (v) => backend()?.addTorque?.(entity.id, v),
+        setAngularVelocity: (v) => backend()?.setAngularVelocity?.(entity.id, v),
+        getAngularVelocity: () => backend()?.getAngularVelocity?.(entity.id) ?? null,
+        setMotor: (targetVelocity, maxForce) => {
+          backend()?.setJointMotor?.(entity.id, targetVelocity, maxForce)
+        },
         setPosition: (v) => {
           backend()?.setTranslation?.(entity.id, v)
           const t = entity.getTransform()
@@ -305,6 +341,7 @@ export class ScriptRuntime {
       three: this.options.three,
       object3D: null,
       touch: this.options.touch ?? NULL_TOUCH,
+      vfx: this.createVfx(entity),
       get movement() {
         return entity.getComponent('CharacterMovement') ?? null
       },
@@ -325,6 +362,27 @@ export class ScriptRuntime {
         })
       },
       log,
+    }
+  }
+
+  private createVfx(self: Entity): VfxApi {
+    const { world } = this.options
+    const emitter = (entity?: Entity) => (entity ?? self).getComponent('ParticleEmitter') as ParticleEmitter | undefined
+    return {
+      play: (entity) => emitter(entity)?.play(),
+      stop: (entity, opts) => emitter(entity)?.stop(opts),
+      burst: (count, entity) => emitter(entity)?.burst(count),
+      spawn: (preset, position, opts = {}) => {
+        const fx = world.createEntity(`vfx:${preset}`, opts.parent?.id ?? null)
+        fx.getTransform().position = { x: position.x, y: position.y, z: position.z }
+        // preset first: it fills the fields the overrides then change
+        const comp = world.addComponent(fx.id, 'ParticleEmitter', { preset, ...opts.overrides }) as unknown as ParticleEmitter
+        if (opts.autoDestroy !== false && !comp.loop) {
+          const cfg = comp.toConfig()
+          this.vfxDeadlines.push({ id: fx.id, at: this.time.time + cfg.duration + cfg.lifetime.max + 0.1 })
+        }
+        return fx
+      },
     }
   }
 
@@ -364,6 +422,12 @@ export class ScriptRuntime {
     this.time.deltaTime = dt
     this.time.time += dt
     this.time.frameCount++
+    if (this.vfxDeadlines.length > 0) {
+      const now = this.time.time
+      const due = this.vfxDeadlines.filter((d) => d.at <= now)
+      this.vfxDeadlines = this.vfxDeadlines.filter((d) => d.at > now)
+      for (const d of due) if (this.options.world.getEntity(d.id)) this.options.world.destroyEntity(d.id)
+    }
     for (const inst of this.instances) {
       if (inst.enabled && inst.component.getEnabled() && typeof inst.script.onUpdate === 'function') {
         this.invoke(inst, 'update', () => inst.script.onUpdate(dt))

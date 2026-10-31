@@ -332,7 +332,7 @@ export const InspectorPanel: React.FC = () => {
               {/* Component Properties */}
               {!folded && (
                 <div className="p-2.5 space-y-2">
-                  {compDef?.properties.map((propSchema) => (
+                  {compDef?.properties.filter((p) => !p.hideInInspector).map((propSchema) => (
                     <PropertyFieldRow
                       key={propSchema.name}
                       schema={propSchema}
@@ -572,14 +572,15 @@ const PropertyFieldRow: React.FC<{
     )
   }
 
-  // Vector3 field rendering
-  if (schema.kind === 'vector3') {
+  // Vector2 / Vector3 field rendering
+  if (schema.kind === 'vector3' || schema.kind === 'vector2') {
+    const axes = schema.kind === 'vector2' ? ['x', 'y'] : ['x', 'y', 'z']
     const val = rawValue || { x: 0, y: 0, z: 0 }
     return (
       <div className="flex items-center gap-2">
         <span className="w-24 text-gray-400 truncate">{schema.label || schema.name}</span>
-        <div className="flex-1 grid grid-cols-3 gap-1">
-          {['x', 'y', 'z'].map((axis, i) => {
+        <div className={`flex-1 grid ${axes.length === 2 ? 'grid-cols-2' : 'grid-cols-3'} gap-1`}>
+          {axes.map((axis, i) => {
             const axisColor = i === 0 ? 'text-red-400' : i === 1 ? 'text-green-400' : 'text-blue-400'
             const axisVal = Array.isArray(val) ? val[i] : val[axis]
             return (

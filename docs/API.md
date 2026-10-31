@@ -281,6 +281,90 @@ class Collider extends Component {
 }
 ```
 
+### Joint Component
+
+One per entity; connects its `Rigidbody` to another entity's body, or to the world when
+`connectedEntity` is empty. Simulated by Rapier in `GameSimulation` (play, editor and headless).
+
+```typescript
+class Joint extends Component {
+  type: 'fixed' | 'hinge' | 'ball' | 'slider'
+  connectedEntity: string             // entity id; '' = world
+  anchor: { x: number; y: number; z: number }           // local to this entity
+  autoConnectAnchor: boolean          // true: connected anchor keeps the placed poses
+  connectedAnchor: { x: number; y: number; z: number }
+  axis: { x: number; y: number; z: number }             // hinge axis / slider direction (local)
+  limits: { enabled: boolean; min: number; max: number } // hinge degrees, slider meters
+  motor: { enabled: boolean; targetVelocity: number; maxForce: number } // °/s or m/s
+  breakForce: number                  // N; 0 = unbreakable
+  onBreak: EventField
+}
+```
+
+`breakForce` is compared with an estimate (jointed body's mass × |acceleration − gravity|) because
+Rapier's JS API does not expose joint impulses. Limits and motors apply to hinge and slider joints.
+A slider assumes both bodies share their orientation.
+
+`Rigidbody.ccd` enables continuous collision detection; `Rigidbody.mass` sets the body mass (kg).
+
+### Water Component (`engine/environment/Water.ts`)
+
+```typescript
+class Water extends Component {
+  size: { x: number; y: number }      // meters along local X and Z, surface at the entity's Y
+  color: string
+  distortion: number
+  waveSpeed: number                   // WebGL and plain surfaces; WebGPU uses a fixed speed
+  reflections: boolean                // off on the Low quality profile
+  buoyancy: boolean
+  density: number                     // kg/m³
+  linearDrag: number
+  angularDrag: number
+}
+```
+
+Rendering: `Water` (WebGL) or `WaterMesh` (WebGPU) from three's addons, or an animated plane on
+Low. Buoyancy (`engine/physics/buoyancy.ts`): `F = density · g · colliderVolume · submerged`, where
+`submerged` is the share of the body's AABB below the surface; plus drag while submerged. Scripts get
+`onEnterWater(water)` / `onExitWater(water)` and the events `water:enter` / `water:exit`;
+`CharacterMovement.inWater` is true while a character's centre is under water.
+
+## Effects
+
+### ParticleEmitter Component (`engine/vfx`)
+
+Visual only: `SceneBridge` simulates and draws it; headless play does not.
+
+```typescript
+class ParticleEmitter extends Component {
+  preset: 'custom' | 'fire' | 'smoke' | 'sparks' | 'explosion' | 'magic' | 'rain' | 'splash'
+  playOnStart: boolean
+  loop: boolean
+  duration: number
+  rate: number                        // particles per second
+  bursts: { time: number; count: number }[]
+  maxParticles: number                // capped per quality profile (200 / 1000 / 2000)
+  shape: 'point' | 'sphere' | 'box' | 'cone'   // cones and boxes emit along local +Y
+  shapeSize: { x: number; y: number; z: number }
+  coneAngle: number
+  lifetime: { min: number; max: number }
+  speed: { min: number; max: number }
+  gravity: number                     // × world gravity; negative rises
+  drag: number
+  size: { t: number; v: number }[]    // over normalized lifetime
+  color: { t: number; color: string; alpha: number }[]
+  blending: 'additive' | 'normal'
+  texture: string                     // soft | spark | smoke | square | assets/...
+  space: 'world' | 'local'
+  seed: number                        // 0 = random per play
+  light: { enabled: boolean; color: string; intensity: number; flicker: number }
+  onFinished: EventField
+}
+```
+
+Setting `preset` overwrites the fields with the preset's values; `World.addComponent` applies
+`preset` before the other data fields, so saved tweaks survive a reload.
+
 ## Scripting
 
 ### IGameScript Interface
@@ -306,8 +390,24 @@ interface ScriptContext {
   input: InputManager
   world: any
   time: TimeManager
+  physics: {
+    raycast, setLinearVelocity, getLinearVelocity, applyImpulse, setPosition,
+    addForce(v): void            // lasts one fixed step; call in onFixedUpdate
+    addTorque(v): void
+    setAngularVelocity(v): void
+    getAngularVelocity(): Vec3 | null
+    setMotor(targetVelocity: number, maxForce?: number): void   // this entity's Joint
+  }
+  vfx: {
+    play(entity?): void
+    stop(entity?, opts?: { clear?: boolean }): void
+    burst(count: number, entity?): void
+    spawn(preset: string, position: Vec3, opts?: { parent?; autoDestroy?; overrides? }): Entity
+  }
 }
 ```
+
+Hooks besides the lifecycle: `onJointBreak(force)`, `onEnterWater(water)`, `onExitWater(water)`.
 
 ### ScriptComponent Class
 

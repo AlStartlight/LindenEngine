@@ -1,11 +1,12 @@
 import type { World } from '../ecs/World'
 import { RapierBackend } from '../physics/RapierBackend'
-import { Physics, Rigidbody } from '../physics/components'
+import { Physics, Rigidbody, type Joint } from '../physics/components'
 import { CharacterMovementSystem } from '../movement/CharacterMovement'
 import { Input } from '../input/InputActions'
 import { Tween } from '../time/Tween'
 import type { ScriptRuntime } from '../scripting/ScriptRuntime'
 import { modelColliderShape } from '../model/modelCollider'
+import { buoyancyForce, overWater, waterVolume, type WaterVolume } from '../physics/buoyancy'
 
 export const FIXED_DT = 1 / 60
 /** Cap catch-up after a long frame (tab switch, breakpoint) so physics doesn't spiral */
@@ -26,13 +27,26 @@ export class GameSimulation {
   private kinematicIds: string[] = []
   /** Entities destroyed by scripts (often inside a collision callback); bodies go after the step */
   private pendingRemovals: string[] = []
-  private offEntityRemoved: () => void
+  /** Entity id -> id of the Water entity it is in (dynamic bodies and characters) */
+  private wet: Map<string, string> = new Map()
+  /** Entities with a Water component; null = rescan on the next fixed step */
+  private waterIds: string[] | null = null
+  private offWorldEvents: (() => void)[]
   readonly movement: CharacterMovementSystem
 
   constructor(readonly world: World) {
-    this.offEntityRemoved = world.events.on('entityRemoved', (entity: { id: string }) => {
-      if (this.physics) this.pendingRemovals.push(entity.id)
-    })
+    const invalidateWater = () => {
+      this.waterIds = null
+    }
+    this.offWorldEvents = [
+      world.events.on('entityRemoved', (entity: { id: string }) => {
+        if (this.physics) this.pendingRemovals.push(entity.id)
+        this.waterIds = null
+      }),
+      world.events.on('entityAdded', invalidateWater),
+      world.events.on('componentAdded', invalidateWater),
+      world.events.on('componentRemoved', invalidateWater),
+    ]
     this.movement = new CharacterMovementSystem(world, Input, () => this.physics, {
       onJump: (entity) => this.notify(entity.id, 'onJump', 'movement:jump'),
       onLand: (entity, fallSpeed) => this.notify(entity.id, 'onLand', 'movement:land', fallSpeed),
@@ -86,6 +100,27 @@ export class GameSimulation {
         if (comp.name === 'CharacterController') {
           ;(comp as any).moveCallback = (delta: any) => backend.moveCharacter(ent.id, delta)
         }
+      }
+    }
+    this.createJoints(backend)
+  }
+
+  /** Joints go after every body exists, since they can point at any entity */
+  private createJoints(backend: RapierBackend): void {
+    for (const ent of this.world.getEntities()) {
+      const joint = ent.getComponent('Joint') as Joint | undefined
+      if (!joint) continue
+      joint._broken = false
+      let connectedId: string | null = joint.connectedEntity || null
+      if (connectedId && !backend.hasBody(connectedId)) {
+        const target = this.world.getEntity(connectedId)
+        console.warn(
+          `[Physics] Joint pada "${ent.name}": entity "${target?.name ?? connectedId}" tidak punya Rigidbody/Collider; joint dipasang ke world`
+        )
+        connectedId = null
+      }
+      if (!backend.createJoint(ent.id, joint, connectedId)) {
+        console.warn(`[Physics] Joint pada "${ent.name}" butuh Rigidbody; joint diabaikan`)
       }
     }
   }
@@ -142,7 +177,14 @@ export class GameSimulation {
           physics.setRotation(id, t.rotation)
         }
       }
+      this.applyWater(physics)
       physics.step(FIXED_DT)
+      for (const b of physics.breakJoints(FIXED_DT)) {
+        const entity = this.world.getEntity(b.ownerId)
+        b.joint.onBreak.emit(entity, b.force)
+        this.scripts?.notifyEntity(b.ownerId, 'onJointBreak', b.force)
+        this.scripts?.emit('joint:break', { entityId: b.ownerId, force: b.force })
+      }
       this.flushRemovals()
       for (const id of this.dynamicIds) {
         const pos = physics.getTranslation(id)
@@ -156,6 +198,68 @@ export class GameSimulation {
     this.world.fixedUpdate(FIXED_DT)
   }
 
+  private waterVolumes(): WaterVolume[] {
+    this.waterIds ??= this.world.getEntities().filter((e) => e.hasComponent('Water')).map((e) => e.id)
+    const volumes: WaterVolume[] = []
+    for (const id of this.waterIds) {
+      const ent = this.world.getEntity(id)
+      const water = ent?.getComponent('Water') as any
+      if (!ent || !water || water.buoyancy === false || !ent.active) continue
+      const t = ent.getTransform()
+      volumes.push(waterVolume(ent.id, water, t.position, t.scale))
+    }
+    return volumes
+  }
+
+  /** Buoyancy and water drag on dynamic bodies, inWater for characters, water:enter / water:exit */
+  private applyWater(physics: RapierBackend): void {
+    const waters = this.waterVolumes()
+    if (waters.length === 0 && this.wet.size === 0) return
+    const gravity = 9.81
+    const now = new Map<string, string>()
+
+    for (const id of this.dynamicIds) {
+      const bounds = physics.getBounds(id)
+      if (!bounds) continue
+      const water = waters.find((w) => bounds.min.y < w.surfaceY && overWater(w, bounds))
+      if (!water) continue
+      const r = buoyancyForce({ surfaceY: water.surfaceY, bounds, volume: physics.getColliderVolume(id), density: water.density, gravity })
+      if (r.submerged <= 0) continue
+      now.set(id, water.id)
+      physics.addForceAtPoint(id, { x: 0, y: r.force, z: 0 }, r.point)
+      const k = physics.getMass(id) * r.submerged
+      const v = physics.getLinearVelocity(id)
+      const w = physics.getAngularVelocity(id)
+      if (v) physics.addForce(id, { x: -v.x * water.linearDrag * k, y: -v.y * water.linearDrag * k, z: -v.z * water.linearDrag * k })
+      if (w) physics.addTorque(id, { x: -w.x * water.angularDrag * k, y: -w.y * water.angularDrag * k, z: -w.z * water.angularDrag * k })
+    }
+
+    for (const id of this.kinematicIds) {
+      const ent = this.world.getEntity(id)
+      const movement = ent?.getComponent('CharacterMovement') as any
+      if (!ent || !movement) continue
+      const p = ent.getTransform().position
+      const point = { min: p, max: p }
+      const water = waters.find((w) => p.y < w.surfaceY && overWater(w, point))
+      movement._inWater = !!water
+      if (water) now.set(id, water.id)
+    }
+
+    for (const [id, waterId] of this.wet) {
+      if (now.get(id) !== waterId) this.notifyWater(id, waterId, 'exit')
+    }
+    for (const [id, waterId] of now) {
+      if (this.wet.get(id) !== waterId) this.notifyWater(id, waterId, 'enter')
+    }
+    this.wet = now
+  }
+
+  private notifyWater(entityId: string, waterId: string, kind: 'enter' | 'exit'): void {
+    const water = this.world.getEntity(waterId) ?? null
+    this.scripts?.notifyEntity(entityId, kind === 'enter' ? 'onEnterWater' : 'onExitWater', water)
+    this.scripts?.emit(`water:${kind}`, { entityId, waterId })
+  }
+
   private flushRemovals(): void {
     if (this.pendingRemovals.length === 0 || !this.physics) return
     const removed = new Set(this.pendingRemovals)
@@ -165,11 +269,12 @@ export class GameSimulation {
       this.physics.removeBody(id)
     }
     this.dynamicIds = this.dynamicIds.filter((id) => !removed.has(id))
+    for (const id of removed) this.wet.delete(id)
     this.kinematicIds = this.kinematicIds.filter((id) => !removed.has(id))
   }
 
   dispose(): void {
-    this.offEntityRemoved()
+    for (const off of this.offWorldEvents) off()
     this.scripts?.destroyAll()
     this.physics?.clear()
     Tween.clear()
