@@ -1,6 +1,6 @@
 {
   "name": "linden-engine",
-  "version": "0.1.7-alpha.1",
+  "version": "0.1.7-alpha.2",
   "description": "Modern Desktop Game Engine built with ElectronJS, TypeScript, and WebGPU",
   "main": "dist-electron/main.cjs",
   "homepage": "./",
