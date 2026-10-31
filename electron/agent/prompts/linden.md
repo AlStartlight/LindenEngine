@@ -27,7 +27,7 @@ These come from the `linden` MCP server. In OpenCode code mode they are called a
 
 1. `linden_project_info`: Inspect `project.linden.json`, existing scenes, scripts, assets, and input actions.
 2. `linden_scene_read`: Read an existing `.lscene` file as structured JSON.
-3. `linden_scene_apply`: Create or update entities, transforms, and components in a scene. `entities` replaces all entities (read the scene first and keep the ones built by `linden_model_build`); pass only `settings` to change the render settings and keep every entity.
+3. `linden_scene_apply`: Create or update entities, transforms, and components in a scene. `entities` replaces all entities (read the scene first and keep the ones built by `linden_model_build` and every `EditableMesh` entity with its `mesh` data copied unchanged); pass only `settings` to change the render settings and keep every entity.
 4. `linden_component_list`: Query all registered engine components and their properties.
 5. `linden_script_write`: Write gameplay scripts into `scripts/*.ts`. Always pass `attachTo` so the script is attached (Script component) to an entity.
 5b. `linden_ui_write`: Write an HTML UI fragment (`ui/*.html`, HUD/menus) and attach it (HtmlUI component).
@@ -106,6 +106,7 @@ Units: 1 unit = 1 meter, Y is up. Primitives are 1 m (box 1×1×1, sphere Ø1, c
 - `Transform`: `{ position: [x,y,z], rotation: [x,y,z], scale: [x,y,z] }`
 - `MeshRenderer`: `{ primitive: 'box'|'sphere'|'cylinder'|'capsule'|'cone'|'torus'|'plane', material: { preset: 'wood_teak', ...overrides } }`. Without `material` it uses `color: '#hex', roughness, metalness`.
 - `Model`: an object built from parts, or an imported file. Use `linden_model_build` to create it (see section 6).
+- `EditableMesh` (one per entity, instead of `MeshRenderer`): geometry the user models by hand in the editor (select a primitive → **Convert to Editable Mesh**, then **Tab** for Edit Mode: extrude, inset, delete, merge). `{ mesh, material, color, roughness, metalness, castShadow, receiveShadow, isVisible }`; material fields work as in `MeshRenderer`. `mesh` is encoded geometry (`format: 'linden-mesh'`, base64 arrays): never write, edit or shorten it; copy it byte for byte when you rewrite the scene. Adding `EditableMesh` without `mesh` gives a 1 m cube for the user to model. You may change its material, Transform and other components. It has no automatic collider: add a `BoxCollider`/`SphereCollider`/`CapsuleCollider` sized to the shape (check it with `linden_render_preview`). To build a detailed object yourself, use `linden_model_build`, not `EditableMesh`.
 - `Light`: `{ type: 'directional'|'point'|'spot', color, intensity, range, castShadow }`. Directional/spot shine along the entity's -Z. Directional intensity ~2–4 like sunlight; point/spot intensity is in candela (a 60 W bulb ≈ 65).
 - `Rigidbody`: `{ bodyType: 'dynamic'|'kinematic'|'fixed', mass, useGravity, ccd }` — `mass` in kg; `ccd: true` for fast projectiles so they don't pass through thin walls.
 - `Joint` (one per entity, needs a Rigidbody): `{ type: 'fixed'|'hinge'|'ball'|'slider', connectedEntity: '<entity id>' (empty = the world), anchor: {x,y,z} (local), axis: {x,y,z} (local hinge axis / slider direction), limits: { enabled, min, max } (hinge degrees, slider meters), motor: { enabled, targetVelocity, maxForce } (hinge °/s, slider m/s), breakForce (N, 0 = unbreakable) }`. The connected anchor is computed from the placed positions, so place both bodies where they should be joined.
@@ -114,6 +115,7 @@ Units: 1 unit = 1 meter, Y is up. Primitives are 1 m (box 1×1×1, sphere Ø1, c
 - `BoxCollider`: `{ size: { x, y, z } }`
 - `SphereCollider`: `{ radius }`
 - `CapsuleCollider`: `{ halfHeight, radius }`
+- Do not use `MeshCollider`: it does not follow the mesh shape yet (it becomes a 1 m box). Approximate with Box/Sphere/Capsule colliders, several child entities for complex shapes.
 - `CharacterController`: `{ stepHeight, maxSlopeAngle }`
 - `Camera`: `{ fov, near, far, isOrthographic }`
 - `Script`: `{ src: 'scripts/PlayerController.ts', props: { speed: 6 } }` — runs a gameplay script; `props` sets the script's public fields before `onInit`. One per entity.
@@ -165,11 +167,15 @@ Water hooks: `onEnterWater(water)`, `onExitWater(water)` (events `water:enter` /
 `vfx` (`play(entity?)`, `stop(entity?, { clear })`, `burst(count, entity?)`, `spawn(preset, position, { parent?, autoDestroy?, overrides? })` → a temporary effect entity, e.g. `ctx.vfx.spawn('explosion', hit.point)`), `ui`, `three`, `object3D`, `scene` (`find`, `findByTag`, `load`), `emit`, `on`, `log`.
 
 Movement rules: dynamic Rigidbody → use `ctx.physics` (velocity/impulse); kinematic Rigidbody or no Rigidbody → change `ctx.entity.getTransform().position` directly.
+`ctx.object3D` is read-only for movement: its position/rotation are overwritten from the Transform every frame, so turn and move by writing `ctx.entity.getTransform().position` / `.rotation` (degrees). A dynamic body's rotation comes from physics; a script-steered vehicle or ship should be kinematic.
+Collider sizes are local and get multiplied by Transform scale: a `sphere` primitive scaled 20 needs `SphereCollider.radius` 0.5, not 10.
 A script that throws is disabled and reported; fix errors that `linden_play` reports.
 
 ### HTML UI
 `ui/*.html` fragments are HTML + `<style>` only (no `<script>`, no `onclick=`). Logic lives in scripts via `ctx.ui`
 (`bind`, `on`, `query`, `show`, `hide`). Clickable elements need `data-interactive` (buttons/inputs are clickable by default).
+`ui.show`/`ui.hide` toggle the `hidden` attribute only: an element hidden by CSS (`display: none` in a class) stays hidden, so toggle a class or set `el.style.display` for those.
+Game keys come from Input Actions (`ctx.input`), not `window` key listeners. On-screen buttons that act while held (thrust, steer) use `ctx.ui.on(sel, 'pointerdown', ...)` and release on `window` `pointerup`/`pointercancel` (remove those listeners in `onDestroy`); a single `click` is only for toggles and one-shot actions. Clicked buttons drop focus automatically, so Space/Enter stay game keys.
 
 ### HTML Game projects
 If `project.linden.json` has `"runtime": "html"`, the game is a normal web page at `html.entry` (e.g. `web/index.html`), usually three.js

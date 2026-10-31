@@ -19,6 +19,7 @@ import { LindenMcpServer } from './LindenMcpServer'
 import { TurnTracker, turnsFromMessages } from './TurnTracker'
 import { resolveAppResource } from '../resourcePaths'
 import { PROMPT_TEMPLATES } from './promptTemplates'
+import { syncProjectAgentsMd } from './projectAgentFiles'
 
 /** Oldest OpenCode CLI with the v2 HTTP API (/api/*) this host talks to. */
 export const OPENCODE_MIN_VERSION = '2.0.0'
@@ -146,6 +147,8 @@ export class AgentHost {
   private pendingPermissions = new Map<string, AgentPermissionRequest>()
   private proposedDiffs = new Map<string, AgentDiffItem>()
   private tracker = new TurnTracker((ev) => this.emitEvent(ev))
+  /** Sessions that already got this app version's Linden instructions */
+  private instructedSessions = new Set<string>()
   private sendEventToRenderer?: (event: AgentEvent) => void
 
   private constructor() {}
@@ -374,6 +377,7 @@ export class AgentHost {
     this.mcp = null
     this.tracker.dispose()
     this.tracker = new TurnTracker((ev) => this.emitEvent(ev))
+    this.instructedSessions.clear()
 
     const proc = this.opencodeProcess
     this.opencodeProcess = null
@@ -499,13 +503,7 @@ export class AgentHost {
       permissions: SESSION_PERMISSIONS,
     })
 
-    const instructions = fs.readFileSync(
-      resolveAppResource('electron/agent/prompts/linden.md', 'agent/prompts/linden.md'),
-      'utf-8'
-    )
-    await client.session.instructions.entry
-      .put({ sessionID: info.id, key: 'linden', value: instructions })
-      .catch((e) => console.warn('[Agent] Gagal memasang instruksi Linden:', e.message))
+    await this.ensureInstructions(info.id)
 
     const session: AgentSessionInfo = {
       id: info.id,
@@ -594,6 +592,8 @@ export class AgentHost {
     const sessionId = options.sessionId || this.activeSessionId || (await this.createSession()).id
     this.activeSessionId = sessionId
     if (!this.tracker.isWatched(sessionId)) await this.watchSession(sessionId)
+    // A session made before an engine update still carries the old instructions
+    await this.ensureInstructions(sessionId)
 
     await client.session
       .switchAgent({ sessionID: sessionId, agent: options.mode === 'plan' ? 'plan' : 'build' })
@@ -715,14 +715,28 @@ export class AgentHost {
     }
   }
 
+  private lindenPrompt(): string {
+    return fs.readFileSync(resolveAppResource('electron/agent/prompts/linden.md', 'agent/prompts/linden.md'), 'utf-8')
+  }
+
+  /** Put the current Linden instructions on a session (once per session per app run) */
+  private async ensureInstructions(sessionId: string): Promise<void> {
+    if (this.instructedSessions.has(sessionId)) return
+    try {
+      await this.requireClient().session.instructions.entry.put({ sessionID: sessionId, key: 'linden', value: this.lindenPrompt() })
+      this.instructedSessions.add(sessionId)
+    } catch (e: any) {
+      console.warn('[Agent] Gagal memasang instruksi Linden:', e?.message ?? e)
+    }
+  }
+
   private initProjectAgentFiles(projectPath: string): void {
-    const agentsMdPath = path.join(projectPath, 'AGENTS.md')
-    if (!fs.existsSync(agentsMdPath)) {
-      const promptDoc = fs.readFileSync(
-        resolveAppResource('electron/agent/prompts/linden.md', 'agent/prompts/linden.md'),
-        'utf-8'
-      )
-      fs.writeFileSync(agentsMdPath, promptDoc, 'utf-8')
+    try {
+      const result = syncProjectAgentsMd(projectPath, this.lindenPrompt())
+      if (result === 'updated') console.info('[Agent] AGENTS.md diperbarui ke instruksi Linden terbaru')
+      else if (result === 'user-edited') console.info('[Agent] AGENTS.md sudah diedit pengguna; tidak diperbarui otomatis')
+    } catch (e: any) {
+      console.warn('[Agent] Gagal menyiapkan AGENTS.md:', e?.message ?? e)
     }
 
     const sessionDir = path.join(projectPath, '.linden/agent')
