@@ -1,7 +1,8 @@
 import type { BooleanOp, GeometryOps, SubdivScheme, UvMethod } from '../core/GeometryOps'
 import { HalfEdgeMesh } from '../core/HalfEdgeMesh'
-import { cloneLindenMesh, type LindenMesh } from '../core/LindenMesh'
+import type { LindenMesh } from '../core/LindenMesh'
 import { err, type GeomResult } from '../core/result'
+import type { GlbExportOptions } from '../io/gltf'
 import { collectTransferables, type OpArgs, type OpName, type OpResult, type WorkerResponse } from './protocol'
 
 /** The subset of Worker the client uses (lets tests plug in an in-process fake) */
@@ -24,15 +25,14 @@ interface Pending {
   resolve(result: GeomResult<unknown>): void
 }
 
+/** Deep copy in which every typed array owns a tight buffer, so it can be transferred safely */
 function cloneArg(arg: unknown): unknown {
+  if (ArrayBuffer.isView(arg)) return (arg as Uint8Array).slice()
   if (Array.isArray(arg)) return arg.map(cloneArg)
   if (typeof arg === 'object' && arg !== null) {
-    if ('positions' in arg && 'indices' in arg) return cloneLindenMesh(arg as LindenMesh)
-    if ('heNext' in arg) {
-      const out: Record<string, unknown> = {}
-      for (const [k, v] of Object.entries(arg)) out[k] = ArrayBuffer.isView(v) ? (v as Float32Array).slice() : v
-      return out
-    }
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(arg)) out[k] = cloneArg(v)
+    return out
   }
   return arg
 }
@@ -117,6 +117,18 @@ export class WorkerGeometryOps implements GeometryOps {
 
   generateLODs(mesh: LindenMesh, ratios: number[]): Promise<GeomResult<LindenMesh[]>> {
     return this.call('generateLODs', mesh, ratios)
+  }
+
+  optimizeVertexCache(mesh: LindenMesh): Promise<GeomResult<LindenMesh>> {
+    return this.call('optimizeVertexCache', mesh)
+  }
+
+  importGltf(bytes: Uint8Array): Promise<GeomResult<OpResult<'importGltf'>>> {
+    return this.call('importGltf', bytes)
+  }
+
+  exportGlb(mesh: LindenMesh, options: GlbExportOptions = {}): Promise<GeomResult<Uint8Array>> {
+    return this.call('exportGlb', mesh, options)
   }
 
   private ensureWorker(): WorkerLike {

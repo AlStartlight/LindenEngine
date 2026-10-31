@@ -67,3 +67,27 @@ export function makeNgon(sides: number, radius = 1): HalfEdgeMesh {
 export function makeLShape(): HalfEdgeMesh {
   return meshFromPolygons([0, 0, 0, 2, 0, 0, 2, 1, 0, 1, 1, 0, 1, 2, 0, 0, 2, 0], [[0, 1, 2, 3, 4, 5]])
 }
+
+/** Closed UV sphere: quads between rings, triangle fans at the poles */
+export function makeUvSphere(radius = 0.5, segments = 32, rings = 16, center: [number, number, number] = [0, 0, 0]): HalfEdgeMesh {
+  const pos: number[] = []
+  const [cx, cy, cz] = center
+  pos.push(cx, cy - radius, cz) // 0: south pole
+  for (let r = 1; r < rings; r++) {
+    const phi = -Math.PI / 2 + (r / rings) * Math.PI
+    for (let s = 0; s < segments; s++) {
+      const theta = (s / segments) * Math.PI * 2
+      pos.push(cx + Math.cos(phi) * Math.cos(theta) * radius, cy + Math.sin(phi) * radius, cz + Math.cos(phi) * Math.sin(theta) * radius)
+    }
+  }
+  const north = pos.length / 3
+  pos.push(cx, cy + radius, cz)
+  const ring = (r: number, s: number) => 1 + (r - 1) * segments + (s % segments)
+  const loops: number[][] = []
+  for (let s = 0; s < segments; s++) loops.push([0, ring(1, s), ring(1, s + 1)])
+  for (let r = 1; r < rings - 1; r++) {
+    for (let s = 0; s < segments; s++) loops.push([ring(r, s), ring(r + 1, s), ring(r + 1, s + 1), ring(r, s + 1)])
+  }
+  for (let s = 0; s < segments; s++) loops.push([north, ring(rings - 1, s + 1), ring(rings - 1, s)])
+  return meshFromPolygons(pos, loops)
+}

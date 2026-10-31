@@ -14,6 +14,10 @@ export default defineConfig({
       '@shared': path.resolve(__dirname, './shared'),
     },
   },
+  // ES-module workers: the geometry worker lazy-loads its WASM adapters with dynamic import()
+  worker: {
+    format: 'es',
+  },
   server: {
     port: 5173,
     strictPort: false,

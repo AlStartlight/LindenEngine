@@ -1,7 +1,8 @@
 import type { BooleanOp, SubdivScheme, UvMethod } from '../core/GeometryOps'
-import { halfEdgeDataBuffers, type HalfEdgeMeshData } from '../core/HalfEdgeMesh'
-import { meshBuffers, type LindenMesh } from '../core/LindenMesh'
+import type { HalfEdgeMeshData } from '../core/HalfEdgeMesh'
+import type { LindenMesh } from '../core/LindenMesh'
 import type { GeomResult } from '../core/result'
+import type { GlbExportOptions, GltfImportReport } from '../io/gltf'
 
 /**
  * Typed request/response protocol between WorkerGeometryOps (main thread) and the geometry worker.
@@ -19,6 +20,10 @@ export interface OpSignatures {
   repair: { args: [LindenMesh]; result: LindenMesh }
   simplify: { args: [LindenMesh, number, number]; result: LindenMesh }
   generateLODs: { args: [LindenMesh, number[]]; result: LindenMesh[] }
+  // Not part of GeometryOps: mesh I/O and GPU optimisation
+  optimizeVertexCache: { args: [LindenMesh]; result: LindenMesh }
+  importGltf: { args: [Uint8Array]; result: { mesh: LindenMesh; report: GltfImportReport } }
+  exportGlb: { args: [LindenMesh, GlbExportOptions]; result: Uint8Array }
 }
 
 export type OpName = keyof OpSignatures
@@ -37,22 +42,17 @@ export type WorkerBackend = {
   [K in OpName]?: (...args: OpArgs<K>) => Promise<GeomResult<OpResult<K>>> | GeomResult<OpResult<K>>
 }
 
-function isLindenMesh(v: unknown): v is LindenMesh {
-  return typeof v === 'object' && v !== null && 'positions' in v && 'indices' in v
-}
-
-function isHalfEdgeData(v: unknown): v is HalfEdgeMeshData {
-  return typeof v === 'object' && v !== null && 'heNext' in v && 'faceHalfEdge' in v
-}
-
-/** Collects the buffers of every mesh found in a value (top level or inside an array) */
+/** Every ArrayBuffer behind a typed array anywhere in the value (deduplicated), for postMessage transfer lists */
 export function collectTransferables(value: unknown): ArrayBuffer[] {
   const set = new Set<ArrayBuffer>()
-  const visit = (v: unknown): void => {
-    if (Array.isArray(v)) v.forEach(visit)
-    else if (isLindenMesh(v)) meshBuffers(v).forEach((b) => set.add(b))
-    else if (isHalfEdgeData(v)) halfEdgeDataBuffers(v).forEach((b) => set.add(b))
+  const visit = (v: unknown, depth: number): void => {
+    if (depth > 8 || typeof v !== 'object' || v === null) return
+    if (ArrayBuffer.isView(v)) {
+      if (v.buffer instanceof ArrayBuffer) set.add(v.buffer)
+      return
+    }
+    for (const child of Array.isArray(v) ? v : Object.values(v)) visit(child, depth + 1)
   }
-  visit(value)
+  visit(value, 0)
   return [...set]
 }

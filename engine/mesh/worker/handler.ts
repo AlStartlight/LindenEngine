@@ -14,6 +14,7 @@ export const baseBackend: WorkerBackend = {
 
 const OPS: ReadonlySet<string> = new Set<OpName>([
   'ping', 'echo', 'boolean', 'subdivide', 'unwrapUV', 'remesh', 'smooth', 'repair', 'simplify', 'generateLODs',
+  'optimizeVertexCache', 'importGltf', 'exportGlb',
 ])
 
 /** Message dispatch independent of the Worker global, so it can be unit tested in Node */
