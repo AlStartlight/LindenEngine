@@ -12,9 +12,18 @@ import {
   applyMeshSize,
   createPrimitiveGeometry,
   createEditableMeshObject,
+  editableMeshGeometry,
   EDITABLE_MESH,
 } from '../renderer/sceneFactory'
 import { createMaterial, disposeMaterial } from '../materials/createMaterial'
+import type { EditableMesh } from '../mesh/EditableMeshComponent'
+import { toLindenMesh } from '../mesh/core/convert'
+import { editablePrimitive, scaleMesh } from '../mesh/core/editablePrimitives'
+import { decodeHalfEdgeMesh, encodeHalfEdgeMesh } from '../mesh/core/encoding'
+import type { HalfEdgeMesh } from '../mesh/core/HalfEdgeMesh'
+import type { LindenMesh } from '../mesh/core/LindenMesh'
+import { canonicalJson, hashKey, modifierCacheKey, ModifierStack, parseModifiers } from '../mesh/modeling/modifiers'
+import { normalizePrimitive } from '../renderer/primitives'
 import { ModelSpecSchema, ModelSpec } from '../model/ModelSpec'
 import { buildModelObject } from '../model/buildModel'
 import { AnimationPlayer } from '../animation/AnimationPlayer'
@@ -188,7 +197,21 @@ export class SceneBridge {
     }
   }
 
+  /** Rebuilds an entity's EditableMesh from its component (used when leaving Edit Mode) */
+  rebuildEditableMesh(entityId: string): void {
+    const entity = this.world.getEntity(entityId)
+    const comp = entity?.getComponent('EditableMesh')
+    if (entity && comp) this.buildEditableMesh(entity, comp)
+  }
+
+  /** Drops an entity's modifier state; a pending evaluation sees the new token and is discarded */
+  private forgetEditableMesh(id: string): void {
+    this.editableBuild.set(id, (this.editableBuild.get(id) ?? 0) + 1)
+    this.modifierStacks.delete(id)
+  }
+
   private handleEntityRemoved(entity: Entity): void {
+    this.forgetEditableMesh(entity.id)
     const obj = this.objectMap.get(entity.id)
     if (!obj) return
 
@@ -299,13 +322,121 @@ export class SceneBridge {
     parentObj.add(mesh)
   }
 
+  /** Per-entity modifier stacks (editor) and build tokens that let stale async results be dropped */
+  private modifierStacks = new Map<string, ModifierStack>()
+  private editableBuild = new Map<string, number>()
+
   private buildEditableMesh(entity: Entity, comp: Component): void {
     const parentObj = this.objectMap.get(entity.id)
     if (!parentObj) return
+    const token = (this.editableBuild.get(entity.id) ?? 0) + 1
+    this.editableBuild.set(entity.id, token)
+    const data = comp as unknown as EditableMesh
+    const shading = data.shading === 'smooth' ? 'smooth' : 'flat'
+    const warn = (m: string) => this.warn(`${m} pada "${entity.name}"`)
+
+    const modifiers = parseModifiers(data.modifiers)
+    if (!modifiers.ok) warn(`EditableMesh modifiers: ${modifiers.message}`)
+    const specs = modifiers.ok ? modifiers.value : []
+    const operands = new Map<string, { mesh: LindenMesh; version: string }>()
+    for (const m of specs) {
+      if (m.type !== 'boolean' || m.enabled === false || operands.has(m.operand)) continue
+      const op = this.resolveOperand(entity, m.operand)
+      if (op) operands.set(m.operand, op)
+    }
+    const key = specs.length ? modifierCacheKey(data.mesh, specs, [...operands.entries()].map(([id, o]) => `${id}:${o.version}`)) : ''
+
+    // What to show right away: the cached modifier result when it is current, else the base mesh
+    const cached = specs.length && data.modifierCache?.key === key ? decodeHalfEdgeMesh(data.modifierCache.mesh) : null
     this.removeChild(parentObj, EDITABLE_MESH)
-    const mesh = createEditableMeshObject(comp as any, this.ctx, (m) => this.warn(`${m} pada "${entity.name}"`))
-    mesh.userData.entityId = entity.id
-    parentObj.add(mesh)
+    const shown = cached?.ok
+      ? createEditableMeshObject({ ...data, mesh: data.modifierCache!.mesh }, this.ctx, warn)
+      : createEditableMeshObject(data as unknown as Record<string, unknown>, this.ctx, warn)
+    shown.userData.entityId = entity.id
+    parentObj.add(shown)
+    if (!specs.length || cached?.ok) return
+
+    const geometry = this.ctx.geometry
+    if (!geometry) {
+      warn('EditableMesh: modifier results are out of date (open the scene in the editor to update them); showing the base mesh')
+      return
+    }
+    const base = decodeHalfEdgeMesh(data.mesh)
+    if (!base.ok) return
+    let stack = this.modifierStacks.get(entity.id)
+    if (!stack) {
+      stack = new ModifierStack()
+      this.modifierStacks.set(entity.id, stack)
+    }
+    const job = stack.evaluate(base.value, hashKey(canonicalJson(data.mesh)), specs, {
+      geometry, resolveOperand: (id) => operands.get(id) ?? null,
+    }).then((r) => {
+      if (this.editableBuild.get(entity.id) !== token) return // a newer build replaced this one
+      if (!r.ok) {
+        warn(`EditableMesh: ${r.message}`)
+        return
+      }
+      // Derived data: stored on the component without an undo step, saved with the scene for the player
+      data.modifierCache = { key, mesh: encodeHalfEdgeMesh(r.value) }
+      const obj = this.objectMap.get(entity.id)?.children.find((c) => c.name === EDITABLE_MESH) as THREE.Mesh | undefined
+      if (!obj) return
+      const old = obj.geometry
+      obj.geometry = editableMeshGeometry(r.value, shading)
+      old.dispose()
+    })
+    this.pending.add(job)
+    job.finally(() => this.pending.delete(job))
+  }
+
+  /**
+   * A boolean operand: another entity's EditableMesh (its base mesh) or MeshRenderer primitive, moved into
+   * `target`'s local space. The version covers its data and the relative transform.
+   */
+  private resolveOperand(target: Entity, operandId: string): { mesh: LindenMesh; version: string } | null {
+    const other = this.world.getEntity(operandId)
+    const targetObj = this.objectMap.get(target.id)
+    const otherObj = this.objectMap.get(operandId)
+    if (!other || !targetObj || !otherObj || other.id === target.id) return null
+    let he: HalfEdgeMesh | null = null
+    let data: unknown = null
+    const em = other.getComponent('EditableMesh') as unknown as EditableMesh | undefined
+    const mr = other.getComponent('MeshRenderer') as unknown as Record<string, unknown> | undefined
+    if (em) {
+      const d = decodeHalfEdgeMesh(em.mesh)
+      if (d.ok) he = d.value
+      data = em.mesh
+    } else if (mr) {
+      he = editablePrimitive(normalizePrimitive(mr.primitive))
+      scaleMesh(he, mr.size)
+      data = [mr.primitive, mr.size]
+    }
+    if (!he) return null
+    targetObj.updateWorldMatrix(true, false)
+    otherObj.updateWorldMatrix(true, false)
+    const rel = targetObj.matrixWorld.clone().invert().multiply(otherObj.matrixWorld)
+    const mesh = toLindenMesh(he, { polygons: false })
+    const v = new THREE.Vector3()
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      v.fromArray(mesh.positions, i).applyMatrix4(rel)
+      v.toArray(mesh.positions, i)
+    }
+    if (rel.determinant() < 0) {
+      for (let t = 0; t < mesh.indices.length; t += 3) [mesh.indices[t + 1], mesh.indices[t + 2]] = [mesh.indices[t + 2], mesh.indices[t + 1]]
+    }
+    delete mesh.normals
+    return { mesh, version: hashKey(canonicalJson(data), rel.elements.map((x) => x.toFixed(6)).join(',')) }
+  }
+
+  /** Re-evaluates EditableMeshes whose boolean modifiers use `entityId`, or whose own transform moved */
+  private refreshModifierDependents(entityId: string, transformChanged: boolean): void {
+    for (const e of this.world.getEntities()) {
+      const em = e.getComponent('EditableMesh') as unknown as EditableMesh | undefined
+      if (!em || !Array.isArray(em.modifiers) || em.modifiers.length === 0) continue
+      const usesIt = em.modifiers.some((m) => (m as { type?: string; operand?: string })?.type === 'boolean'
+        && (m as { operand?: string }).operand === entityId)
+      const ownMove = transformChanged && e.id === entityId && em.modifiers.some((m) => (m as { type?: string })?.type === 'boolean')
+      if (usesIt || ownMove) this.buildEditableMesh(e, em as unknown as Component)
+    }
   }
 
   private buildModel(entity: Entity, comp: Component): void {
@@ -381,13 +512,18 @@ export class SceneBridge {
     else if (comp.name === 'Light') this.buildLight(entity, comp)
     else if (comp.name === 'Water') this.buildWater(entity, comp)
     else if (comp.name === 'ParticleEmitter') this.buildParticles(entity, comp)
+    // A mesh that just appeared may be a boolean operand that an earlier-built entity was waiting for
+    if (comp.name === 'MeshRenderer' || comp.name === 'EditableMesh') this.refreshModifierDependents(entity.id, false)
   }
 
   private handleComponentRemoved(entity: Entity, comp: Component): void {
     const parentObj = this.objectMap.get(entity.id)
     if (!parentObj) return
     if (comp.name === 'MeshRenderer') this.removeChild(parentObj, MESH)
-    else if (comp.name === 'EditableMesh') this.removeChild(parentObj, EDITABLE_MESH)
+    else if (comp.name === 'EditableMesh') {
+      this.forgetEditableMesh(entity.id)
+      this.removeChild(parentObj, EDITABLE_MESH)
+    }
     else if (comp.name === 'Model') this.removeModel(entity.id, parentObj)
     else if (comp.name === 'Light') this.removeChild(parentObj, LIGHT)
     else if (comp.name === 'Water') this.removeWater(entity.id, parentObj)
@@ -400,12 +536,15 @@ export class SceneBridge {
 
     if (compType === 'Transform') {
       this.applyTransformToGroup(obj, entity.getTransform())
+      this.refreshModifierDependents(entity.id, true)
       return
     }
     const comp = entity.getComponent(compType)
     if (!comp) return
 
     if (compType === 'MeshRenderer') {
+      const key0 = path.split('.')[0]
+      if (key0 === 'primitive' || key0 === 'size') this.refreshModifierDependents(entity.id, false)
       const mesh = obj.children.find((c) => c.name === MESH) as THREE.Mesh | undefined
       if (!mesh) return this.buildMesh(entity, comp)
       const key = path.split('.')[0]
@@ -425,7 +564,9 @@ export class SceneBridge {
     } else if (compType === 'EditableMesh') {
       const mesh = obj.children.find((c) => c.name === EDITABLE_MESH) as THREE.Mesh | undefined
       const key = path.split('.')[0]
-      if (!mesh || key === 'mesh') return this.buildEditableMesh(entity, comp)
+      if (key === 'mesh') this.refreshModifierDependents(entity.id, false)
+      if (!mesh || key === 'mesh' || key === 'modifiers' || key === 'shading') return this.buildEditableMesh(entity, comp)
+      if (key === 'modifierCache') return
       if (key === 'isVisible') mesh.visible = Boolean(value)
       else if (key === 'castShadow') mesh.castShadow = Boolean(value)
       else if (key === 'receiveShadow') mesh.receiveShadow = Boolean(value)

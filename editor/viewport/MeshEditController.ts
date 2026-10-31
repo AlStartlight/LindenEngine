@@ -144,6 +144,8 @@ export class MeshEditController {
       entityId: state.entityId, editor, picker: new MeshPicker(editor.mesh), meshObject, overlay, proxy, savedOffset,
       offChange: editor.onChange(() => this.onMeshChanged()), dragStart: null,
     }
+    // Edit the cage: the object may be showing its modifier result, which the overlay would not match
+    this.replaceGeometry(meshObject, editor.mesh)
     this.refreshOverlay()
   }
 
@@ -164,12 +166,11 @@ export class MeshEditController {
     s.picker.dispose()
     this.cancelBox()
     if (commit && s.editor.history.canUndo && this.deps.world.getEntity(s.entityId)) {
+      // The property change makes the bridge rebuild it (modifiers and shading included)
       this.deps.executeCommand(setPropertyCommand(s.entityId, 'EditableMesh', 'mesh', encodeHalfEdgeMesh(s.editor.mesh)))
-    } else if (s.editor.version > 0 && this.deps.world.getEntity(s.entityId)) {
-      // Edits that were all undone: restore the stored geometry
-      const comp = this.deps.world.getEntity(s.entityId)?.getComponent('EditableMesh') as unknown as { mesh: unknown } | undefined
-      const decoded = comp ? decodeHalfEdgeMesh(comp.mesh) : null
-      if (decoded?.ok) this.replaceGeometry(s.meshObject, decoded.value)
+    } else if (this.deps.world.getEntity(s.entityId)) {
+      // Nothing to write: still show the stored mesh again (with its modifier result) instead of the cage
+      this.deps.bridge.rebuildEditableMesh(s.entityId)
     }
   }
 
@@ -462,6 +463,23 @@ export class MeshEditController {
     this.run('Inset', (ed) => ed.inset(this.insetThickness(ed)))
   }
 
+  /** Bevel with 2 segments, 10% of the average length of the selected edges (or of the edges at selected vertices) */
+  bevel(): void {
+    this.run('Bevel', (ed) => {
+      const m = ed.mesh
+      const lengths: number[] = []
+      const edgeLen = (h: number) => new THREE.Vector3().fromArray(m.positions, m.heVertex[h] * 3)
+        .distanceTo(new THREE.Vector3().fromArray(m.positions, m.heTarget(h) * 3))
+      if (ed.selection.mode === 'vertex') {
+        for (const v of ed.selection.vertices) for (const h of m.vertexOutgoing(v)) lengths.push(edgeLen(h))
+      } else {
+        for (const e of ed.selection.edges) lengths.push(edgeLen(e))
+      }
+      const avg = lengths.length ? lengths.reduce((a, b) => a + b, 0) / lengths.length : 0.1
+      return ed.bevel(avg * 0.1, 2)
+    })
+  }
+
   /** Viewport keydown; returns true when Edit Mode consumed the key */
   handleKeyDown(e: KeyboardEvent): boolean {
     const store = useEditorStore.getState()
@@ -501,6 +519,15 @@ export class MeshEditController {
       this.refreshOverlay()
       return handled()
     }
+    if (mod && key === 'b') {
+      this.bevel()
+      return handled()
+    }
+    if (mod && key === 'r') {
+      this.run('Loop Cut', (ed) => ed.loopCut(undefined, 1))
+      return handled()
+    }
+
     if (mod) return false
     switch (key) {
       case '1':
@@ -540,12 +567,27 @@ export class MeshEditController {
         this.inset()
         return handled()
       case 'x':
+        // Shift+X dissolves (Blender uses Ctrl+X, which is the Edit > Cut menu accelerator here)
+        if (e.shiftKey) this.run('Dissolve', (ed) => ed.dissolve())
+        else this.run('Delete', (ed) => ed.delete())
+        return handled()
       case 'delete':
       case 'backspace':
         this.run('Delete', (ed) => ed.delete())
         return handled()
       case 'm':
         this.run('Merge', (ed) => (e.altKey ? ed.mergeByDistance(1e-4) : ed.mergeAtCenter()))
+        return handled()
+      case 'j':
+        this.run('Connect', (ed) => ed.connect())
+        return handled()
+      case 'f':
+        this.run('Fill / Bridge', (ed) => ed.fillOrBridge())
+        return handled()
+      case 'n':
+        if (e.altKey) this.run('Flip Normals', (ed) => ed.flipNormals())
+        else if (e.shiftKey) this.run('Recalculate Normals', (ed) => ed.recalculateNormals())
+        else return false
         return handled()
       default:
         return false

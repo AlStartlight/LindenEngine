@@ -441,3 +441,17 @@ describe('async WASM commands', () => {
     expect(ok(1).ok).toBe(true)
   })
 })
+
+describe('safety net', () => {
+  it('an operation that produces NaN positions is rolled back with a typed error', async () => {
+    const e = new MeshEditor(makeCube(1))
+    const before = e.mesh.toData()
+    // An infinite inset depth puts Infinity into the new vertices
+    e.selection.setMode('face')
+    e.selection.click(0)
+    const r = await e.inset(0.1, Number.POSITIVE_INFINITY)
+    expect(r.ok || r.code).toBe('INTERNAL')
+    expect(e.mesh.toData()).toEqual(before)
+    expect(e.history.canUndo).toBe(false)
+  })
+})

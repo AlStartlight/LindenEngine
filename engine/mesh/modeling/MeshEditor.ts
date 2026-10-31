@@ -9,6 +9,11 @@ import {
   mergeByDistance, transformVertices, type DeleteMode, type OpResult, type Pivot, type TransformSpec,
 } from './ops'
 import { MeshSelection, type SelectionData } from './selection'
+import {
+  connectVertices, dissolveEdges, dissolveFaces, dissolveVertices, fillOrBridge, flipNormals, knifeCut, loopCut,
+  recalculateNormals, type KnifePoint,
+} from './advancedOps'
+import { bevel } from './bevel'
 
 export interface MeshEditorOptions {
   /** WASM-backed operations (normally WorkerGeometryOps); needed for boolean/subdivide */
@@ -67,6 +72,14 @@ export class MeshEditor {
         before = this.snapshot()
         const r = op()
         if (!r.ok) return r
+        // Last line of defence: never let NaN/Infinity into the mesh (it would be saved and break rendering)
+        const p = this.mesh.positions
+        for (let v = 0; v < this.mesh.vertexSlots; v++) {
+          if (this.mesh.vertexAlive[v] && !(Number.isFinite(p[v * 3]) && Number.isFinite(p[v * 3 + 1]) && Number.isFinite(p[v * 3 + 2]))) {
+            this.restore(before)
+            return err('INTERNAL', `${label} produced an invalid position (vertex ${v}); the edit was undone`)
+          }
+        }
         this.selection.set(r.value.selection.mode, r.value.selection.elements)
         after = this.snapshot()
         return ok(undefined)
@@ -177,6 +190,58 @@ export class MeshEditor {
 
   mergeByDistance(threshold: number): Promise<GeomResult<void>> {
     return this.topology('Merge by Distance', () => mergeByDistance(this.mesh, this.selection.vertices, threshold))
+  }
+
+  /** Bevel selected edges (edge/face modes) or vertices (vertex mode) */
+  bevel(width: number, segments = 1): Promise<GeomResult<void>> {
+    const sel = this.selection
+    const vertexMode = sel.mode === 'vertex'
+    return this.topology(vertexMode ? 'Bevel Vertices' : 'Bevel Edges', () => bevel(this.mesh, vertexMode
+      ? { vertices: sel.vertices, width, segments }
+      : { edges: sel.edges, width, segments }))
+  }
+
+  /** Loop cut across the quad ring of an edge (the first selected edge when omitted) */
+  loopCut(edge?: number, cuts = 1): Promise<GeomResult<void>> {
+    const e = edge ?? [...this.selection.edges][0]
+    if (e === undefined) return Promise.resolve(err('INVALID_TOPOLOGY', 'select an edge to loop cut'))
+    return this.topology('Loop Cut', () => loopCut(this.mesh, e, cuts))
+  }
+
+  /** Connect two selected vertices across their shared face */
+  connect(): Promise<GeomResult<void>> {
+    const vs = [...this.selection.vertices]
+    if (vs.length !== 2) return Promise.resolve(err('INVALID_TOPOLOGY', 'select exactly two vertices to connect'))
+    return this.topology('Connect Vertices', () => connectVertices(this.mesh, vs[0], vs[1]))
+  }
+
+  knife(path: KnifePoint[]): Promise<GeomResult<void>> {
+    return this.topology('Knife', () => knifeCut(this.mesh, path))
+  }
+
+  /** Dissolve the selected elements of the current mode */
+  dissolve(): Promise<GeomResult<void>> {
+    const sel = this.selection
+    if (sel.mode === 'vertex') return this.topology('Dissolve Vertices', () => dissolveVertices(this.mesh, sel.vertices))
+    if (sel.mode === 'edge') return this.topology('Dissolve Edges', () => dissolveEdges(this.mesh, sel.edges))
+    return this.topology('Dissolve Faces', () => dissolveFaces(this.mesh, sel.faces))
+  }
+
+  /** One selected boundary loop: fill; two: bridge */
+  fillOrBridge(): Promise<GeomResult<void>> {
+    return this.topology('Fill / Bridge', () => fillOrBridge(this.mesh, this.selection.edges))
+  }
+
+  flipNormals(): Promise<GeomResult<void>> {
+    return this.topology('Flip Normals', () => flipNormals(this.mesh, this.selection.faces))
+  }
+
+  recalculateNormals(inside = false): Promise<GeomResult<void>> {
+    const faces = this.selection.faces.size ? this.selection.faces : undefined
+    return this.topology('Recalculate Normals', () => {
+      const r = recalculateNormals(this.mesh, faces, inside)
+      return r.ok ? ok<OpResult>({ selection: { mode: this.selection.mode, elements: [] } }) : r
+    })
   }
 
   /** Async WASM boolean of the whole edited mesh with another mesh (undoable like any other edit) */

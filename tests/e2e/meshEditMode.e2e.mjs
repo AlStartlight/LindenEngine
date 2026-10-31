@@ -232,6 +232,44 @@ try {
   const savedFaces = await page.evaluate((m) => { const r = window.__decode(m); return r.ok ? r.value.faceCount : r.message }, comp?.data.mesh)
   check('Ctrl+S in Edit Mode commits, leaves Edit Mode and saves the edited mesh', st === null && savedFaces === 18, `faces in file: ${savedFaces}`)
 
+  // ---------- Modifiers: evaluated by the editor's geometry worker, cached on the component ----------
+  const before = await meshInfo()
+  await page.evaluate(() => window.__store.getState().world.setProperty('block', 'EditableMesh', 'modifiers', [{ type: 'subdivision', levels: 1 }]))
+  await page.waitForFunction(() => !!window.__store.getState().world.getEntity('block').getComponent('EditableMesh').modifierCache, null, { timeout: 30000 })
+  const cache = await page.evaluate(() => {
+    const c = window.__store.getState().world.getEntity('block').getComponent('EditableMesh')
+    const r = window.__decode(c.modifierCache.mesh)
+    return { key: c.modifierCache.key, faces: r.ok ? r.value.faceCount : -1 }
+  })
+  check('Subdivision modifier evaluated in the editor worker and cached', cache.faces === before.faces * 4, `${before.faces} -> ${cache.faces} faces`)
+  await page.keyboard.press('Tab')
+  await page.waitForTimeout(300)
+  const editing = await editState()
+  await page.keyboard.press('Tab')
+  await page.waitForTimeout(600)
+  const keyAfter = await page.evaluate(() => window.__store.getState().world.getEntity('block').getComponent('EditableMesh').modifierCache?.key)
+  check('Edit Mode in and out without edits keeps the cached modifier result', editing?.entityId === 'block' && keyAfter === cache.key)
+
+  // ---------- Phase 5 hotkey: Ctrl+B bevels every selected edge ----------
+  await page.evaluate(() => window.__store.getState().world.setProperty('block', 'EditableMesh', 'modifiers', []))
+  const plain = await meshInfo()
+  await page.keyboard.press('Tab')
+  await page.waitForTimeout(300)
+  // The mesh has zero-length edges from an extrude that was never moved: merge doubles first (Alt+M), as in Blender
+  await page.keyboard.press('1')
+  await page.keyboard.press('a')
+  await page.keyboard.press('Alt+m')
+  await page.waitForTimeout(300)
+  await page.keyboard.press('2')
+  await page.keyboard.press('a')
+  await page.keyboard.press('Control+b')
+  await page.waitForTimeout(500)
+  const bevelState = await editState()
+  await page.keyboard.press('Tab')
+  await page.waitForTimeout(500)
+  const bevelled = await meshInfo()
+  check('Ctrl+B in Edit Mode bevels all selected edges', !bevelState?.status && bevelled.faces > plain.faces, `${plain.faces} -> ${bevelled.faces} faces ${bevelState?.status ?? ''}`)
+
   // The dev server answers 504 while it re-optimizes dependencies on a cold cache (it then reloads once)
   const realErrors = rendererErrors.filter((m) => !/Outdated Optimize Dep/.test(m))
   check('no renderer errors', realErrors.length === 0, realErrors.join(' | '))

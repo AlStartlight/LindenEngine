@@ -142,6 +142,9 @@ ComponentRegistry.register({
   create: () => new EditableMesh(),
   properties: [
     { name: 'mesh', label: 'Mesh', kind: 'json', default: {}, hideInInspector: true, tooltip: 'Geometri hasil Edit Mode (linden-mesh, base64)' },
+    { name: 'modifiers', label: 'Modifiers', kind: 'json', default: [], tooltip: 'Urutan modifier: {type:"subdivision",levels:2} | {type:"mirror",axis:"x"} | {type:"boolean",op:"subtract",operand:"<entityId>"}' },
+    { name: 'shading', label: 'Shading', kind: 'enum', default: 'flat', options: ['flat', 'smooth'] },
+    { name: 'modifierCache', label: 'Modifier Cache', kind: 'json', default: null, hideInInspector: true, tooltip: 'Hasil modifier yang dievaluasi editor; dipakai apa adanya oleh player' },
     { name: 'material', label: 'Material', kind: 'material', default: {}, tooltip: 'Preset PBR + override; kosong = pakai Color/Roughness/Metalness' },
     { name: 'color', label: 'Color', kind: 'color', default: '#3b82f6' },
     { name: 'roughness', label: 'Roughness', kind: 'number', default: 0.5, min: 0, max: 1, step: 0.05 },

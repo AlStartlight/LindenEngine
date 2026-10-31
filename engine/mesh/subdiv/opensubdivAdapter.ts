@@ -1,10 +1,9 @@
-import type { SubdivScheme } from '../core/GeometryOps'
+import { MAX_SUBDIV_LEVELS, type SubdivScheme } from '../core/GeometryOps'
 import { HalfEdgeMesh } from '../core/HalfEdgeMesh'
 import { err, fromException, ok, type GeomResult } from '../core/result'
 import type { MainModule } from './wasm/opensubdiv'
 
-/** Each level multiplies the face count by about 4; 6 levels turn a cube into 24k quads */
-export const MAX_SUBDIV_LEVELS = 6
+export { MAX_SUBDIV_LEVELS }
 
 let loading: Promise<MainModule> | null = null
 

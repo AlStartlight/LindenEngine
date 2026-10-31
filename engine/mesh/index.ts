@@ -15,3 +15,13 @@ export { MeshPicker, type PickHit } from './modeling/picking'
 export type { Pivot, TransformSpec, DeleteMode, OpResult } from './modeling/ops'
 export { edgeId, edgeVertices } from './modeling/topology'
 export type { GlbExportOptions, GltfImportReport } from './io/gltf'
+export { bevel, type BevelOptions } from './modeling/bevel'
+export {
+  dissolveFaces, dissolveEdges, dissolveVertices, flipNormals, recalculateNormals, loopCut, splitEdge,
+  connectVertices, knifeCut, fillOrBridge, type KnifePoint,
+} from './modeling/advancedOps'
+export {
+  ModifierStack, parseModifiers, mirrorMesh, modifierCacheKey, canonicalJson, hashKey, type ModifierSpec, type ModifierContext,
+} from './modeling/modifiers'
+export { encodeHalfEdgeMesh, decodeHalfEdgeMesh, type EncodedMesh } from './core/encoding'
+export { MAX_SUBDIV_LEVELS } from './core/GeometryOps'

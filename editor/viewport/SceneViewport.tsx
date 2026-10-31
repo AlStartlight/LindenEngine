@@ -13,6 +13,7 @@ import { useEditorStore } from '../store/editorStore'
 import { setPropertyCommand } from '../commands/entityCommands'
 import { canConvertToEditableMesh, convertToEditableMeshCommand } from '../commands/meshCommands'
 import { MeshEditController } from './MeshEditController'
+import { createGeometryOps } from '../../engine/mesh/worker/createGeometryOps'
 import { GameFrame, GameFrameStats } from './GameFrame'
 import { HtmlUiPreview } from './HtmlUiPreview'
 
@@ -294,7 +295,9 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
     gridRef.current = grid
 
     // Lights, environment and shadows come from the scene settings (ScenePipeline)
-    bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, backend: 'webgl2', caps: pipeline.caps, warn })
+    // EditableMesh modifiers are evaluated in the geometry worker (started lazily, on the first modifier)
+    const geometryOps = createGeometryOps()
+    bridge.attach(scene, { assets, allowTransmission: pipeline.caps.transmission, backend: 'webgl2', caps: pipeline.caps, warn, geometry: geometryOps })
 
     const meshEditController = new MeshEditController({
       scene,
@@ -438,6 +441,7 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       canvas.removeEventListener('click', handleClick)
       meshEditController.dispose()
       meshEditRef.current = null
+      geometryOps.dispose()
       orbitControls.dispose()
       transformControls.dispose()
       bridge.detach()
@@ -559,6 +563,8 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
                 ['Inset', 'I', () => meshEditRef.current?.inset()],
                 ['Delete', 'X', () => meshEditRef.current?.run('Delete', (ed) => ed.delete())],
                 ['Merge', 'M', () => meshEditRef.current?.run('Merge', (ed) => ed.mergeAtCenter())],
+                ['Bevel', 'Ctrl+B', () => meshEditRef.current?.bevel()],
+                ['Loop Cut', 'Ctrl+R', () => meshEditRef.current?.run('Loop Cut', (ed) => ed.loopCut(undefined, 1))],
               ] as const
             ).map(([label, key, action]) => (
               <button key={label} className="px-2 py-1 rounded text-xs text-gray-300 hover:bg-white/10" onClick={action} title={`${label} (${key})`}>
@@ -613,7 +619,7 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
             <span className="text-orange-300">{meshEdit.status}</span>
           ) : (
             <span>
-              Klik pilih · Shift tambah · Alt loop · B kotak · A semua · Ctrl+L terhubung · 1/2/3 mode · E extrude · I inset · X hapus · M gabung · Ctrl+Z undo · Tab selesai
+              Klik pilih · Shift tambah · Alt loop · B kotak · A semua · Ctrl+L terhubung · 1/2/3 mode · E extrude · I inset · Ctrl+B bevel · Ctrl+R loop cut · J sambung · F isi/jembatan · X hapus · Shift+X larutkan · M gabung · Alt/Shift+N normal · Ctrl+Z undo · Tab selesai
             </span>
           )}
         </div>

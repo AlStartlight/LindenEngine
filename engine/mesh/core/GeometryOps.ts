@@ -6,6 +6,9 @@ export type BooleanOp = 'union' | 'subtract' | 'intersect'
 export type SubdivScheme = 'catmull-clark' | 'loop'
 export type UvMethod = 'lscm' | 'abf'
 
+/** Each subdivision level multiplies the face count by about 4; 6 levels turn a cube into 24k quads */
+export const MAX_SUBDIV_LEVELS = 6
+
 /**
  * The only geometry API the editor and renderer see. Implementations wrap the WASM libraries
  * (inside the worker) or forward to the worker (WorkerGeometryOps). Failures resolve to a typed
