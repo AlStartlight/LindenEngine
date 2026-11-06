@@ -11,7 +11,7 @@ export class ModelComponent extends Component {
   public src: string = ''
   public merge: boolean = true
   public instances?: { position: [number, number, number]; rotation?: [number, number, number]; scale?: [number, number, number] }[]
-  public collider: 'none' | 'box' | 'convexHull' = 'none'
+  public collider: 'none' | 'box' | 'convexHull' | 'compound' = 'none'
   public category: string = ''
   public placement: 'floor' | 'wall' | 'ceiling' | 'free' = 'floor'
   public animation: string = ''

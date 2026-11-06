@@ -5,6 +5,18 @@ import { BoxCollider, SphereCollider, CapsuleCollider } from './components'
 import type { ModelColliderShape } from '../model/modelCollider'
 import * as THREE from 'three'
 
+/** Transform rotation (degrees) as a Rapier quaternion; the physics backend uses YXZ order throughout */
+function transformRotation(transform: Transform): { x: number; y: number; z: number; w: number } {
+  const euler = new THREE.Euler(
+    THREE.MathUtils.degToRad(transform.rotation.x),
+    THREE.MathUtils.degToRad(transform.rotation.y),
+    THREE.MathUtils.degToRad(transform.rotation.z),
+    'YXZ'
+  )
+  const q = new THREE.Quaternion().setFromEuler(euler)
+  return { x: q.x, y: q.y, z: q.z, w: q.w }
+}
+
 let RAPIER: any = null
 
 type Vec3 = { x: number; y: number; z: number }
@@ -112,16 +124,7 @@ export class RapierBackend implements PhysicsBackend {
     }
 
     desc.setTranslation(transform.position.x, transform.position.y, transform.position.z)
-    
-    // Convert Euler angles (degrees) to quaternion
-    const euler = new THREE.Euler(
-      THREE.MathUtils.degToRad(transform.rotation.x),
-      THREE.MathUtils.degToRad(transform.rotation.y),
-      THREE.MathUtils.degToRad(transform.rotation.z),
-      'YXZ'
-    )
-    const q = new THREE.Quaternion().setFromEuler(euler)
-    desc.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+    desc.setRotation(transformRotation(transform))
 
     if (!rb.useGravity && rb.bodyType === 'dynamic') {
       desc.setGravityScale(0, true)
@@ -197,9 +200,34 @@ export class RapierBackend implements PhysicsBackend {
     this.attachCollider(entityId, colDesc, transform, collider.isTrigger, layer)
   }
 
-  /** Auto collider of a Model component (bounding box or convex hull of its geometry) */
+  /** Auto collider of a Model component (bounding box, convex hull, or one collider per part) */
   createModelCollider(entityId: string, shape: ModelColliderShape, transform: Transform, layer: number = 0): void {
     if (!this.rapierWorld) return
+    if (shape.kind === 'compound') {
+      // The body's mass is spread over the parts by their share, so the center of mass is the real one
+      const total = this.pendingMass.get(entityId)
+      this.pendingMass.delete(entityId)
+      const fractionSum = shape.colliders.reduce((a, c) => a + c.massFraction, 0)
+      for (const c of shape.colliders) {
+        let desc: any
+        if (c.kind === 'cuboid') desc = RAPIER.ColliderDesc.cuboid(...c.halfExtents.map((h) => Math.max(h, 0.0005)))
+        else if (c.kind === 'ball') desc = RAPIER.ColliderDesc.ball(c.radius)
+        else if (c.kind === 'capsule') desc = RAPIER.ColliderDesc.capsule(Math.max(c.halfHeight, 0.0005), c.radius)
+        else if (c.kind === 'cylinder') desc = RAPIER.ColliderDesc.cylinder(c.halfHeight, c.radius)
+        else desc = RAPIER.ColliderDesc.convexHull(c.points)
+        if (!desc) continue // degenerate (flat) hull
+        desc.setTranslation(...c.center)
+        desc.setRotation({ x: c.rotation[0], y: c.rotation[1], z: c.rotation[2], w: c.rotation[3] })
+        desc.setFriction(c.friction)
+        desc.setRestitution(c.restitution)
+        if (total !== undefined) {
+          const share = fractionSum > 0 ? c.massFraction / fractionSum : 1 / shape.colliders.length
+          desc.setMass(Math.max(total * share, total * 1e-4))
+        }
+        this.attachCollider(entityId, desc, transform, false, layer)
+      }
+      return
+    }
     let colDesc: any
     if (shape.kind === 'hull') {
       colDesc = RAPIER.ColliderDesc.convexHull(shape.points)
@@ -208,8 +236,8 @@ export class RapierBackend implements PhysicsBackend {
       colDesc = RAPIER.ColliderDesc.cuboid(...shape.halfExtents)
       colDesc.setTranslation(...shape.center)
     }
-    colDesc.setFriction(0.5)
-    colDesc.setRestitution(0.1)
+    colDesc.setFriction(shape.friction ?? 0.5)
+    colDesc.setRestitution(shape.restitution ?? 0.1)
     this.attachCollider(entityId, colDesc, transform, false, layer)
   }
 
@@ -233,6 +261,7 @@ export class RapierBackend implements PhysicsBackend {
       // Static standalone collider: attach to a static body
       const staticDesc = RAPIER.RigidBodyDesc.fixed()
       staticDesc.setTranslation(transform.position.x, transform.position.y, transform.position.z)
+      staticDesc.setRotation(transformRotation(transform))
       const staticBody = this.rapierWorld.createRigidBody(staticDesc)
       staticBody.userData = { entityId, isAutoStatic: true }
       this.bodies.set(entityId, staticBody)
