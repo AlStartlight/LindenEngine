@@ -1,6 +1,8 @@
 import * as THREE from 'three'
+import { MeshBVH } from 'three-mesh-bvh'
 import { ModelSpec } from './ModelSpec'
 import { buildPartGeometries, BuiltPart } from './buildModel'
+import { modelMass } from './massProperties'
 import { findRealWorldDimension } from '../assets/realWorldDimensions'
 
 /**
@@ -19,6 +21,7 @@ export type ModelIssueCode =
   | 'INVERTED_NORMALS'
   | 'DEGENERATE_PART'
   | 'UNKNOWN_CATEGORY'
+  | 'UNSTABLE_BALANCE'
 
 export interface ModelIssue {
   code: ModelIssueCode
@@ -37,6 +40,15 @@ export interface ModelReport {
   triangles: number
   /** The real-world reference used for the scale check */
   reference?: { key: string; size: [number, number, number]; details?: Record<string, number> }
+  /** Total mass in kg from part volumes and material densities */
+  mass: number
+  /** Model-space center of mass */
+  centerOfMass: [number, number, number]
+  /**
+   * Horizontal distance (m) from the center of mass to the edge of the ground support area:
+   * positive = inside (stable), negative = outside (tips over). Null when not resting on the floor.
+   */
+  supportMargin: number | null
 }
 
 /** Gap below which two parts count as touching: 3 mm or 1% of the smaller part */
@@ -108,26 +120,99 @@ function orientation(g: THREE.BufferGeometry): { signedVolume: number; normalDis
   return { signedVolume: vol, normalDisagree: total ? disagree / total : 0 }
 }
 
+/** Parts get an index (BVH needs one) and a BVH; the BVH reorders triangles, which no check depends on */
+function buildBVH(g: THREE.BufferGeometry): MeshBVH {
+  if (!g.index) {
+    const n = g.attributes.position.count
+    const idx = n > 65535 ? new Uint32Array(n) : new Uint16Array(n)
+    for (let i = 0; i < n; i++) idx[i] = i
+    g.setIndex(new THREE.BufferAttribute(idx, 1))
+  }
+  const bvh = new MeshBVH(g)
+  ;(g as any).boundsTree = bvh
+  return bvh
+}
+
+// Irrational-looking direction: an axis-aligned or 45° ray runs along the edges of generated meshes
+const PARITY_DIR = new THREE.Vector3(0.5377, 0.6233, 0.5677).normalize()
+
+/**
+ * Depth of point p inside a closed part: the distance to the first surface along a fixed ray when
+ * the ray crosses the surface an odd number of times, otherwise -1 (outside)
+ */
+function insideDepth(p: THREE.Vector3, bvh: MeshBVH, ray: THREE.Ray): number {
+  ray.origin.copy(p)
+  ray.direction.copy(PARITY_DIR)
+  // A ray through a shared edge hits both triangles: count each crossing once
+  const dists = bvh
+    .raycast(ray, THREE.DoubleSide)
+    .map((h) => h.distance)
+    .filter((d) => d > 1e-4)
+    .sort((a, b) => a - b)
+    .filter((d, i, arr) => i === 0 || d - arr[i - 1] > 1e-7)
+  if (dists.length % 2 === 0) return -1
+  return dists[0]
+}
+
 /** Fraction of a's sampled vertices strictly inside b's closed volume (ray parity) */
-function insideFraction(a: BuiltPart, b: BuiltPart, mesh: THREE.Mesh, raycaster: THREE.Raycaster): number {
+function insideFraction(a: BuiltPart, b: BuiltPart, bvh: MeshBVH, ray: THREE.Ray): number {
   const pos = a.geometry.attributes.position
   const step = Math.max(1, Math.floor(pos.count / 60))
   const box = b.geometry.boundingBox!
   const v = new THREE.Vector3()
-  const dir = new THREE.Vector3(0.577, 0.577, 0.577)
   let inside = 0
   let samples = 0
   for (let i = 0; i < pos.count; i += step) {
     v.fromBufferAttribute(pos, i)
     samples++
     if (!box.containsPoint(v)) continue
-    raycaster.set(v, dir)
-    const hits = raycaster.intersectObject(mesh, false)
-    // Hits closer than the touch tolerance are surface contact, not depth
-    const real = hits.filter((h) => h.distance > 1e-4)
-    if (real.length % 2 === 1 && real[0].distance > 0.002) inside++
+    // Hits closer than 2 mm are surface contact, not depth
+    if (insideDepth(v, bvh, ray) > 0.002) inside++
   }
   return samples ? inside / samples : 0
+}
+
+/** 2D convex hull (monotone chain), counter-clockwise */
+function convexHull2D(points: [number, number][]): [number, number][] {
+  const pts = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  if (pts.length < 3) return pts
+  const cross = (o: [number, number], a: [number, number], b: [number, number]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const lower: [number, number][] = []
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 1e-12) lower.pop()
+    lower.push(p)
+  }
+  const upper: [number, number][] = []
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i]
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 1e-12) upper.pop()
+    upper.push(p)
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1))
+}
+
+function segmentDistance(p: [number, number], a: [number, number], b: [number, number]): number {
+  const dx = b[0] - a[0]
+  const dy = b[1] - a[1]
+  const len2 = dx * dx + dy * dy
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2)) : 0
+  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy))
+}
+
+/** Signed distance from p to the edge of a CCW convex polygon: positive inside, negative outside */
+export function supportMarginOf(hull: [number, number][], p: [number, number]): number {
+  if (hull.length === 0) return -Infinity
+  if (hull.length === 1) return -Math.hypot(p[0] - hull[0][0], p[1] - hull[0][1])
+  let edge = Infinity
+  let inside = hull.length >= 3
+  for (let i = 0; i < hull.length; i++) {
+    const a = hull[i]
+    const b = hull[(i + 1) % hull.length]
+    if (hull.length === 2 && i === 1) break
+    edge = Math.min(edge, segmentDistance(p, a, b))
+    if ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) < 0) inside = false
+  }
+  return inside ? edge : -edge
 }
 
 export function validateModel(spec: ModelSpec): ModelReport {
@@ -151,14 +236,35 @@ export function validateModel(spec: ModelSpec): ModelReport {
     }
   }
 
-  // Connectivity: parts are connected when their model-space boxes touch or overlap. Boxes rather
-  // than vertices, because a long part passing through another (a leg through a seat) has no
-  // vertex near the contact.
+  // Connectivity: parts are connected when their surfaces come within the touch tolerance (BVH
+  // closest points, so a rotated brace does not count as touching everything in its bounding box),
+  // or when one part sits entirely inside the other (a bulb in a shade).
   const n = parts.length
+  const bvhs = parts.map((p) => buildBVH(p.geometry))
+  const ray = new THREE.Ray()
+  const identity = new THREE.Matrix4()
+  const hitA = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 }
+  const hitB = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 }
+  const firstVertex = (k: number) => new THREE.Vector3().fromBufferAttribute(parts[k].geometry.attributes.position, 0)
+  /** Whether any triangle of part k reaches into `box` (a sound "no contact" filter when false) */
+  const surfaceReaches = (k: number, box: THREE.Box3) =>
+    bvhs[k].shapecast({
+      intersectsBounds: (b: THREE.Box3) => b.intersectsBox(box),
+      intersectsTriangle: (tri: THREE.Triangle) => tri.intersectsBox(box),
+    })
   const touching = (i: number, j: number) => {
     const a = parts[i].geometry.boundingBox!
     const b = parts[j].geometry.boundingBox!
-    return boxGap(a, b) <= touchTolerance(a, b)
+    const tol = touchTolerance(a, b)
+    if (boxGap(a, b) > tol) return false
+    // Intersecting surfaces (the common case) answer fastest
+    if (bvhs[i].intersectsGeometry(parts[j].geometry, identity)) return true
+    // Surfaces within tol of each other means each surface reaches into the other's grown box
+    const inside = () => insideDepth(firstVertex(j), bvhs[i], ray) >= 0 || insideDepth(firstVertex(i), bvhs[j], ray) >= 0
+    if (!surfaceReaches(i, b.clone().expandByScalar(tol)) || !surfaceReaches(j, a.clone().expandByScalar(tol))) return inside()
+    const hit = bvhs[i].closestPointToGeometry(parts[j].geometry, identity, hitA as any, hitB as any, tol, tol)
+    if (hit && hit.distance <= tol) return true
+    return insideDepth(firstVertex(j), bvhs[i], ray) >= 0 || insideDepth(firstVertex(i), bvhs[j], ray) >= 0
   }
   const adj: number[][] = parts.map(() => [])
   for (let i = 0; i < n; i++) {
@@ -170,6 +276,9 @@ export function validateModel(spec: ModelSpec): ModelReport {
     }
   }
 
+  /** Closest distance between two part surfaces */
+  const surfaceGap = (i: number, j: number) => bvhs[i].closestPointToGeometry(parts[j].geometry, identity, hitA as any, hitB as any)?.distance ?? Infinity
+
   // Explicit attachments
   const indexOf = new Map(parts.map((p, i) => [p.part.id, i]))
   for (let i = 0; i < n; i++) {
@@ -178,7 +287,7 @@ export function validateModel(spec: ModelSpec): ModelReport {
     const j = indexOf.get(target)
     if (j === undefined) continue
     if (!adj[i].includes(j)) {
-      const gap = boxGap(parts[i].geometry.boundingBox!, parts[j].geometry.boundingBox!)
+      const gap = surfaceGap(i, j)
       issues.push({
         code: 'ATTACH_GAP',
         severity: 'error',
@@ -214,7 +323,8 @@ export function validateModel(spec: ModelSpec): ModelReport {
         let nearestId = ''
         for (const k of c) {
           for (const m of main) {
-            const g = boxGap(parts[k].geometry.boundingBox!, parts[m].geometry.boundingBox!)
+            if (boxGap(parts[k].geometry.boundingBox!, parts[m].geometry.boundingBox!) >= nearest) continue
+            const g = surfaceGap(k, m)
             if (g < nearest) { nearest = g; nearestId = parts[m].part.id }
           }
         }
@@ -229,15 +339,13 @@ export function validateModel(spec: ModelSpec): ModelReport {
   }
 
   // Excessive interpenetration: most of a part buried inside another closed part
-  const raycaster = new THREE.Raycaster()
-  const meshes = parts.map((p) => new THREE.Mesh(p.geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })))
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
       if (i === j || parts[i].part.allowOverlap || parts[j].part.allowOverlap) continue
       const a = parts[i].geometry.boundingBox!
       const b = parts[j].geometry.boundingBox!
       if (!a.intersectsBox(b)) continue
-      const f = insideFraction(parts[i], parts[j], meshes[j], raycaster)
+      const f = insideFraction(parts[i], parts[j], bvhs[j], ray)
       if (f > 0.5) {
         issues.push({
           code: 'EXCESSIVE_OVERLAP',
@@ -248,7 +356,6 @@ export function validateModel(spec: ModelSpec): ModelReport {
       }
     }
   }
-  meshes.forEach((m) => (m.material as THREE.Material).dispose())
 
   // Ground contact
   if (spec.placement === 'floor' && !bounds.isEmpty()) {
@@ -256,6 +363,34 @@ export function validateModel(spec: ModelSpec): ModelReport {
       issues.push({ code: 'NOT_ON_GROUND', severity: 'error', parts: [], message: `Objek melayang ${(bounds.min.y * 100).toFixed(1)} cm di atas tanah; titik terendah harus y = 0` })
     } else if (bounds.min.y < -0.005) {
       issues.push({ code: 'BELOW_GROUND', severity: 'error', parts: [], message: `Objek tenggelam ${(-bounds.min.y * 100).toFixed(1)} cm di bawah tanah; titik terendah harus y = 0` })
+    }
+  }
+
+  // Balance: the center of mass must lie over the area the object stands on, or it tips over
+  const massInfo = modelMass(parts)
+  let supportMargin: number | null = null
+  if (spec.placement === 'floor' && !bounds.isEmpty() && massInfo.mass > 0) {
+    const groundY = bounds.min.y + 0.005
+    const contact: [number, number][] = []
+    const v = new THREE.Vector3()
+    for (const p of parts) {
+      if (p.geometry.boundingBox!.min.y > groundY) continue
+      const pos = p.geometry.attributes.position
+      for (let k = 0; k < pos.count; k++) {
+        v.fromBufferAttribute(pos, k)
+        if (v.y <= groundY) contact.push([v.x, v.z])
+      }
+    }
+    const com = massInfo.centerOfMass
+    supportMargin = supportMarginOf(convexHull2D(contact), [com.x, com.z])
+    const allowed = Math.max(0.003, 0.01 * Math.max(size.x, size.z))
+    if (supportMargin < -allowed) {
+      issues.push({
+        code: 'UNSTABLE_BALANCE',
+        severity: 'error',
+        parts: [],
+        message: `Titik berat (x ${com.x.toFixed(2)}, z ${com.z.toFixed(2)} m, total ${massInfo.mass.toFixed(1)} kg) berada ${(-supportMargin * 100).toFixed(1)} cm di luar area tumpuan: objek akan terguling. Lebarkan/geser kaki atau alas, pindahkan bagian berat ke atas tumpuan, atau isi density part yang sebenarnya berongga`,
+      })
     }
   }
 
@@ -311,5 +446,8 @@ export function validateModel(spec: ModelSpec): ModelReport {
     max: bounds.isEmpty() ? [0, 0, 0] : (bounds.max.toArray() as [number, number, number]),
     triangles: Math.round(triangles),
     reference,
+    mass: Math.round(massInfo.mass * 100) / 100,
+    centerOfMass: massInfo.centerOfMass.toArray().map((x) => Math.round(x * 1000) / 1000) as [number, number, number],
+    supportMargin: supportMargin === null ? null : Math.round(supportMargin * 1000) / 1000,
   }
 }

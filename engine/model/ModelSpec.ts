@@ -131,6 +131,11 @@ export const ModelPartSchema = z.object({
   allowOverlap: z.boolean().optional(),
   castShadow: z.boolean().optional(),
   receiveShadow: z.boolean().optional(),
+  /**
+   * Effective density in kg/m³ instead of the material's (a part modelled solid that is hollow in
+   * reality: a car body, a fridge, a cabinet). Used for mass, center of mass and colliders.
+   */
+  density: z.number().positive().max(30_000).optional(),
 })
 
 export const ModelInstanceSchema = z.object({
@@ -148,8 +153,11 @@ export const ModelSpecSchema = z
     merge: z.boolean().default(true),
     /** Every copy of the whole model (the first included), drawn with GPU instancing (trees, stadium seats) */
     instances: z.array(ModelInstanceSchema).max(10_000).optional(),
-    /** Collider generated for physics when the entity has no collider of its own */
-    collider: z.enum(['none', 'box', 'convexHull']).default('none'),
+    /**
+     * Collider generated for physics when the entity has no collider of its own. compound = one
+     * collider per part (keeps concave shapes such as a table open underneath, mass per part)
+     */
+    collider: z.enum(['none', 'box', 'convexHull', 'compound']).default('none'),
     /** Key in realWorldDimensions used by the validator to check the scale (e.g. "chair") */
     category: z.string().optional(),
     /** Where the object rests: floor = lowest point at y 0 */

@@ -165,11 +165,14 @@ export const MODEL_TOOLS: Record<string, ToolDefinition> = {
     name: 'linden_model_build',
     description:
       'Membuat/memperbarui objek 3D sebagai komponen Model dari daftar PART (atau src glb/gltf/obj di assets/), menaruhnya di scene, ' +
-      'lalu menjalankan validator: part melayang/terputus, attachTo yang tidak menempel, part terbenam, objek tidak menapak tanah, ' +
-      'skala jauh dari tabel ukuran nyata (isi model.category), normal terbalik. Perbaiki semua issue severity "error" lalu panggil lagi. ' +
+      'lalu menjalankan validator: part melayang/terputus (jarak permukaan sebenarnya, bukan kotak pembatas), attachTo yang tidak menempel, part terbenam, objek tidak menapak tanah, ' +
+      'skala jauh dari tabel ukuran nyata (isi model.category), normal terbalik, titik berat di luar tumpuan (UNSTABLE_BALANCE = objek terguling). ' +
+      'Laporan berisi mass (kg dari volume x massa jenis material), centerOfMass dan supportMargin (m, positif = stabil). Perbaiki semua issue severity "error" lalu panggil lagi. ' +
       SHAPE_DOC +
-      ' Part: {id, name?, parent?, shape, position?, rotation? (derajat), scale?, material? (id preset atau spec), attachTo? (id part yang harus disentuh), allowOverlap?}. ' +
-      'Model: {category?, placement: floor|wall|ceiling|free, parts, merge? (default true), instances? [{position,rotation?,scale?}] untuk objek berulang, collider: none|box|convexHull, src?, animation?}.',
+      ' Part: {id, name?, parent?, shape, position?, rotation? (derajat), scale?, material? (id preset atau spec), attachTo? (id part yang harus disentuh), allowOverlap?, ' +
+      'density? (kg/m3, untuk part yang dimodelkan pejal tapi aslinya berongga: bodi mobil ~150, kulkas/lemari ~200)}. ' +
+      'Model: {category?, placement: floor|wall|ceiling|free, parts, merge? (default true), instances? [{position,rotation?,scale?}] untuk objek berulang, ' +
+      'collider: none|box|convexHull|compound (compound = satu collider per part: kolong meja/kursi tetap kosong, massa & gesekan per material), src?, animation?}.',
     parameters: {
       type: 'object',
       properties: {
@@ -220,7 +223,9 @@ export const MODEL_TOOLS: Record<string, ToolDefinition> = {
           validation: report ?? { ok: true, issues: [], size: assetInfo?.size ?? null },
           stats: stats ?? (assetInfo ? { triangles: assetInfo.triangles, meshes: assetInfo.meshes, animations: assetInfo.animations } : null),
           realWorldReference: reference ? { key: reference.key, ...reference.entry } : null,
-          next: report && !report.ok ? 'Perbaiki issue "error" lalu panggil linden_model_build lagi' : 'Cek visual dengan linden_render_preview',
+          next: report && !report.ok
+            ? 'Perbaiki issue "error" lalu panggil linden_model_build lagi'
+            : `Cek visual dengan linden_render_preview${report && report.mass > 0 ? `; bila objek ini Rigidbody dynamic, isi Rigidbody.mass = ${report.mass} kg` : ''}`,
         }
         if (args.dryRun) return { success: true, data: result }
 
