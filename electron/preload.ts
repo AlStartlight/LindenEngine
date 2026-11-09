@@ -143,6 +143,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentCreateSession: (title?: string) => invoke('agent:session:create', title),
   agentDeleteSession: (sessionId: string) => invoke('agent:session:delete', sessionId),
   agentSubmitPrompt: (options: any) => invoke('agent:prompt', options),
+  /** Model.factory output as GLB, built by the host in a sandboxed window (the editor never imports factory code) */
+  factoryPreview: (req: { projectPath: string; factory: string; exportName?: string; options?: Record<string, unknown> }) => invoke('factory:preview', req),
   agentAbortPrompt: (sessionId: string) => invoke('agent:abort', sessionId),
   agentReplyPermission: (requestId: string, allow: boolean) =>
     invoke('agent:permission:reply', { requestId, allow }),

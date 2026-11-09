@@ -134,6 +134,48 @@ function partColliders(bp: BuiltPart, pm: PartMass, s: THREE.Vector3, totalMass:
   return [{ kind: 'hull', points: partHullPoints(bp, s), center: [0, 0, 0], rotation: [0, 0, 0, 1], massFraction: fraction, ...base }]
 }
 
+/**
+ * Collider of a Model.factory: the factory needs a DOM, so physics (also headless) uses what
+ * linden_model_build measured in the renderer: bounds, bake.hull and bake.boxes (after fit).
+ */
+function factoryColliderShape(
+  model: Record<string, any>,
+  mode: 'box' | 'convexHull' | 'compound',
+  s: THREE.Vector3,
+  boxFrom: (min: THREE.Vector3, max: THREE.Vector3) => ModelColliderShape
+): ModelColliderShape | null {
+  const bake = model.bake ?? {}
+  if (mode === 'compound' && Array.isArray(bake.boxes) && bake.boxes.length > 0) {
+    const boxes = bake.boxes.slice(0, MAX_COMPOUND_COLLIDERS)
+    const total = boxes.reduce((sum: number, b: any) => sum + Math.abs(b.halfExtents[0] * b.halfExtents[1] * b.halfExtents[2]), 0) || 1
+    return {
+      kind: 'compound',
+      colliders: boxes.map((b: any, i: number) => ({
+        kind: 'cuboid' as const,
+        halfExtents: [Math.max(Math.abs(b.halfExtents[0] * s.x), 0.001), Math.max(Math.abs(b.halfExtents[1] * s.y), 0.001), Math.max(Math.abs(b.halfExtents[2] * s.z), 0.001)] as V3,
+        center: [b.center[0] * s.x, b.center[1] * s.y, b.center[2] * s.z] as V3,
+        rotation: [0, 0, 0, 1] as Quat,
+        massFraction: Math.abs(b.halfExtents[0] * b.halfExtents[1] * b.halfExtents[2]) / total,
+        friction: 0.5,
+        restitution: 0,
+        part: String(b.id ?? `box${i}`),
+      })),
+    }
+  }
+  if (mode === 'convexHull' && Array.isArray(bake.hull) && bake.hull.length >= 12) {
+    const pts = new Float32Array(bake.hull.length)
+    for (let i = 0; i < bake.hull.length; i += 3) {
+      pts[i] = bake.hull[i] * s.x
+      pts[i + 1] = bake.hull[i + 1] * s.y
+      pts[i + 2] = bake.hull[i + 2] * s.z
+    }
+    return { kind: 'hull', points: pts }
+  }
+  const b = model.bounds
+  if (!Array.isArray(b) || b.length !== 2) return null
+  return boxFrom(new THREE.Vector3(...b[0]), new THREE.Vector3(...b[1]))
+}
+
 export function modelColliderShape(model: Record<string, any>, scale: { x: number; y: number; z: number }): ModelColliderShape | null {
   const mode = model.collider
   if (mode !== 'box' && mode !== 'convexHull' && mode !== 'compound') return null
@@ -144,6 +186,8 @@ export function modelColliderShape(model: Record<string, any>, scale: { x: numbe
     const h = max.clone().sub(min).multiplyScalar(0.5).multiply(s)
     return { kind: 'box', center: [c.x, c.y, c.z], halfExtents: [Math.max(Math.abs(h.x), 0.001), Math.max(Math.abs(h.y), 0.001), Math.max(Math.abs(h.z), 0.001)] }
   }
+
+  if (model.factory) return factoryColliderShape(model, mode, s, boxFrom)
 
   if (model.src) {
     const b = model.bounds

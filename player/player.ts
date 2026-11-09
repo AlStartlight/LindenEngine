@@ -124,6 +124,7 @@ export class LindenPlayer {
       this.world.events.on('sceneSettingsChanged', (settings: any) => this.pipeline?.applySettings(settings))
 
       // 4. Attach bridge to sync ECS world to Three.js scene
+      this.bridge.setAnimateFactories(true)
       this.bridge.attach(this.scene, {
         assets: this.assets,
         allowTransmission: this.pipeline.caps.transmission,
@@ -194,6 +195,7 @@ export class LindenPlayer {
       },
       createUi: (entity) => this.ui!.apiFor(entity),
       getObject3D: (id) => this.bridge.getObject(id),
+      getModelRuntime: (id) => this.bridge.getModelRuntime(id),
       three: THREE,
       loadScene: (path) => this.switchScene(path),
       touch: this.touch,

@@ -25,11 +25,48 @@ import type { LindenMesh } from '../mesh/core/LindenMesh'
 import { canonicalJson, hashKey, modifierCacheKey, ModifierStack, parseModifiers } from '../mesh/modeling/modifiers'
 import { normalizePrimitive } from '../renderer/primitives'
 import { ModelSpecSchema, ModelSpec } from '../model/ModelSpec'
+import { pickFactoryExport } from '../../shared/modelFactory'
 import { buildModelObject } from '../model/buildModel'
 import { AnimationPlayer } from '../animation/AnimationPlayer'
 import { WATER, createPlainWater, createWaterObject, sunDirection, updateWater } from '../renderer/water'
 import { createParticleSystem, ParticleSystem } from '../vfx/particleRenderer'
 import type { ParticleEmitter } from '../vfx/ParticleEmitter'
+
+/** Scale then offset (meters) a factory group, as linden_model_build measured it */
+export function applyFactoryFit(group: THREE.Object3D, fit: { scale: number; offset: [number, number, number] } | undefined): void {
+  if (!fit) return
+  group.scale.multiplyScalar(fit.scale)
+  group.position.multiplyScalar(fit.scale).add(new THREE.Vector3(...fit.offset))
+}
+
+/**
+ * Object3D.clone copies userData through JSON, which throws on sculptRuntime (it references the
+ * group's own objects). Instance copies share geometry/materials and need no runtime of their own.
+ */
+function cloneWithoutUserData(root: THREE.Object3D): THREE.Object3D {
+  const saved = new Map<THREE.Object3D, Record<string, any>>()
+  root.traverse((o) => {
+    saved.set(o, o.userData)
+    o.userData = {}
+  })
+  try {
+    return root.clone()
+  } finally {
+    for (const [o, data] of saved) o.userData = data
+  }
+}
+
+/** Red wireframe box where a factory that failed would be (from Model.bounds) */
+function factoryPlaceholder(bounds: unknown): THREE.Object3D {
+  const b = Array.isArray(bounds) && bounds.length === 2 ? (bounds as [number[], number[]]) : [[-0.5, 0, -0.5], [0.5, 1, 0.5]]
+  const size = new THREE.Vector3(b[1][0] - b[0][0], b[1][1] - b[0][1], b[1][2] - b[0][2]).max(new THREE.Vector3(0.01, 0.01, 0.01))
+  const cube = createPrimitiveGeometry('cube').scale(size.x, size.y, size.z)
+  const box = new THREE.LineSegments(new THREE.EdgesGeometry(cube), new THREE.LineBasicMaterial({ color: 0xef4444 }))
+  cube.dispose()
+  box.position.set((b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2, (b[0][2] + b[1][2]) / 2)
+  box.name = MODEL
+  return box
+}
 
 const MESH = '__mesh__'
 const MODEL = '__model__'
@@ -60,6 +97,13 @@ export class SceneBridge {
   private particleTokens: Map<string, number> = new Map()
   /** Editor: only emitters passing the filter simulate (selected entities); null = all */
   private particleFilter: ((entityId: string) => boolean) | null = null
+  /** root.userData.tick of Model.factory groups (idle animation), per entity */
+  private factoryTicks: Map<string, (dt: number, elapsed: number) => void> = new Map()
+  /** root.userData.sculptRuntime / rig of Model.factory groups, per entity (scripts read them) */
+  private factoryRuntimes: Map<string, { sculptRuntime?: any; rig?: any; root: THREE.Object3D }> = new Map()
+  /** Player: factory idle animations run; editor: only while the viewport's animate toggle is on */
+  private animateFactories = false
+  private factoryElapsed = 0
 
   constructor(world: World) {
     this.world = world
@@ -93,9 +137,20 @@ export class SceneBridge {
     this.scene = null
   }
 
-  /** Advance glTF animations and water waves */
+  /** Advance glTF animations, factory idle animations and water waves */
   update(dt: number): void {
     for (const anim of this.animators.values()) anim.advance(dt)
+    if (this.animateFactories && this.factoryTicks.size > 0) {
+      this.factoryElapsed += dt
+      for (const [id, tick] of this.factoryTicks) {
+        try {
+          tick(dt, this.factoryElapsed)
+        } catch (err: any) {
+          this.factoryTicks.delete(id)
+          this.warn(`Animasi idle factory pada "${this.world.getEntity(id)?.name ?? id}" dihentikan: ${err?.message ?? err}`)
+        }
+      }
+    }
     if (this.waters.size > 0) {
       const sun = sunDirection(this.scene, this.sun)
       for (const mesh of this.waters.values()) updateWater(mesh, dt, sun)
@@ -106,6 +161,19 @@ export class SceneBridge {
       if (!shown) continue
       if (system.update(dt)) system.emitter.onFinished.emit(this.world.getEntity(id))
     }
+  }
+
+  /** Run root.userData.tick of factory models (player: on; editor: the animate toggle) */
+  setAnimateFactories(on: boolean): void {
+    this.animateFactories = on
+  }
+
+  /**
+   * Runtime handles of a Model.factory entity: sculptRuntime (nodes, meshes, sockets, colliders,
+   * destructionGroups) and rig, as the factory set them on its group. Undefined until it loaded.
+   */
+  getModelRuntime(entityId: string): { sculptRuntime?: any; rig?: any; root: THREE.Object3D } | undefined {
+    return this.factoryRuntimes.get(entityId)
   }
 
   /** Editor viewport: simulate only these emitters (e.g. the selection); null simulates all */
@@ -236,6 +304,8 @@ export class SceneBridge {
 
   private removeModel(entityId: string, parent: THREE.Object3D): void {
     this.modelTokens.set(entityId, (this.modelTokens.get(entityId) ?? 0) + 1)
+    this.factoryTicks.delete(entityId)
+    this.factoryRuntimes.delete(entityId)
     this.animators.get(entityId)?.detachMixer()
     this.animators.delete(entityId)
     this.removeChild(parent, MODEL)
@@ -453,6 +523,10 @@ export class SceneBridge {
       category: raw.category || undefined,
       placement: raw.placement,
       animation: raw.animation || undefined,
+      factory: raw.factory || undefined,
+      factoryExport: raw.factoryExport || undefined,
+      factoryOptions: raw.factoryOptions || undefined,
+      fit: raw.fit || undefined,
     })
     if (!parsed.success) {
       const issue = parsed.error.issues[0]
@@ -462,6 +536,11 @@ export class SceneBridge {
     const spec: ModelSpec = parsed.data
     const castShadow = raw.castShadow ?? true
     const receiveShadow = raw.receiveShadow ?? true
+
+    if (spec.factory) {
+      this.buildFactoryModel(entity, parentObj, spec, raw, castShadow, receiveShadow)
+      return
+    }
 
     if (!spec.src) {
       const obj = buildModelObject(spec, { ...materialContext(this.ctx), castShadow, receiveShadow })
@@ -494,6 +573,70 @@ export class SceneBridge {
       },
       (err) => this.warn(err.message)
     )
+  }
+
+  /**
+   * Model.factory: load the compiled factory module, call create<Name>Model and attach its group,
+   * scaled/offset by `fit`. Headless (no asset loader) builds nothing; physics uses Model.bake.
+   */
+  private buildFactoryModel(entity: Entity, parentObj: THREE.Object3D, spec: ModelSpec, raw: any, castShadow: boolean, receiveShadow: boolean): void {
+    if (!this.ctx.assets) return
+    const token = this.modelTokens.get(entity.id) ?? 0
+    const stale = () => this.modelTokens.get(entity.id) !== token || this.objectMap.get(entity.id) !== parentObj
+    const fail = (message: string) => {
+      if (stale()) return
+      this.warn(`Factory ${spec.factory} pada "${entity.name}": ${message}`)
+      const placeholder = factoryPlaceholder(raw.bounds)
+      placeholder.userData.entityId = entity.id
+      parentObj.add(placeholder)
+    }
+    const assets = this.ctx.assets
+    // Editor: the host runs the factory in a sandbox and returns a static GLB copy, so project code
+    // never runs next to the editor's electronAPI. Play/preview/web import the module (sandboxed there).
+    const made: Promise<THREE.Object3D | string> = assets.isolatesFactories
+      ? assets.loadIsolatedFactory({ factory: spec.factory!, exportName: spec.factoryExport, options: spec.factoryOptions ?? {}, version: raw.bake?.hash })
+      : assets.loadFactory(spec.factory!, raw.bake?.hash).then((mod) => {
+          const picked = pickFactoryExport(mod, spec.factoryExport)
+          if ('error' in picked) return picked.error
+          let group: unknown
+          try {
+            group = picked.fn({ ...(spec.factoryOptions ?? {}), castShadow, receiveShadow })
+          } catch (err: any) {
+            return `gagal dijalankan: ${err?.message ?? err}`
+          }
+          return group instanceof THREE.Object3D ? group : `${picked.name}() tidak mengembalikan THREE.Group`
+        })
+    const load = made.then(
+      (group) => {
+        if (stale()) return
+        if (typeof group === 'string') return fail(group)
+        const root = new THREE.Group()
+        root.name = MODEL
+        root.userData.entityId = entity.id
+        const copies = spec.instances && spec.instances.length > 0 ? spec.instances : [{ position: [0, 0, 0] as [number, number, number] }]
+        copies.forEach((inst, i) => {
+          const holder = new THREE.Group()
+          holder.position.fromArray(inst.position)
+          if (inst.rotation) holder.rotation.set(...(inst.rotation.map((d) => THREE.MathUtils.degToRad(d)) as [number, number, number]))
+          if (inst.scale) holder.scale.fromArray(inst.scale)
+          const body = i === 0 ? group : cloneWithoutUserData(group)
+          applyFactoryFit(body, spec.fit)
+          holder.add(body)
+          root.add(holder)
+        })
+        root.traverse((o) => {
+          o.castShadow = castShadow
+          o.receiveShadow = receiveShadow
+        })
+        parentObj.add(root)
+        const tick = group.userData?.tick
+        if (typeof tick === 'function') this.factoryTicks.set(entity.id, (dt, t) => tick.call(group.userData, dt, t))
+        this.factoryRuntimes.set(entity.id, { sculptRuntime: group.userData?.sculptRuntime, rig: group.userData?.rig, root: group })
+      },
+      (err) => fail(`gagal dimuat: ${err?.message ?? err}`)
+    )
+    this.pending.add(load)
+    load.finally(() => this.pending.delete(load))
   }
 
   private buildLight(entity: Entity, comp: Component): void {

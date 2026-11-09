@@ -7,6 +7,7 @@ import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
+import { compiledFactoryPath } from '../../shared/modelFactory'
 
 /**
  * Loads project assets (assets/...) for the editor viewport, the player and the web export.
@@ -22,6 +23,22 @@ export interface AssetLoaderOptions {
   /** Needed for KTX2 transcoding support detection */
   renderer?: unknown
   warn?: (message: string) => void
+  /**
+   * Run Model.factory code somewhere else and get its output back as GLB bytes. The editor sets this:
+   * a factory is project code, and the editor renderer holds the privileged electronAPI, so the host
+   * runs it in a sandboxed window instead. Play, previews and web builds leave it unset and import
+   * the compiled module (they already run inside a sandbox).
+   */
+  isolatedFactory?: (req: IsolatedFactoryRequest) => Promise<Uint8Array | ArrayBuffer>
+}
+
+export interface IsolatedFactoryRequest {
+  /** models/<x>.ts */
+  factory: string
+  exportName?: string
+  options?: Record<string, unknown>
+  /** Model.bake.hash; a new value is a new build */
+  version?: string
 }
 
 export interface LoadedModel {
@@ -44,6 +61,7 @@ export class AssetLoader {
   private textures = new Map<string, THREE.Texture>()
   private environments = new Map<string, Promise<THREE.Texture>>()
   private models = new Map<string, Promise<LoadedModel>>()
+  private isolated = new Map<string, Promise<THREE.Object3D>>()
   private gltf: GLTFLoader | null = null
   private draco: DRACOLoader | null = null
   private ktx2: KTX2Loader | null = null
@@ -154,6 +172,57 @@ export class AssetLoader {
     return p
   }
 
+  /**
+   * Module of a procedural model factory (Model.factory, models/<x>.ts), compiled by the host to
+   * game-models/<x>.js. `version` (the Model's bake hash) makes an edited factory a new module.
+   * Factories import three through the shared global, so it is set here first.
+   */
+  loadFactory(src: string, version?: string): Promise<Record<string, unknown>> {
+    if (this.opts.isolatedFactory) return Promise.reject(new Error('Factory dijalankan terisolasi di editor; pakai loadIsolatedFactory'))
+    const g = globalThis as any
+    if (!g.__LINDEN_THREE__) g.__LINDEN_THREE__ = THREE
+    const url = this.url(compiledFactoryPath(src))
+    const full = version ? `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}` : url
+    return this.track(import(/* @vite-ignore */ full))
+  }
+
+  /** True when Model.factory output comes from the host as GLB (the editor), never by importing it here */
+  get isolatesFactories(): boolean {
+    return !!this.opts.isolatedFactory
+  }
+
+  /**
+   * The factory's output, built by the host in a sandbox and returned as GLB: a static copy
+   * (no userData.tick, no sculptRuntime). A fresh clone per call; parsed once per request.
+   */
+  async loadIsolatedFactory(req: IsolatedFactoryRequest): Promise<THREE.Object3D> {
+    const run = this.opts.isolatedFactory
+    if (!run) throw new Error('Tidak ada host untuk menjalankan factory terisolasi')
+    const key = JSON.stringify([req.factory, req.exportName ?? '', req.options ?? {}, req.version ?? ''])
+    let p = this.isolated.get(key)
+    if (!p) {
+      p = (async () => {
+        let bytes: Uint8Array | ArrayBuffer
+        try {
+          bytes = await run(req)
+        } catch (err: any) {
+          // ipcRenderer.invoke wraps the host error: "Error invoking remote method '…': Error: <message>"
+          throw new Error(String(err?.message ?? err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+        }
+        const buf = bytes instanceof ArrayBuffer ? bytes : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+        const gltf = await this.gltfLoader().parseAsync(buf as ArrayBuffer, '')
+        // Clones share geometry and materials with this parse; the loader disposes them, not the scene
+        gltf.scene.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) o.userData.sharedAsset = true
+        })
+        return gltf.scene
+      })()
+      this.isolated.set(key, this.track(p))
+      p.catch(() => this.isolated.delete(key))
+    }
+    return cloneSkinned(await p)
+  }
+
   /** A fresh copy per call (skinned meshes get their own skeleton); geometry and materials are shared */
   async loadModel(rel: string): Promise<LoadedModel> {
     const src = await this.loadModelSource(rel)
@@ -177,10 +246,13 @@ export class AssetLoader {
     this.textures.clear()
     for (const p of this.environments.values()) p.then((t) => t.dispose(), () => {})
     this.environments.clear()
-    for (const p of this.models.values()) {
+    const roots: Promise<THREE.Object3D>[] = [...this.models.values()].map((p) => p.then((m) => m.root))
+    roots.push(...this.isolated.values())
+    this.isolated.clear()
+    for (const p of roots) {
       p.then(
-        (m) =>
-          m.root.traverse((o) => {
+        (root) =>
+          root.traverse((o) => {
             const mesh = o as THREE.Mesh
             if (!mesh.isMesh) return
             mesh.geometry.dispose()

@@ -12,6 +12,7 @@ import { stableStringify } from '../../../engine/scene/serializer'
 import { DEFAULT_SCENE_SETTINGS } from '../../../engine/scene/SceneSettings'
 import { AgentDiffItem } from '../../../shared/agentTypes'
 import { gltfSidecarFiles, inspectAssetFile, ModelInfo } from '../assetInspect'
+import { checkFactoryCompiles, computeFactoryFit, factoryHash, fittedBake, getFactoryProbe, writeMeshesJson } from './factoryTools'
 
 /**
  * Tools for building realistic objects: real-world sizes, material presets, part-based models with
@@ -101,6 +102,12 @@ const ModelBuildArgs = z.object({
   model: z.unknown(),
   /** Validate and report without writing the scene */
   dryRun: z.boolean().default(false),
+  /** Model.factory: target height in meters (beats model.category's real-world height) */
+  fitHeight: z.number().positive().finite().optional(),
+  /** Model.factory: meters per factory unit, used as is */
+  fitScale: z.number().positive().finite().optional(),
+  /** Model.factory: also write the meshes (img2threejs self_intersection format) to this project path */
+  meshesOut: z.string().optional(),
 })
 
 const slug = (s: string) =>
@@ -117,6 +124,17 @@ const SHAPE_DOC =
   'lathe {points:[[r,y],...] dari bawah ke atas, thickness? (dinding berongga), capBottom?} untuk vas/botol/gelas/kap lampu, ' +
   'extrude {shape:[[x,y],...] berlawanan jarum jam, holes?, depth, bevel?, cornerRadius?} untuk panel/logo/kaki, ' +
   'tube {path:[[x,y,z],...], radius, capped?} untuk pipa/kabel/gagang, plane {size:[w,d], displacement?:{amplitude,scale}}.'
+
+/**
+ * fitHeight/fitScale are build arguments, but a model object is where agents tend to put them
+ * ({model: {factory, fitHeight}}). Move them up instead of silently dropping them.
+ */
+export function hoistFitArgs(raw: any): any {
+  const model = raw?.model
+  if (!model || typeof model !== 'object' || (!('fitHeight' in model) && !('fitScale' in model))) return raw
+  const { fitHeight, fitScale, ...rest } = model
+  return { ...raw, fitHeight: raw.fitHeight ?? fitHeight, fitScale: raw.fitScale ?? fitScale, model: rest }
+}
 
 export const MODEL_TOOLS: Record<string, ToolDefinition> = {
   linden_dimensions: {
@@ -172,7 +190,10 @@ export const MODEL_TOOLS: Record<string, ToolDefinition> = {
       ' Part: {id, name?, parent?, shape, position?, rotation? (derajat), scale?, material? (id preset atau spec), attachTo? (id part yang harus disentuh), allowOverlap?, ' +
       'density? (kg/m3, untuk part yang dimodelkan pejal tapi aslinya berongga: bodi mobil ~150, kulkas/lemari ~200)}. ' +
       'Model: {category?, placement: floor|wall|ceiling|free, parts, merge? (default true), instances? [{position,rotation?,scale?}] untuk objek berulang, ' +
-      'collider: none|box|convexHull|compound (compound = satu collider per part: kolong meja/kursi tetap kosong, massa & gesekan per material), src?, animation?}.',
+      'collider: none|box|convexHull|compound (compound = satu collider per part: kolong meja/kursi tetap kosong, massa & gesekan per material), src?, animation?}. ' +
+      'FACTORY (three.js buatan sendiri, linden_factory_write): model {factory: "models/<x>.ts", factoryExport?, factoryOptions?, category?, placement, collider} menjalankan factory create<Nama>Model() sekali di jendela sandbox, ' +
+      'mengukur bounds/segitiga/socket, lalu menyimpan fit (skala satuan relatif -> meter dari category atau fitHeight, origin menapak tanah) dan bake (collider untuk fisika headless). ' +
+      'meshesOut (opsional) menulis mesh hasil factory ke file JSON. Panggil lagi setiap kali file factory berubah.',
     parameters: {
       type: 'object',
       properties: {
@@ -185,12 +206,15 @@ export const MODEL_TOOLS: Record<string, ToolDefinition> = {
         scale: { type: 'array', items: { type: 'number' } },
         model: { type: 'object', description: 'Spesifikasi Model (parts atau src)' },
         dryRun: { type: 'boolean', description: 'Hanya validasi, tidak menulis scene' },
+        fitHeight: { type: 'number', description: 'Model factory: tinggi target (meter); mengalahkan tinggi dari category' },
+        fitScale: { type: 'number', description: 'Model factory: meter per satuan factory, dipakai apa adanya' },
+        meshesOut: { type: 'string', description: 'Model factory: tulis mesh (format self_intersection) ke path proyek ini, mis. .linden/img2threejs/<job>/meshes.json' },
       },
       required: ['name', 'model'],
     },
     async execute(projectPath: string, rawArgs: unknown, options) {
       try {
-        const argsRes = ModelBuildArgs.safeParse(rawArgs)
+        const argsRes = ModelBuildArgs.safeParse(hoistFitArgs(rawArgs))
         if (!argsRes.success) return { success: false, error: `Argumen tidak valid: ${zodMessage(argsRes.error)}` }
         const args = argsRes.data
         const modelRes = ModelSpecSchema.safeParse(args.model)
@@ -200,7 +224,39 @@ export const MODEL_TOOLS: Record<string, ToolDefinition> = {
         let report: ReturnType<typeof validateModel> | null = null
         let assetInfo: ModelInfo | null = null
         let stats: any = null
-        if (model.src) {
+        let factoryData: Record<string, unknown> | null = null
+        let factoryReport: any = null
+        if (model.factory) {
+          const compileError = await checkFactoryCompiles(projectPath, model.factory)
+          if (compileError) return { success: false, error: compileError }
+          const probe = getFactoryProbe()
+          if (!probe) return { success: false, error: 'Model factory butuh editor Linden (Electron) yang sedang berjalan untuk diukur' }
+          const measured = await probe({ projectPath, factory: model.factory, exportName: model.factoryExport, options: model.factoryOptions, meshes: !!args.meshesOut })
+          const fit = computeFactoryFit(measured.bounds, { placement: model.placement, category: model.category, height: args.fitHeight, scale: args.fitScale })
+          const hash = factoryHash(projectPath, model.factory, model.factoryExport, model.factoryOptions)
+          const { bounds, bake } = fittedBake(measured, fit, hash)
+          const issues: { code: string; severity: 'error' | 'warning'; message: string }[] = []
+          if (fit.basis === 'none') {
+            issues.push({ code: 'NOT_SCALED', severity: 'warning', message: `Factory memakai satuan relatif; ukuran sekarang ${fit.size.join(' x ')} m. Isi model.category (tabel ukuran nyata) atau fitHeight (meter).` })
+          }
+          const ref = model.category ? findRealWorldDimension(model.category) : null
+          if (ref) {
+            const axes = ['lebar', 'tinggi', 'dalam']
+            fit.size.forEach((v, i) => {
+              const want = ref.entry.size[i]
+              if (want > 0 && (v / want > 1.6 || v / want < 0.6)) {
+                issues.push({ code: 'SCALE_MISMATCH', severity: 'warning', message: `${axes[i]} ${v.toFixed(3)} m jauh dari ${ref.key} (${want} m); periksa proporsi factory atau spec` })
+              }
+            })
+          }
+          if (measured.triangles > 150_000) issues.push({ code: 'TRIANGLE_BUDGET', severity: 'warning', message: `${measured.triangles} segitiga; turunkan performanceBudget.targetTriangles di spec` })
+          if (measured.shaderMaterials > 0) issues.push({ code: 'SHADER_MATERIAL', severity: 'warning', message: `${measured.shaderMaterials} ShaderMaterial tidak jalan di renderer WebGPU` })
+          for (const w of measured.warnings) issues.push({ code: 'FACTORY_WARNING', severity: 'warning', message: w })
+          factoryReport = { ok: true, issues, size: fit.size, fit: { scale: fit.scale, offset: fit.offset, basis: fit.basis } }
+          stats = { triangles: measured.triangles, meshes: measured.meshCount, materials: measured.materials, sockets: measured.sockets, nodes: measured.nodes.length, idleAnimation: measured.hasTick, rig: measured.hasRig, export: measured.exportName }
+          factoryData = { fit: { scale: fit.scale, offset: fit.offset }, bounds, bake }
+          if (args.meshesOut) (stats as any).meshesFile = writeMeshesJson(projectPath, args.meshesOut, measured, fit)
+        } else if (model.src) {
           const file = safePath(projectPath, model.src)
           if (!fs.existsSync(file)) return { success: false, error: `File model ${model.src} tidak ada; impor dulu dengan linden_asset_import` }
           assetInfo = inspectAssetFile(file) as ModelInfo
@@ -220,7 +276,7 @@ export const MODEL_TOOLS: Record<string, ToolDefinition> = {
           entityId,
           scenePath: args.scenePath,
           written: false,
-          validation: report ?? { ok: true, issues: [], size: assetInfo?.size ?? null },
+          validation: factoryReport ?? report ?? { ok: true, issues: [], size: assetInfo?.size ?? null },
           stats: stats ?? (assetInfo ? { triangles: assetInfo.triangles, meshes: assetInfo.meshes, animations: assetInfo.animations } : null),
           realWorldReference: reference ? { key: reference.key, ...reference.entry } : null,
           next: report && !report.ok
@@ -233,6 +289,10 @@ export const MODEL_TOOLS: Record<string, ToolDefinition> = {
         const modelData: Record<string, unknown> = { ...model }
         if (model.src && assetInfo?.bounds) modelData.bounds = assetInfo.bounds
         if (!model.src) delete modelData.src
+        if (factoryData) {
+          Object.assign(modelData, factoryData)
+          delete modelData.parts
+        }
         const existing = scene.entities.find((e: any) => e.id === entityId)
         const transform = {
           type: 'Transform',
@@ -250,6 +310,9 @@ export const MODEL_TOOLS: Record<string, ToolDefinition> = {
           if (args.parentId !== undefined) existing.parentId = args.parentId
           // Keep the entity's other components (scripts, colliders); replace Transform and Model
           existing.components = [transform, ...existing.components.filter((c: any) => c.type !== 'Transform' && c.type !== 'Model' && c.type !== 'MeshRenderer'), { type: 'Model', data: modelData }]
+          if (factoryData && existing.components.some((c: any) => c.type === 'Rigidbody') && model.collider === 'none' && !existing.components.some((c: any) => /Collider$/.test(c.type))) {
+            factoryReport.issues.push({ code: 'NO_COLLIDER', severity: 'warning', message: 'Entity punya Rigidbody tapi Model.collider "none" dan tanpa collider; isi collider "box", "convexHull" atau "compound"' })
+          }
         } else {
           scene.entities.push({
             id: entityId,

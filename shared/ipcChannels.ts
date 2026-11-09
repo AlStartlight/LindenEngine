@@ -53,6 +53,7 @@ export const IPC_INVOKE_CHANNELS = [
   'agent:session:turns',
   'agent:turn:snapshot',
   'agent:prompt',
+  'factory:preview',
   'agent:abort',
   'agent:permission:reply',
   'agent:diff:apply',

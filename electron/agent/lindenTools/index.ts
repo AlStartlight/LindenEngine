@@ -17,12 +17,14 @@ import { WebBuildRunner } from '../../build/WebBuildRunner'
 import { AgentDiffItem } from '../../../shared/agentTypes'
 import { ExportPreset } from '../../../shared/types/project'
 import { MODEL_TOOLS } from './modelTools'
+import { FACTORY_TOOLS, factoryHash } from './factoryTools'
 import { ModelSpecSchema } from '../../../engine/model/ModelSpec'
 import { MaterialSpecSchema } from '../../../engine/materials/MaterialSpec'
 import { normalizeSceneSettings } from '../../../engine/scene/SceneSettings'
 import { parseSceneFile } from '../../../engine/scene/parseSceneFile'
 
 export { setPreviewRenderer } from './modelTools'
+export { setFactoryProbe } from './factoryTools'
 export type { PreviewRenderer, PreviewRequest, PreviewResult } from './modelTools'
 
 export interface ToolDefinition {
@@ -127,6 +129,31 @@ export interface InputScriptStep {
   press?: boolean
 }
 
+/**
+ * Model.factory entities: headless physics uses the stored bake (the factory needs a DOM), so a
+ * factory edited since linden_model_build, or never measured, is reported.
+ */
+export function factoryBakeWarnings(world: World, projectPath: string): string[] {
+  const out: string[] = []
+  for (const ent of world.getEntities()) {
+    const model = ent.getComponent('Model') as any
+    if (!model?.factory) continue
+    if (!fs.existsSync(path.join(projectPath, model.factory))) {
+      out.push(`Model "${ent.name}": factory ${model.factory} tidak ada`)
+      continue
+    }
+    if (!model.bake?.hash || !Array.isArray(model.bounds)) {
+      out.push(`Model "${ent.name}": factory belum diukur; panggil linden_model_build {model:{factory:"${model.factory}"}} supaya collider-nya benar`)
+      continue
+    }
+    const current = factoryHash(projectPath, model.factory, model.factoryExport || undefined, model.factoryOptions && Object.keys(model.factoryOptions).length ? model.factoryOptions : undefined)
+    if (current !== model.bake.hash) {
+      out.push(`Model "${ent.name}": ${model.factory} berubah sejak diukur; panggil linden_model_build lagi (collider & bounds lama)`)
+    }
+  }
+  return out
+}
+
 export async function simulateScene(
   sceneJson: string,
   durationSeconds: number,
@@ -150,6 +177,7 @@ export async function simulateScene(
     }
   }
   for (const w of Input.loadActions(projectInput as unknown[])) warnings.push(`Input: ${w}`)
+  if (opts.projectPath) warnings.push(...factoryBakeWarnings(world, opts.projectPath))
   let projectTouch: unknown
   if (opts.projectPath) {
     try {
@@ -1138,4 +1166,5 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
   },
 
   ...MODEL_TOOLS,
+  ...FACTORY_TOOLS,
 }

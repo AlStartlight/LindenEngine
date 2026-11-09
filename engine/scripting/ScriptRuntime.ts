@@ -72,6 +72,11 @@ export interface GameScriptContext {
   object3D: any
   /** The entity's CharacterMovement (state, addImpulse, teleport), or null */
   readonly movement: any
+  /**
+   * Handles of a Model.factory (img2threejs) model once it has loaded, else null: `socket(id)`,
+   * `node(id)`, `mesh(id)` (THREE objects), `sockets` (ids), `runtime` (sculptRuntime), `rig`
+   */
+  readonly model: ScriptModelApi | null
   /** On-screen touch buttons: show/hide, label, badge, cooldown, layout (no-op on desktop) */
   touch: TouchApi
   vfx: VfxApi
@@ -83,6 +88,31 @@ export interface GameScriptContext {
   emit(eventName: string, data?: unknown): void
   on(eventName: string, handler: (data: unknown) => void): () => void
   log: (...args: unknown[]) => void
+}
+
+export interface ScriptModelApi {
+  runtime: any
+  rig: any
+  root: any
+  sockets: string[]
+  socket(id: string): any
+  node(id: string): any
+  mesh(id: string): any
+}
+
+/** ctx.model for a factory model's runtime handles (see SceneBridge.getModelRuntime) */
+export function scriptModelApi(handles: { sculptRuntime?: any; rig?: any; root: any } | undefined): ScriptModelApi | null {
+  if (!handles) return null
+  const rt = handles.sculptRuntime ?? {}
+  return {
+    runtime: rt,
+    rig: handles.rig ?? null,
+    root: handles.root,
+    sockets: Object.keys(rt.sockets ?? {}),
+    socket: (id) => rt.sockets?.[id] ?? null,
+    node: (id) => rt.nodes?.[id] ?? null,
+    mesh: (id) => rt.meshes?.[id] ?? null,
+  }
 }
 
 export type ScriptPhase =
@@ -110,6 +140,8 @@ export interface ScriptRuntimeOptions {
   onError?: (info: ScriptErrorInfo) => void
   createUi?: (entity: Entity) => HtmlUiApi
   getObject3D?: (entityId: string) => any
+  /** Runtime handles of a Model.factory entity (SceneBridge.getModelRuntime) */
+  getModelRuntime?: (entityId: string) => { sculptRuntime?: any; rig?: any; root: any } | undefined
   three?: any
   loadScene?: (path: string) => Promise<void>
   log?: (...args: unknown[]) => void
@@ -312,6 +344,7 @@ export class ScriptRuntime {
       on: (selector, event, handler) => track(baseUi.on(selector, event, handler)),
     }
     const { world } = this.options
+    const getModelRuntime = this.options.getModelRuntime
     const backend = () => Physics.getBackend()
     const log = this.options.log ?? ((...args: unknown[]) => console.log(`[${entity.name}]`, ...args))
     return {
@@ -344,6 +377,9 @@ export class ScriptRuntime {
       vfx: this.createVfx(entity),
       get movement() {
         return entity.getComponent('CharacterMovement') ?? null
+      },
+      get model() {
+        return scriptModelApi(getModelRuntime?.(entity.id))
       },
       scene: {
         find: (name) => world.getEntities().find((e) => e.name === name) ?? null,

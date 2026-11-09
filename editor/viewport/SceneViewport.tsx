@@ -209,6 +209,14 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       decoderPath: new URL('decoders/', document.baseURI).href,
       renderer,
       warn,
+      // Model.factory is project code: the host runs it in a sandboxed window and returns GLB, so it
+      // never runs next to electronAPI here (agent/factoryPreview.ts). Play runs it in its own sandbox.
+      isolatedFactory: async (req) => {
+        const api = window.electronAPI
+        const projectPath = useEditorStore.getState().projectPath
+        if (!api?.factoryPreview || !projectPath) throw new Error('Pratinjau factory butuh proyek yang terbuka di aplikasi desktop')
+        return api.factoryPreview({ projectPath, ...req })
+      },
     })
     const pipeline = new ScenePipeline(renderer as any, scene, {
       backend: 'webgl2',

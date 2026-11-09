@@ -7,12 +7,14 @@ import { ScenePipeline } from '../engine/renderer/sceneFactory'
 import { AssetLoader } from '../engine/assets/AssetLoader'
 import { resolveQuality } from '../engine/scene/SceneSettings'
 import '../engine/ecs/ComponentRegistry'
+import { runFactoryProbe } from './factoryProbe'
 
 /**
  * Offscreen render preview for linden_render_preview: loads a scene through the same World +
  * SceneBridge + ScenePipeline as the player, frames the scene or one entity, and renders it from
  * front, side, top and 3/4. Electron reads the result from window.__lindenPreview.
  * Served at linden-game://play/<session>/__linden/runtime/preview.html?scene=...&entity=...
+ * With ?probe=models/<x>.ts it measures a model factory instead (player/factoryProbe.ts).
  */
 
 type View = 'front' | 'side' | 'top' | 'threeQuarter'
@@ -153,4 +155,8 @@ async function run() {
   return { images, size: [s.x, s.y, s.z].map((n) => Math.round(n * 1000) / 1000), triangles: Math.round(triangles), warnings }
 }
 
-;(window as any).__lindenPreview = run().catch((err) => ({ error: String(err?.message ?? err) }))
+const query = new URLSearchParams(location.search)
+const sessionRoot = new URL('../../', location.href)
+;(window as any).__lindenPreview = (
+  query.get('probe') ? runFactoryProbe(query, (rel) => new URL(rel.replace(/^\/+/, ''), sessionRoot).href) : run()
+).catch((err) => ({ error: String(err?.message ?? err) }))

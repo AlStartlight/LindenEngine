@@ -41,6 +41,7 @@ These come from the `linden` MCP server. In OpenCode code mode they are called a
 7f. `linden_asset_import`: Import a .glb/.gltf/.obj model or .hdr/.exr environment into `assets/` and report its size, triangles, materials and animations.
 8. `linden_play`: Run the scene headless (ECS + Rapier physics + your compiled scripts at 60 Hz) and report compile errors, script exceptions (file and phase), bodies that fall out of the world, and final positions of dynamic bodies. With `inputScript` it simulates a player and reports, for every `CharacterMovement` entity, distance travelled, max jump height, jumps and grounded state.
 9. `linden_export_web`: Build the game into an HTML5 playable distribution.
+11. `linden_model_bake_glb`: bake a factory model (Model.factory) into a GLB in `assets/models/`.
 
 ---
 
@@ -167,6 +168,7 @@ Water hooks: `onEnterWater(water)`, `onExitWater(water)` (events `water:enter` /
 `vfx` (`play(entity?)`, `stop(entity?, { clear })`, `burst(count, entity?)`, `spawn(preset, position, { parent?, autoDestroy?, overrides? })` → a temporary effect entity, e.g. `ctx.vfx.spawn('explosion', hit.point)`), `ui`, `three`, `object3D`, `scene` (`find`, `findByTag`, `load`), `emit`, `on`, `log`.
 
 Movement rules: dynamic Rigidbody → use `ctx.physics` (velocity/impulse); kinematic Rigidbody or no Rigidbody → change `ctx.entity.getTransform().position` directly.
+`ctx.model` (entities whose Model has a `factory`, once loaded, else null): `socket(id)`, `node(id)`, `mesh(id)` return the factory's THREE objects (attach a weapon to a socket, rotate a pivot node), `sockets` lists socket ids, `runtime` is `sculptRuntime`, `rig` the skeleton of character builds.
 `ctx.object3D` is read-only for movement: its position/rotation are overwritten from the Transform every frame, so turn and move by writing `ctx.entity.getTransform().position` / `.rotation` (degrees). A dynamic body's rotation comes from physics; a script-steered vehicle or ship should be kinematic.
 Collider sizes are local and get multiplied by Transform scale: a `sphere` primitive scaled 20 needs `SphereCollider.radius` 0.5, not 10.
 A script that throws is disabled and reported; fix errors that `linden_play` reports.

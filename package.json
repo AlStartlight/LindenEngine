@@ -141,6 +141,22 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "node_modules/three/examples/jsm",
+        "to": "three-addons",
+        "filter": [
+          "environments/**",
+          "postprocessing/**",
+          "shaders/**",
+          "controls/**",
+          "geometries/**",
+          "utils/**",
+          "math/**",
+          "curves/**",
+          "modifiers/**",
+          "objects/**"
+        ]
       }
     ],
     "asarUnpack": [
