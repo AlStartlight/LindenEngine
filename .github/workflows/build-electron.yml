@@ -12,10 +12,13 @@ permissions:
   contents: write
   pull-requests: write
 
-# A new push supersedes the run still building the previous commit of the same branch
+# A new push supersedes the run still building the previous commit of the same branch.
+# pull_request runs get their own group: for a closed/merged PR github.ref is the base branch
+# (refs/heads/main), so sharing the ref group let a post-merge PR event cancel main's build.
+# main and tags are never cancelled: their builds publish artifacts and releases.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')) }}
 
 jobs:
   test:
