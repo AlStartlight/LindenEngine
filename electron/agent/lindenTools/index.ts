@@ -18,6 +18,7 @@ import { AgentDiffItem } from '../../../shared/agentTypes'
 import { ExportPreset } from '../../../shared/types/project'
 import { MODEL_TOOLS } from './modelTools'
 import { FACTORY_TOOLS, factoryHash } from './factoryTools'
+import { REFERENCE_TOOLS } from './referenceTools'
 import { ModelSpecSchema } from '../../../engine/model/ModelSpec'
 import { MaterialSpecSchema } from '../../../engine/materials/MaterialSpec'
 import { normalizeSceneSettings } from '../../../engine/scene/SceneSettings'
@@ -1167,4 +1168,5 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
 
   ...MODEL_TOOLS,
   ...FACTORY_TOOLS,
+  ...REFERENCE_TOOLS,
 }

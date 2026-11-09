@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from 'electron'
 import type { IpcInvokeChannel } from '../shared/ipcChannels'
 import { basename, dirname, join, resolve as resolvePath } from 'path'
 import { stat, readFile, writeFile, mkdir } from 'fs/promises'
@@ -22,6 +22,7 @@ import { GAME_SCHEME } from '../shared/playProtocol'
 import { ASSET_SCHEME } from '../shared/assetProtocol'
 import { getAssetRoot, listProjectAssets, resolveAssetRequest, setAssetRoot } from './assets/AssetProtocol'
 import { isFactoryModuleRequest, resolveFactoryModule, setFactoryCacheRoot } from './play/factoryModules'
+import { saveReferenceImage } from './agent/referenceImages'
 
 // Check if in development mode
 const isDev = !app.isPackaged
@@ -1238,6 +1239,22 @@ handle('agent:session:get', async (_event, sessionId: string) => {
 
 handle('agent:prompt', async (_event, options: any) => {
   return await AgentHost.getInstance().submitPrompt(options)
+})
+
+// Reference image attached in the agent panel → <project>/references/ (rebuilt as a 3D model, prompt section 7)
+handle('agent:attachImage', async (_event, payload: { projectPath: string; name: string; data: Uint8Array }) => {
+  const projectPath = getAssetRoot()
+  if (!projectPath || !payload?.projectPath || resolvePath(payload.projectPath) !== resolvePath(projectPath)) throw new Error('Gambar hanya bisa dilampirkan ke proyek yang sedang terbuka')
+  const data = payload.data instanceof Uint8Array ? payload.data : new Uint8Array(payload.data as any)
+  return saveReferenceImage(projectPath, String(payload.name || 'referensi'), data, (buf, maxEdge) => {
+    const img = nativeImage.createFromBuffer(Buffer.from(buf))
+    if (img.isEmpty()) return null
+    const { width, height } = img.getSize()
+    if (Math.max(width, height) <= maxEdge) return null
+    const k = maxEdge / Math.max(width, height)
+    const small = img.resize({ width: Math.round(width * k), height: Math.round(height * k), quality: 'best' })
+    return { data: new Uint8Array(small.toPNG()), ext: 'png' }
+  })
 })
 
 // Model.factory in the editor viewport: run in a sandboxed window, returned as GLB (never imported here)

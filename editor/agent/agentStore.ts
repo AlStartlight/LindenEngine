@@ -44,7 +44,7 @@ interface AgentState {
   createSession: (title?: string) => Promise<void>
   selectSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
-  sendPrompt: (prompt: string, context?: any) => Promise<void>
+  sendPrompt: (prompt: string, context?: any, attachments?: string[]) => Promise<void>
   abortPrompt: () => Promise<void>
   applyDiff: (diffId: string) => Promise<void>
   rejectDiff: (diffId: string) => Promise<void>
@@ -254,7 +254,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
-  sendPrompt: async (prompt: string, context?: any) => {
+  sendPrompt: async (prompt: string, context?: any, attachments?: string[]) => {
     const api = electronApi()
     if (!api?.agentSubmitPrompt) return
 
@@ -269,7 +269,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const optimistic: AgentTurn = {
       id: `local_${Date.now()}`,
       sessionId,
-      prompt,
+      prompt: attachments && attachments.length ? `${prompt}\n\n[${attachments.join(', ')}]` : prompt,
       phase: 'queued',
       parts: [],
       startedAt: Date.now(),
@@ -285,6 +285,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           prompt,
           mode: get().mode,
           context,
+          ...(attachments && attachments.length ? { attachments } : {}),
         })
       )
     } catch (e: any) {

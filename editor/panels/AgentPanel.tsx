@@ -40,6 +40,13 @@ export const AgentPanel: React.FC = () => {
   const { projectPath, sceneName, selectedEntityIds } = useEditorStore()
 
   const [inputPrompt, setInputPrompt] = useState('')
+  // Reference images: copied to references/ as soon as they are attached; the agent rebuilds them as 3D models
+  const [attachments, setAttachments] = useState<{ path: string; previewUrl: string }[]>([])
+  const [attachError, setAttachError] = useState<string | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const activeModel = providers.flatMap((p) => p.models).find((m) => m.id === selectedModel)
+  const visionMissing = attachments.length > 0 && activeModel?.imageInput === false
   const [includeContext, setIncludeContext] = useState(true)
   const [showTemplatesModal, setShowTemplatesModal] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -63,9 +70,46 @@ export const AgentPanel: React.FC = () => {
 
   const runningTurn = turns.length > 0 && isTurnRunning(turns[turns.length - 1]) ? turns[turns.length - 1] : null
 
+  const attachFiles = async (files: FileList | File[] | null) => {
+    const api = window.electronAPI
+    if (!files || !api?.agentAttachImage) return
+    setAttachError(null)
+    if (!projectPath) {
+      setAttachError('Buka proyek dulu sebelum melampirkan gambar')
+      return
+    }
+    for (const file of Array.from(files)) {
+      if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+        setAttachError(`${file.name || 'File'}: hanya png, jpg atau webp`)
+        continue
+      }
+      try {
+        const data = new Uint8Array(await file.arrayBuffer())
+        const saved = await api.agentAttachImage({ projectPath, name: file.name || 'tempel', data })
+        setAttachments((cur) => (cur.length >= 8 ? cur : [...cur, { path: saved.path, previewUrl: URL.createObjectURL(file) }]))
+      } catch (e: any) {
+        setAttachError(e?.message || String(e))
+      }
+    }
+  }
+
+  const removeAttachment = (p: string) =>
+    setAttachments((cur) => {
+      const hit = cur.find((a) => a.path === p)
+      if (hit) URL.revokeObjectURL(hit.previewUrl)
+      return cur.filter((a) => a.path !== p)
+    })
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const images = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/'))
+    if (images.length === 0) return
+    e.preventDefault()
+    attachFiles(images)
+  }
+
   const handleSend = () => {
-    const text = inputPrompt.trim()
-    if (!text || isGenerating) return
+    const text = inputPrompt.trim() || (attachments.length ? 'Bangun ulang objek di gambar referensi ini sebagai model 3D.' : '')
+    if (!text || isGenerating || visionMissing) return
 
     const context = includeContext
       ? {
@@ -74,8 +118,11 @@ export const AgentPanel: React.FC = () => {
         }
       : undefined
 
-    sendPrompt(text, context)
+    sendPrompt(text, context, attachments.map((a) => a.path))
     setInputPrompt('')
+    for (const a of attachments) URL.revokeObjectURL(a.previewUrl)
+    setAttachments([])
+    setAttachError(null)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -272,11 +319,49 @@ export const AgentPanel: React.FC = () => {
 
       {/* Input Box */}
       <div className="p-3 bg-[#0f3460]/70 border-t border-gray-700/60">
-        <div className="relative flex flex-col bg-[#16213e] border border-gray-700/80 rounded-xl overflow-hidden focus-within:border-blue-500/80 transition-colors">
+        <div
+          className={`relative flex flex-col bg-[#16213e] border rounded-xl overflow-hidden focus-within:border-blue-500/80 transition-colors ${
+            dragOver ? 'border-blue-400' : 'border-gray-700/80'
+          }`}
+          onDragOver={(e) => {
+            if (Array.from(e.dataTransfer.items).some((i) => i.kind === 'file')) {
+              e.preventDefault()
+              setDragOver(true)
+            }
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragOver(false)
+            attachFiles(e.dataTransfer.files)
+          }}
+        >
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 p-2 border-b border-gray-800/80" data-testid="agent-attachments">
+              {attachments.map((a) => (
+                <div key={a.path} className="relative group" title={a.path}>
+                  <img src={a.previewUrl} alt={a.path} className="w-12 h-12 object-cover rounded border border-gray-700" />
+                  <button
+                    onClick={() => removeAttachment(a.path)}
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-gray-900 border border-gray-600 text-[10px] leading-none text-gray-300 hover:text-white"
+                    title="Hapus lampiran (file di references/ tetap ada)"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {(attachError || visionMissing) && (
+            <div className="px-2.5 py-1.5 text-[10px] text-amber-300 bg-amber-500/10 border-b border-amber-500/20">
+              {attachError ?? 'Model ini tidak bisa melihat gambar; pilih model dengan vision untuk rekonstruksi dari gambar.'}
+            </div>
+          )}
           <textarea
             value={inputPrompt}
             onChange={(e) => setInputPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={
               mode === 'plan'
                 ? 'Tanyakan arsitektur atau ide game (Mode Plan)...'
@@ -287,9 +372,27 @@ export const AgentPanel: React.FC = () => {
           />
 
           <div className="flex items-center justify-between px-2.5 py-1.5 bg-[#1a1a2e]/60 border-t border-gray-800/80">
-            <span className="text-[10px] text-gray-500">
-              Shift+Enter untuk baris baru
-            </span>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="px-1.5 py-0.5 rounded text-[10px] text-gray-300 hover:bg-white/10 border border-gray-700/80"
+                title="Lampirkan gambar referensi (juga bisa seret atau tempel) untuk dibangun ulang sebagai model 3D"
+              >
+                + Gambar
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  attachFiles(e.target.files)
+                  e.target.value = ''
+                }}
+              />
+              <span className="text-[10px] text-gray-500">Shift+Enter untuk baris baru</span>
+            </div>
 
             {isGenerating ? (
               <button
@@ -301,9 +404,9 @@ export const AgentPanel: React.FC = () => {
             ) : (
               <button
                 onClick={handleSend}
-                disabled={!inputPrompt.trim()}
+                disabled={(!inputPrompt.trim() && attachments.length === 0) || visionMissing}
                 className={`px-3 py-1 rounded-md text-[11px] font-medium flex items-center space-x-1 ${
-                  inputPrompt.trim()
+                  (inputPrompt.trim() || attachments.length > 0) && !visionMissing
                     ? 'bg-blue-600 hover:bg-blue-500 text-white'
                     : 'bg-gray-700 text-gray-400 cursor-not-allowed'
                 }`}

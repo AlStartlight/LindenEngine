@@ -68,6 +68,8 @@ export interface AgentProviderModel {
   description?: string
   providerId: string
   contextWindow?: number
+  /** The model accepts images (OpenCode capabilities.input); undefined when unknown */
+  imageInput?: boolean
 }
 
 export interface AgentProviderInfo {
