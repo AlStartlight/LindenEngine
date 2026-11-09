@@ -22,10 +22,12 @@
     "build:native": "bash native/build.sh",
     "bench:mesh": "vitest run --config vitest.bench.config.ts --silent=false",
     "check:licenses": "node scripts/check-licenses.mjs",
+    "check:skills": "node scripts/check-skills.mjs",
     "test:cases": "playwright test -c docs/test-case/playwright.config.ts",
     "test:cases:1m": "bash docs/test-case-1m/tools/run-all.sh",
     "test:e2e:play": "npm run build:electron && node tests/e2e/playViewport.e2e.mjs",
     "test:e2e:preview": "npm run build:electron && node tests/e2e/renderPreview.e2e.mjs",
+    "test:e2e:img2threejs": "npm run build:player && npm run build:electron && node tests/e2e/img2threejsFactory.e2e.mjs",
     "test:e2e:reference-model": "npm run build:player && npm run build:electron && node tests/e2e/referenceModel.e2e.mjs",
     "test:e2e:move": "npm run build:electron && node tests/e2e/movement.e2e.mjs",
     "test:e2e:touch": "npm run build:electron && node tests/e2e/touchButtons.e2e.mjs",
@@ -141,7 +143,8 @@
         "from": "electron/agent/prompts",
         "to": "agent/prompts",
         "filter": [
-          "**/*"
+          "**/*",
+          "!img2threejs.md"
         ]
       },
       {

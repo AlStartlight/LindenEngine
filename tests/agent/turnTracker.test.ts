@@ -202,3 +202,19 @@ describe('editor helpers', () => {
     expect(phaseLabel({ phase: 'waiting_model' })).toBe('Menunggu model…')
   })
 })
+
+describe('img2threejs tool progress', () => {
+  it('labels linden_img2_run calls by pipeline step and job', () => {
+    expect(summarizeToolInput({ job: 'kursi-jati', script: 'forge/stage2_spec/validate_sculpt_spec.py', args: [] })).toBe('Validasi spec · kursi-jati')
+    expect(summarizeToolInput({ name: 'Mug', model: { factory: 'models/mug/createMugModel.ts' } })).toBe('models/mug/createMugModel.ts')
+
+    const emitted: AgentEvent[] = []
+    const tracker = new TurnTracker((e) => emitted.push(e), 0)
+    tracker.watch('ses_i')
+    tracker.handle({ type: 'session.execution.started', data: { sessionID: 'ses_i' } })
+    tracker.handle({ type: 'session.tool.called', data: { sessionID: 'ses_i', id: 'tool_1', input: { job: 'mug', script: 'stage3_build/generate_threejs_factory.py', args: [] } } })
+    tracker.flush()
+    const phase = emitted.filter((e: any) => e.type === 'turn_phase').at(-1) as any
+    expect(phase?.data).toMatchObject({ phase: 'tool', detail: 'Generate factory Three.js · mug' })
+  })
+})

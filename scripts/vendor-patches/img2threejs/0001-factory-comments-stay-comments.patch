@@ -1,0 +1,57 @@
+Linden security patch for img2threejs 2.0.1 (0c0c49b). See docs/security/img2threejs/FINDINGS_TRIAGE.md (L-1).
+
+generate_threejs_factory.py copied spec text (targetName, build pass id, repetition system id/mode/level,
+standProud notes) verbatim into // comments. A line break in that text (\n, \r, U+2028, U+2029) ended the
+comment and the rest ran as top-level code when the factory module was imported. ts_comment() keeps it on
+one line; output for specs without line breaks is byte-identical.
+
+diff --git a/forge/stage3_build/generate_threejs_factory.py b/forge/stage3_build/generate_threejs_factory.py
+index 1b2f122..62049fa 100644
+--- a/forge/stage3_build/generate_threejs_factory.py
++++ b/forge/stage3_build/generate_threejs_factory.py
+@@ -259,6 +259,16 @@ def json_literal(value: Any) -> str:
+     return json.dumps(value, ensure_ascii=False)
+ 
+ 
++def ts_comment(value: Any) -> str:
++    """Spec text for a `//` comment in the emitted TypeScript, kept on that one line.
++
++    Spec strings come from the agent's reading of an image, so they are untrusted. A line break
++    (including U+2028/U+2029, which JavaScript also treats as one) would end the comment and turn
++    the rest of the value into code that runs when the factory module is imported.
++    """
++    return " ".join(str(value).split())
++
++
+ def vector(values: Any, fallback: list[float]) -> str:
+     if (
+         isinstance(values, list)
+@@ -3450,8 +3460,8 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
+         "  };",
+         "}",
+         "",
+-        f"// Generated from ObjectSculptSpec target: {target}",
+-        f"// Sculpt build pass: {pass_id}",
++        f"// Generated from ObjectSculptSpec target: {ts_comment(target)}",
++        f"// Sculpt build pass: {ts_comment(pass_id)}",
+         "// This factory is intentionally pass-gated. Finish browser screenshot review before unlocking deeper passes.",
+         f"export function {function_name}(options: ProceduralModelOptions = {{}}): THREE.Group {{",
+         "  const root = new THREE.Group();",
+@@ -3822,7 +3832,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
+         lines.extend(
+             [
+                 "",
+-                f"  // repetition system: {system.get('id') or rep_var} (InstancedMesh, {mode}, count={count}, level={level})",
++                f"  // repetition system: {ts_comment(system.get('id') or rep_var)} (InstancedMesh, {ts_comment(mode)}, count={count}, level={ts_comment(level)})",
+                 "  {",
+                 f"    const parent = nodes[{json.dumps(parent_id)}] ?? root;",
+                 f"    const geo = {geometry_for(primitive, {}, False, seg)};",
+@@ -3872,7 +3882,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
+         lines.append("")
+         lines.append("  // standProud: hold these components outside the surfaces they cover.")
+         for note in stand_proud_skipped:
+-            lines.append(f"  // SKIPPED {note}")
++            lines.append(f"  // SKIPPED {ts_comment(note)}")
+         for job in stand_proud_jobs:
+             marcher = json.dumps(job["componentId"])
+             proud_target_key = json.dumps(job["targetId"])

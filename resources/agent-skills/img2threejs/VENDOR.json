@@ -1,0 +1,30 @@
+{
+  "repo": "https://github.com/img2threejs/img2threejs",
+  "ref": "0c0c49bc168e648dbaf9c8c080474de0b3a941b6",
+  "commit": "0c0c49bc168e648dbaf9c8c080474de0b3a941b6",
+  "skillVersion": "2.0.1",
+  "fetchedAt": "2026-11-09T06:52:49.144Z",
+  "tarballSha256": "9b7bba73f8a130dc66b4395711a5eefbc64b06285fb5ade1602407fa12749084",
+  "upstreamTreeSha256": "31d35868426fbd9d50d73f2cd52a2b7e51495cbb9671ec8fd0124ae6384e0a6b",
+  "patches": [
+    {
+      "file": "scripts/vendor-patches/img2threejs/0001-factory-comments-stay-comments.patch",
+      "sha256": "6f50ec7069413016bed6f8e9c66cab7caaae030a8382fdda4b9156458a51669b"
+    },
+    {
+      "file": "scripts/vendor-patches/img2threejs/0002-rig-templates-single-pass.patch",
+      "sha256": "3b90f596af1f7930d9253c3761ab0c30d913b12209cf591140749445397a7e13"
+    }
+  ],
+  "treeSha256": "06cecb4306077045c2397113a201742386aec029e25e0a7050879330ed647dbb",
+  "license": "Apache-2.0",
+  "kept": [
+    "SKILL.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "forge",
+    "grimoire",
+    "docs"
+  ],
+  "note": "Trimmed copy with Linden security patches; forge/tests, assets, integrations, bin and CI files are not shipped. Regenerate with scripts/vendor-img2threejs.mjs; do not edit files here by hand (tests/agent/img2Vendor.test.ts checks treeSha256)."
+}

@@ -22,6 +22,7 @@ import { GAME_SCHEME } from '../shared/playProtocol'
 import { ASSET_SCHEME } from '../shared/assetProtocol'
 import { getAssetRoot, listProjectAssets, resolveAssetRequest, setAssetRoot } from './assets/AssetProtocol'
 import { isFactoryModuleRequest, resolveFactoryModule, setFactoryCacheRoot } from './play/factoryModules'
+import { setImg2RuntimeRoot } from './agent/img2threejs'
 import { saveReferenceImage } from './agent/referenceImages'
 
 // Check if in development mode
@@ -272,6 +273,7 @@ if (exportArgIdx !== -1) {
   app.on('ready', () => {
     setBridgeSettingsDir(app.getPath('userData'))
     setFactoryCacheRoot(join(app.getPath('userData'), 'play-cache'))
+    setImg2RuntimeRoot(join(app.getPath('userData'), 'agent-skills'))
     installGameProtocol()
     installAssetProtocol()
     // linden_render_preview renders through the player runtime in a hidden window

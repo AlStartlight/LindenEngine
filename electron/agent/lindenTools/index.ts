@@ -18,7 +18,9 @@ import { AgentDiffItem } from '../../../shared/agentTypes'
 import { ExportPreset } from '../../../shared/types/project'
 import { MODEL_TOOLS } from './modelTools'
 import { FACTORY_TOOLS, factoryHash } from './factoryTools'
+import { IMG2_TOOLS } from './img2Tools'
 import { REFERENCE_TOOLS } from './referenceTools'
+import { img2threejsEnabled } from '../features'
 import { ModelSpecSchema } from '../../../engine/model/ModelSpec'
 import { MaterialSpecSchema } from '../../../engine/materials/MaterialSpec'
 import { normalizeSceneSettings } from '../../../engine/scene/SceneSettings'
@@ -1169,4 +1171,6 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
   ...MODEL_TOOLS,
   ...FACTORY_TOOLS,
   ...REFERENCE_TOOLS,
+  // Third-party skill, off unless LINDEN_IMG2THREEJS=1 (electron/agent/features.ts)
+  ...(img2threejsEnabled() ? IMG2_TOOLS : {}),
 }

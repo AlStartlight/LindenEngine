@@ -19,6 +19,7 @@ import { LindenMcpServer } from './LindenMcpServer'
 import { TurnTracker, turnsFromMessages } from './TurnTracker'
 import { resolveAppResource } from '../resourcePaths'
 import { PROMPT_TEMPLATES } from './promptTemplates'
+import { img2threejsEnabled } from './features'
 import { syncProjectAgentsMd } from './projectAgentFiles'
 import { attachmentNote, resolveAttachments } from './referenceImages'
 import { pathToFileURL } from 'node:url'
@@ -736,7 +737,10 @@ export class AgentHost {
   }
 
   private lindenPrompt(): string {
-    return fs.readFileSync(resolveAppResource('electron/agent/prompts/linden.md', 'agent/prompts/linden.md'), 'utf-8')
+    const base = fs.readFileSync(resolveAppResource('electron/agent/prompts/linden.md', 'agent/prompts/linden.md'), 'utf-8')
+    if (!img2threejsEnabled()) return base
+    // Optional third-party skill (electron/agent/features.ts)
+    return `${base}\n---\n\n${fs.readFileSync(resolveAppResource('electron/agent/prompts/img2threejs.md', 'agent/prompts/img2threejs.md'), 'utf-8')}`
   }
 
   /** Put the current Linden instructions on a session (once per session per app run) */

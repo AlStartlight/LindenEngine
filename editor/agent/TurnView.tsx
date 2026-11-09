@@ -1,3 +1,4 @@
+import { img2ScriptLabel } from '../../shared/img2Labels'
 import React, { useEffect, useState } from 'react'
 import { AgentDiffItem, AgentPart, AgentTurn, AgentTurnPhase } from '../../shared/agentTypes'
 import { isTurnRunning } from '../../shared/agentTurnReducer'
@@ -41,7 +42,9 @@ export function summarizeToolInput(input: unknown): string {
     return line.trim()
   }
   if (typeof o.command === 'string') return o.command
+  if (typeof o.script === 'string' && typeof o.job === 'string') return `${img2ScriptLabel(o.script)} · ${o.job}`
   const parts: string[] = []
+  if (typeof o.model?.factory === 'string') parts.push(o.model.factory)
   if (o.scenePath) parts.push(o.scenePath)
   if (o.scriptPath) parts.push(o.scriptPath)
   if (o.path || o.pattern) parts.push(o.path || o.pattern)
