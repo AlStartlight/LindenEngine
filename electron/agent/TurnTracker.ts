@@ -1,3 +1,4 @@
+import { img2ScriptLabel } from '../../shared/img2Labels'
 import { AgentEvent, AgentPart, AgentTurn, AgentTurnEvent } from '../../shared/agentTypes'
 import { applyTurnEvent } from '../../shared/agentTurnReducer'
 
@@ -147,9 +148,13 @@ export class TurnTracker {
         this.send({ type: 'part_upsert', sessionId: root, data: { kind: 'tool', id: d.id, tool: d.name, status: 'running', childSessionId: child } })
         if (!child) this.send({ type: 'turn_phase', sessionId: root, data: { phase: 'tool', detail: d.name } })
         break
-      case 'session.tool.called':
+      case 'session.tool.called': {
         this.send({ type: 'part_upsert', sessionId: root, data: { kind: 'tool', id: d.id, input: d.input } })
+        // img2threejs runs: show which pipeline step is running ("Validasi spec · kursi-jati")
+        const label = typeof d.input?.script === 'string' && typeof d.input?.job === 'string' ? img2ScriptLabel(d.input.script) : null
+        if (label && !child) this.send({ type: 'turn_phase', sessionId: root, data: { phase: 'tool', detail: `${label} · ${d.input.job}` } })
         break
+      }
       case 'session.tool.progress': {
         // Code mode runs one "execute" call that reports the real tools it invokes
         const names = (d.metadata?.toolCalls ?? []).map((t: any) => t.tool).filter(Boolean)

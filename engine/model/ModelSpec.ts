@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import { MaterialSpecSchema } from '../materials/MaterialSpec'
+import { isValidFactorySrc } from '../../shared/modelFactory'
 
 /**
  * A Model describes an object as a hierarchy of parts (1 unit = 1 meter, Y up, the model origin is
  * the point that rests on the ground). Each part has a local transform, a material and one shape.
- * Alternatively `src` points at an imported glTF/GLB/OBJ in assets/.
+ * Alternatively `src` points at an imported glTF/GLB/OBJ in assets/, or `factory` at a procedural
+ * factory in models/ (TypeScript exporting create<Name>Model(): THREE.Group, e.g. from img2threejs).
  */
 
 const Num = z.number().finite()
@@ -164,10 +166,34 @@ export const ModelSpecSchema = z
     placement: z.enum(['floor', 'wall', 'ceiling', 'free']).default('floor'),
     /** Name of the glTF animation clip to play */
     animation: z.string().optional(),
+    /** models/<x>.ts exporting create<Name>Model(options): THREE.Group, instead of parts or src */
+    factory: z.string().optional(),
+    /** Export to call; default the only create<Name>Model export */
+    factoryExport: z.string().regex(/^[A-Za-z_$][\w$]*$/).optional(),
+    /** Passed to the factory (castShadow/receiveShadow come from the component) */
+    factoryOptions: z
+      .object({
+        textureSize: z.number().int().min(64).max(4096).optional(),
+        textureAnisotropy: z.number().int().min(1).max(16).optional(),
+        qualityPriority: z.enum(['reference-fidelity', 'balanced']).optional(),
+      })
+      .optional(),
+    /**
+     * Normalisation applied to the factory's group, written by linden_model_build: factories use
+     * relative units and their own origin; Linden needs meters with the model resting at y 0.
+     */
+    fit: z.object({ scale: Pos, offset: Vec3 }).optional(),
   })
   .superRefine((m, ctx) => {
-    if (!m.src && m.parts.length === 0) {
-      ctx.addIssue({ code: 'custom', message: 'Model butuh "parts" atau "src"', path: ['parts'] })
+    const sources = [m.parts.length > 0, !!m.src, !!m.factory].filter(Boolean).length
+    if (sources === 0) {
+      ctx.addIssue({ code: 'custom', message: 'Model butuh "parts", "src" atau "factory"', path: ['parts'] })
+    }
+    if (m.factory && (m.src || m.parts.length > 0)) {
+      ctx.addIssue({ code: 'custom', message: '"factory" tidak boleh digabung dengan "parts" atau "src"', path: ['factory'] })
+    }
+    if (m.factory !== undefined && !isValidFactorySrc(m.factory)) {
+      ctx.addIssue({ code: 'custom', message: `factory harus file .ts/.js di dalam models/ (dapat: ${m.factory})`, path: ['factory'] })
     }
     const ids = new Set<string>()
     m.parts.forEach((p, i) => {

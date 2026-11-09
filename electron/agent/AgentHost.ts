@@ -19,7 +19,10 @@ import { LindenMcpServer } from './LindenMcpServer'
 import { TurnTracker, turnsFromMessages } from './TurnTracker'
 import { resolveAppResource } from '../resourcePaths'
 import { PROMPT_TEMPLATES } from './promptTemplates'
+import { img2threejsEnabled } from './features'
 import { syncProjectAgentsMd } from './projectAgentFiles'
+import { attachmentNote, resolveAttachments } from './referenceImages'
+import { pathToFileURL } from 'node:url'
 
 /** Oldest OpenCode CLI with the v2 HTTP API (/api/*) this host talks to. */
 export const OPENCODE_MIN_VERSION = '2.0.0'
@@ -442,7 +445,10 @@ export class AgentHost {
           provider = { id: m.providerID, name: m.providerID, configured: true, models: [] }
           byProvider.set(m.providerID, provider)
         }
-        provider.models.push({ id: m.id, name: m.name || m.id, providerId: m.providerID })
+        const input: unknown = m.capabilities?.input
+        const imageInput = Array.isArray(input) ? input.includes('image') : undefined
+        if (imageInput !== undefined) this.modelImageInput.set(`${m.providerID}/${m.id}`, imageInput)
+        provider.models.push({ id: m.id, name: m.name || m.id, providerId: m.providerID, ...(imageInput !== undefined ? { imageInput } : {}) })
       }
       // Put the active (default) provider first so the panel preselects it
       return [...byProvider.values()].sort((a, b) =>
@@ -452,6 +458,14 @@ export class AgentHost {
       console.warn('[Agent] Gagal memuat model dari OpenCode:', e.message)
       return []
     }
+  }
+
+  /** Image input of the active model (capabilities.input), null when unknown */
+  private modelImageInput = new Map<string, boolean>()
+
+  activeModelSeesImages(): boolean | null {
+    if (!this.activeProvider || !this.activeModel) return null
+    return this.modelImageInput.get(`${this.activeProvider}/${this.activeModel}`) ?? null
   }
 
   setModel(providerId: string, modelId: string): void {
@@ -587,6 +601,8 @@ export class AgentHost {
     prompt: string
     mode?: 'plan' | 'build' | 'review'
     context?: any
+    /** references/<file> images attached in the panel */
+    attachments?: string[]
   }): Promise<{ messageId: string }> {
     const client = this.requireClient()
     const sessionId = options.sessionId || this.activeSessionId || (await this.createSession()).id
@@ -604,7 +620,12 @@ export class AgentHost {
       text += `\n\n<editor-context>\n${JSON.stringify(options.context, null, 2)}\n</editor-context>`
     }
 
-    const res: any = await client.session.prompt({ sessionID: sessionId, text })
+    const attachments = this.projectPath ? resolveAttachments(this.projectPath, options.attachments) : []
+    text += attachmentNote(attachments)
+    // Models that take images get the files themselves; others read the paths (and are warned in the panel)
+    const files = this.activeModelSeesImages() === false ? [] : attachments.map((rel) => ({ uri: pathToFileURL(path.join(this.projectPath!, rel)).href, name: path.basename(rel) }))
+
+    const res: any = await client.session.prompt({ sessionID: sessionId, text, ...(files.length ? { files } : {}) } as any)
     return { messageId: res?.id ?? `msg_${Date.now()}` }
   }
 
@@ -716,7 +737,10 @@ export class AgentHost {
   }
 
   private lindenPrompt(): string {
-    return fs.readFileSync(resolveAppResource('electron/agent/prompts/linden.md', 'agent/prompts/linden.md'), 'utf-8')
+    const base = fs.readFileSync(resolveAppResource('electron/agent/prompts/linden.md', 'agent/prompts/linden.md'), 'utf-8')
+    if (!img2threejsEnabled()) return base
+    // Optional third-party skill (electron/agent/features.ts)
+    return `${base}\n---\n\n${fs.readFileSync(resolveAppResource('electron/agent/prompts/img2threejs.md', 'agent/prompts/img2threejs.md'), 'utf-8')}`
   }
 
   /** Put the current Linden instructions on a session (once per session per app run) */

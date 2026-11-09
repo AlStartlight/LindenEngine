@@ -1,6 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from 'electron'
 import type { IpcInvokeChannel } from '../shared/ipcChannels'
-import { basename, dirname, join } from 'path'
+import { basename, dirname, join, resolve as resolvePath } from 'path'
 import { stat, readFile, writeFile, mkdir } from 'fs/promises'
 import * as fs from 'fs'
 import { spawn } from 'child_process'
@@ -10,15 +10,20 @@ import { runGodotImportJob, cancelImportJob } from './bridge/importRunner'
 import { importSingleGodotScene } from './bridge/sceneImport'
 import { syncServerInstance } from './bridge/syncServer'
 import { AgentHost } from './agent/AgentHost'
-import { LINDEN_TOOLS, setPreviewRenderer } from './agent/lindenTools'
-import { createPreviewRenderer } from './agent/previewWindow'
+import { LINDEN_TOOLS, setPreviewRenderer, setFactoryProbe } from './agent/lindenTools'
+import { createPreviewRenderer, createFactoryProbe } from './agent/previewWindow'
+import { createFactoryPreviews } from './agent/factoryPreview'
+import { getFactoryProbe } from './agent/lindenTools/factoryTools'
 import { WebBuildRunner } from './build/WebBuildRunner'
 import { resolveGameRequest } from './play/GameProtocol'
 import { resolveAppResource } from './resourcePaths'
 import { getPlaySession, readUiFragment, startPlaySession, stopAllPlaySessions, stopPlaySession } from './play/PlaySession'
 import { GAME_SCHEME } from '../shared/playProtocol'
 import { ASSET_SCHEME } from '../shared/assetProtocol'
-import { listProjectAssets, resolveAssetRequest, setAssetRoot } from './assets/AssetProtocol'
+import { getAssetRoot, listProjectAssets, resolveAssetRequest, setAssetRoot } from './assets/AssetProtocol'
+import { isFactoryModuleRequest, resolveFactoryModule, setFactoryCacheRoot } from './play/factoryModules'
+import { setImg2RuntimeRoot } from './agent/img2threejs'
+import { saveReferenceImage } from './agent/referenceImages'
 
 // Check if in development mode
 const isDev = !app.isPackaged
@@ -35,9 +40,26 @@ protocol.registerSchemesAsPrivileged([
   },
 ])
 
+/** linden-game://play/<session>/game-models/<x>.js of an active session */
+function gameFactoryRequest(url: string, getSession: typeof getPlaySession): { projectRoot: string; rel: string } | null {
+  try {
+    const u = new URL(url)
+    if (u.protocol !== `${GAME_SCHEME}:`) return null
+    const parts = u.pathname.split('/').filter(Boolean).map(decodeURIComponent)
+    const session = parts.length > 1 ? getSession(parts[0]) : undefined
+    const rel = parts.slice(1).join('/')
+    if (!session || session.mode !== 'scene' || !isFactoryModuleRequest(rel)) return null
+    return { projectRoot: session.projectRoot, rel }
+  } catch {
+    return null
+  }
+}
+
 /** Serve linden-asset://project/assets/... from the open project (editor viewport textures, HDR, models) */
 function installAssetProtocol() {
   protocol.handle(ASSET_SCHEME, async (request) => {
+    // Compiled factories (game-models/) are deliberately not served here: the editor gets factory
+    // output as GLB through factory:preview, built in a sandboxed window (agent/factoryPreview.ts).
     const res = resolveAssetRequest(request.url)
     const body = res.filePath ? new Uint8Array(await fs.promises.readFile(res.filePath)) : null
     return new Response(body, { status: res.status, headers: res.headers })
@@ -47,6 +69,11 @@ function installAssetProtocol() {
 /** Serve linden-game://play/<session>/... from the active Play session only */
 function installGameProtocol() {
   protocol.handle(GAME_SCHEME, async (request) => {
+    const factory = gameFactoryRequest(request.url, getPlaySession)
+    if (factory) {
+      const res = await resolveFactoryModule(factory.projectRoot, factory.rel)
+      return new Response(res.body as BodyInit, { status: res.status, headers: res.headers })
+    }
     const res = resolveGameRequest(request.url, getPlaySession)
     let body: BodyInit | null = null
     if (res.filePath) body = new Uint8Array(await fs.promises.readFile(res.filePath))
@@ -245,13 +272,18 @@ if (exportArgIdx !== -1) {
 } else {
   app.on('ready', () => {
     setBridgeSettingsDir(app.getPath('userData'))
+    setFactoryCacheRoot(join(app.getPath('userData'), 'play-cache'))
+    setImg2RuntimeRoot(join(app.getPath('userData'), 'agent-skills'))
     installGameProtocol()
     installAssetProtocol()
     // linden_render_preview renders through the player runtime in a hidden window
     setPreviewRenderer(createPreviewRenderer({ cacheRoot: join(app.getPath('userData'), 'play-cache'), preferSourceRuntime: isDev }))
+    // Model.factory: measure procedural three.js factories in a hidden window
+    setFactoryProbe(createFactoryProbe({ cacheRoot: join(app.getPath('userData'), 'play-cache'), preferSourceRuntime: isDev }))
     // E2E only: run agent tools from the test (tests/e2e/renderPreview.e2e.mjs)
     if (process.env.LINDEN_E2E === '1') {
       ;(globalThis as any).__lindenRunTool = (projectPath: string, name: string, args: unknown) => LINDEN_TOOLS[name].execute(projectPath, args)
+      ;(globalThis as any).__lindenToolNames = () => Object.keys(LINDEN_TOOLS)
     }
     mainWindow = createWindow()
     guardGameFrame(mainWindow)
@@ -1209,6 +1241,31 @@ handle('agent:session:get', async (_event, sessionId: string) => {
 
 handle('agent:prompt', async (_event, options: any) => {
   return await AgentHost.getInstance().submitPrompt(options)
+})
+
+// Reference image attached in the agent panel → <project>/references/ (rebuilt as a 3D model, prompt section 7)
+handle('agent:attachImage', async (_event, payload: { projectPath: string; name: string; data: Uint8Array }) => {
+  const projectPath = getAssetRoot()
+  if (!projectPath || !payload?.projectPath || resolvePath(payload.projectPath) !== resolvePath(projectPath)) throw new Error('Gambar hanya bisa dilampirkan ke proyek yang sedang terbuka')
+  const data = payload.data instanceof Uint8Array ? payload.data : new Uint8Array(payload.data as any)
+  return saveReferenceImage(projectPath, String(payload.name || 'referensi'), data, (buf, maxEdge) => {
+    const img = nativeImage.createFromBuffer(Buffer.from(buf))
+    if (img.isEmpty()) return null
+    const { width, height } = img.getSize()
+    if (Math.max(width, height) <= maxEdge) return null
+    const k = maxEdge / Math.max(width, height)
+    const small = img.resize({ width: Math.round(width * k), height: Math.round(height * k), quality: 'best' })
+    return { data: new Uint8Array(small.toPNG()), ext: 'png' }
+  })
+})
+
+// Model.factory in the editor viewport: run in a sandboxed window, returned as GLB (never imported here)
+let factoryPreviews: ReturnType<typeof createFactoryPreviews> | null = null
+handle('factory:preview', async (_event, payload: { projectPath: string; factory: string; exportName?: string; options?: Record<string, unknown> }) => {
+  const projectPath = getAssetRoot()
+  if (!projectPath || !payload?.projectPath || resolvePath(payload.projectPath) !== resolvePath(projectPath)) throw new Error('Factory hanya bisa dijalankan untuk proyek yang sedang terbuka')
+  factoryPreviews ??= createFactoryPreviews({ cacheDir: join(app.getPath('userData'), 'factory-previews'), probe: getFactoryProbe })
+  return factoryPreviews(projectPath, { factory: payload.factory, exportName: payload.exportName, options: payload.options })
 })
 
 handle('agent:abort', async (_event, sessionId: string) => {

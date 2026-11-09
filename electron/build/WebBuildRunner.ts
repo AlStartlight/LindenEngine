@@ -5,7 +5,8 @@ import { ExportPreset, LindenProjectConfig } from '../../shared/types/project'
 import { ExportProgressEvent, ExportRunResult } from '../../editor/export/ExportRunner'
 import { zipDirectory } from './zipUtils'
 import os from 'node:os'
-import { compileScripts, formatCompileError } from '../play/ScriptCompiler'
+import { compileFactories, compileScripts, formatCompileError } from '../play/ScriptCompiler'
+import { COMPILED_FACTORIES_DIR } from '../../shared/modelFactory'
 import { ensurePlayerRuntime } from '../play/playerRuntime'
 import { resolveHtmlEntry } from '../play/PlaySession'
 import { injectHeadScript } from '../play/GameProtocol'
@@ -70,7 +71,7 @@ function formatBytes(bytes: number): string {
 
 /** Folder for the bridge in HTML Game exports (no leading underscore: GitHub Pages hides those) */
 const HTML_BRIDGE_DIR = 'linden-runtime'
-const ROOT_EXCLUDES = new Set(['build', 'node_modules', 'scenes', 'scripts', 'project.linden.json', 'release', 'dist'])
+const ROOT_EXCLUDES = new Set(['build', 'node_modules', 'scenes', 'scripts', 'models', 'references', 'project.linden.json', 'release', 'dist'])
 
 /**
  * runtime 'html': ship the game's own page folder as-is, plus the linden bridge
@@ -240,6 +241,15 @@ export class WebBuildRunner {
         }
         if (compiled.sources.length > 0) {
           emitLog(`[WebBuild] ${compiled.sources.length} script dikompilasi ke ${COMPILED_SCRIPTS_DIR}/`)
+        }
+
+        // Model factories (Model.factory, img2threejs): one module each under game-models/
+        const factories = await compileFactories(projectPath, outDir, { minify: preset.mode === 'release' })
+        if (!factories.ok) {
+          throw new Error(`Kompilasi factory model gagal:\n${factories.errors.map(formatCompileError).join('\n')}`)
+        }
+        if (factories.sources.length > 0) {
+          emitLog(`[WebBuild] ${factories.sources.length} factory model dikompilasi ke ${COMPILED_FACTORIES_DIR}/`)
         }
 
         emitLog('[WebBuild] Kompilasi modul runtime browser selesai')

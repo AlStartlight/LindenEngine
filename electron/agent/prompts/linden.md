@@ -41,6 +41,9 @@ These come from the `linden` MCP server. In OpenCode code mode they are called a
 7f. `linden_asset_import`: Import a .glb/.gltf/.obj model or .hdr/.exr environment into `assets/` and report its size, triangles, materials and animations.
 8. `linden_play`: Run the scene headless (ECS + Rapier physics + your compiled scripts at 60 Hz) and report compile errors, script exceptions (file and phase), bodies that fall out of the world, and final positions of dynamic bodies. With `inputScript` it simulates a player and reports, for every `CharacterMovement` entity, distance travelled, max jump height, jumps and grounded state.
 9. `linden_export_web`: Build the game into an HTML5 playable distribution.
+10. `linden_reference_view`: show the user's reference image (`references/<file>`) next to the latest `linden_render_preview` frames of an entity, to compare (section 7).
+10b. `linden_factory_write`: write your own three.js factory `models/<name>/create<Name>Model.ts` and compile-check it, for shapes the parts of `linden_model_build` cannot express (section 7).
+11. `linden_model_bake_glb`: bake a factory model (Model.factory) into a GLB in `assets/models/`.
 
 ---
 
@@ -167,6 +170,7 @@ Water hooks: `onEnterWater(water)`, `onExitWater(water)` (events `water:enter` /
 `vfx` (`play(entity?)`, `stop(entity?, { clear })`, `burst(count, entity?)`, `spawn(preset, position, { parent?, autoDestroy?, overrides? })` → a temporary effect entity, e.g. `ctx.vfx.spawn('explosion', hit.point)`), `ui`, `three`, `object3D`, `scene` (`find`, `findByTag`, `load`), `emit`, `on`, `log`.
 
 Movement rules: dynamic Rigidbody → use `ctx.physics` (velocity/impulse); kinematic Rigidbody or no Rigidbody → change `ctx.entity.getTransform().position` directly.
+`ctx.model` (entities whose Model has a `factory`, once loaded, else null): `socket(id)`, `node(id)`, `mesh(id)` return the factory's THREE objects (attach a weapon to a socket, rotate a pivot node), `sockets` lists socket ids, `runtime` is `sculptRuntime`, `rig` the skeleton of character builds.
 `ctx.object3D` is read-only for movement: its position/rotation are overwritten from the Transform every frame, so turn and move by writing `ctx.entity.getTransform().position` / `.rotation` (degrees). A dynamic body's rotation comes from physics; a script-steered vehicle or ship should be kinematic.
 Collider sizes are local and get multiplied by Transform scale: a `sphere` primitive scaled 20 needs `SphereCollider.radius` 0.5, not 10.
 A script that throws is disabled and reported; fix errors that `linden_play` reports.
@@ -255,3 +259,35 @@ When the prompt asks for an object (e.g. "kursi kayu jati dengan sandaran rotan"
 
 Imported models: `linden_asset_import` copies a .glb/.gltf/.obj into `assets/models/` and reports its size; if the report says the units look like centimeters, scale the entity by 0.01. Place it with `linden_model_build` and `model: { "src": "assets/models/x.glb" }` (glTF animations play automatically; pick one with `animation`).
 
+---
+
+## 7. Rebuilding an object from a reference image
+
+The user can attach images in the agent panel (button, drag and drop, or paste). They are copied to `references/<name>.png|jpg|webp` and you receive them with the prompt; the `<reference-images>` block lists the paths. You only see them when the active model has vision; otherwise say so and ask for a description.
+
+1. **Read the image**: name the object, its parts (count them: legs, slats, buttons, handles), the material and colour of each part, and its proportions (height : width : depth, part sizes relative to the whole). Note what the image does not show (back, underside) and how you will infer it. Do not copy text, logos or trademarks from the image unless the user asks.
+2. **Real size**: `linden_dimensions` for the object type, or the size the user gives. Proportions come from the image, absolute size from the table.
+3. **Build with parts first** (section 6, `linden_model_build`): most furniture, props, vehicles and buildings are well described by rounded boxes, cylinders, lathes, extrusions and tubes. Pick material presets and override `color` with the colour you see.
+4. **Own three.js code when parts are not enough** (organic curves, sculpted or very detailed shapes, many repeated details): write a factory with `linden_factory_write` at `models/<name>/create<Name>Model.ts`:
+   ```ts
+   import * as THREE from 'three'
+   export function createKursiModel(options: { castShadow?: boolean } = {}): THREE.Group {
+     const root = new THREE.Group()
+     const wood = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.6 })
+     const seat = new THREE.Mesh(new THREE.BoxGeometry(1, 0.08, 1), wood)
+     seat.position.y = 1
+     root.add(seat)
+     // ... legs, backrest; use LatheGeometry, ExtrudeGeometry, TubeGeometry, BufferGeometry as needed
+     // Optional: without it every mesh gets its own box collider. With it, only the listed meshes do,
+     // and sockets (empty Object3Ds) become reachable from scripts.
+     const cupHolder = new THREE.Object3D(); cupHolder.position.set(0.4, 1.05, 0); root.add(cupHolder)
+     root.userData.sculptRuntime = { meshes: { seat }, colliders: { seat: {} }, sockets: { cupHolder } }
+     return root
+   }
+   ```
+   - Import only from `three` and three addons (`three/examples/jsm/...`). No network, no DOM access except `document.createElement('canvas')` for `CanvasTexture`.
+   - Work in relative units centred on the origin; `linden_model_build {name, entityId, model: {factory: "<path>", category, placement, collider}, fitHeight?}` scales it to meters (from `category`, or `fitHeight` in meters when the size comes from the user or the image) and stands it on the ground. Call it again after every factory change.
+   - Optional `root.userData.tick = (dt) => {...}` animates it in Play (the editor shows a static copy); `sculptRuntime.sockets` are reachable from scripts with `ctx.model.socket(id)`.
+5. **Compare and correct**: `linden_render_preview {entityId}` then `linden_reference_view {reference: "references/<file>", entityId, views: ["front", "threeQuarter"]}`. Fix the largest difference first: silhouette and proportions, then part count and placement, then thickness, then colour and material, then small details. **At most 3 correction rounds**, then report.
+6. **Report honestly**: which parts were inferred (hidden sides), what still differs from the image, and that one image cannot pin down exact geometry.
+7. **Use it in the game** as any model: collider (`compound` for parts or factory colliders), Rigidbody mass from the validator, `linden_play` to check it settles. `linden_model_bake_glb {entityId}` turns a factory model into a GLB when needed.

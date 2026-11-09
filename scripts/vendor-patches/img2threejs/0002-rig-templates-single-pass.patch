@@ -1,0 +1,58 @@
+Linden security patch for img2threejs 2.0.1 (0c0c49b). See docs/security/img2threejs/FINDINGS_TRIAGE.md (L-2).
+
+emit_rig.py / emit_animation_runtime.py filled their templates with sequential str.replace calls, so a value
+inserted for one token was scanned again for the next. A bone id containing a later token ("tip__PARENT_JSON__")
+received raw JSON inside its string literal and broke out of it. The templates are now filled in one regex pass.
+
+diff --git a/forge/stage5_rig/emit_rig.py b/forge/stage5_rig/emit_rig.py
+index 5b04dec..27b5398 100644
+--- a/forge/stage5_rig/emit_rig.py
++++ b/forge/stage5_rig/emit_rig.py
+@@ -28,6 +28,7 @@ from __future__ import annotations
+ 
+ import json
+ import math
++import re
+ from typing import Optional
+ 
+ from .rig_spec import BoneSpec, RigSpec, derive_envelope_radius, validate_rig_spec
+@@ -419,8 +420,10 @@ def emit_typescript(
+         "__HEIGHT_SEGMENTS__": str(int(height_segments)),
+     }
+     source = _TEMPLATE
+-    for token, value in replacements.items():
++    for token in replacements:
+         if token not in source:
+             raise AssertionError(f"template token {token} not found — template/replacement drift")
+-        source = source.replace(token, value)
+-    return source
++    # One pass: a substituted value is never scanned again, so a bone id that happens to contain
++    # another token (e.g. "__PARENT_JSON__") cannot splice raw JSON into a string literal.
++    pattern = re.compile("|".join(re.escape(token) for token in replacements))
++    return pattern.sub(lambda match: replacements[match.group(0)], source)
+diff --git a/forge/stage5_rig/emit_animation_runtime.py b/forge/stage5_rig/emit_animation_runtime.py
+index 1e5ed5a..1f8c150 100644
+--- a/forge/stage5_rig/emit_animation_runtime.py
++++ b/forge/stage5_rig/emit_animation_runtime.py
+@@ -24,6 +24,7 @@ the idiom in forge/stage5_rig/emit_rig.py).
+ from __future__ import annotations
+ 
+ import json
++import re
+ from typing import Any, Optional
+ 
+ # Named export per CONTRACT_1.5.2.md's shared numeric conventions: every
+@@ -450,8 +451,10 @@ def emit_animation_runtime(clips: list[dict[str, Any]], options: Optional[dict[s
+         "__GATE_SAMPLE_COUNT__": str(gate_sample_count),
+     }
+     source = _TEMPLATE
+-    for token, value in replacements.items():
++    for token in replacements:
+         if token not in source:
+             raise AssertionError(f"template token {token} not found — template/replacement drift")
+-        source = source.replace(token, value)
+-    return source
++    # One pass: a substituted value is never scanned again, so clip text that happens to contain
++    # another token cannot be rewritten after it was escaped.
++    pattern = re.compile("|".join(re.escape(token) for token in replacements))
++    return pattern.sub(lambda match: replacements[match.group(0)], source)

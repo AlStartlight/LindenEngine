@@ -72,6 +72,34 @@ export function checkLicenses(roots = GEOMETRY_ROOTS, lockPath = path.join(root,
   return { checked: seen.size, violations, excepted, unknown, missingRoots }
 }
 
+/** Non-npm code shipped with Linden (vendored copies), checked by their VENDOR.json + LICENSE */
+export const VENDORED = ['resources/agent-skills/img2threejs']
+
+export function checkVendored(dirs = VENDORED, base = root) {
+  const violations = []
+  const checked = []
+  for (const rel of dirs) {
+    const dir = path.join(base, rel)
+    let license = null
+    try {
+      license = JSON.parse(readFileSync(path.join(dir, 'VENDOR.json'), 'utf8')).license ?? null
+    } catch {
+      violations.push(`${rel}: VENDOR.json tidak ada`)
+      continue
+    }
+    let text = ''
+    try {
+      text = readFileSync(path.join(dir, 'LICENSE'), 'utf8')
+    } catch {
+      violations.push(`${rel}: LICENSE tidak ada`)
+      continue
+    }
+    if (!license || COPYLEFT.test(license) || COPYLEFT.test(text.slice(0, 400))) violations.push(`${rel} (${license ?? 'unknown'})`)
+    else checked.push(`${rel} (${license})`)
+  }
+  return { checked, violations }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const roots = process.argv.length > 2 ? process.argv.slice(2) : GEOMETRY_ROOTS
   const { checked, violations, excepted, unknown, missingRoots } = checkLicenses(roots)
@@ -79,6 +107,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (missingRoots.length) console.log(`not installed (skipped): ${missingRoots.join(', ')}`)
   if (excepted.length) console.log(`approved exceptions (${excepted.length}): ${excepted.join(', ')}`)
   if (unknown.length) console.log(`no license field: ${unknown.join(', ')}`)
+  const vendored = checkVendored()
+  if (vendored.checked.length) console.log(`vendored: ${vendored.checked.join(', ')}`)
+  violations.push(...vendored.violations)
   if (violations.length) {
     console.error(`copyleft licenses found:\n  ${violations.join('\n  ')}`)
     process.exit(1)
