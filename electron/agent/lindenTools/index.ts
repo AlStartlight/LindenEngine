@@ -21,6 +21,7 @@ import { FACTORY_TOOLS, factoryHash } from './factoryTools'
 import { IMG2_TOOLS } from './img2Tools'
 import { REFERENCE_TOOLS } from './referenceTools'
 import { BLENDER_TOOLS } from './blenderTools'
+import { NET_TOOLS, simulateMultiplayer } from './netTools'
 import { img2threejsEnabled } from '../features'
 import { ModelSpecSchema } from '../../../engine/model/ModelSpec'
 import { MaterialSpecSchema } from '../../../engine/materials/MaterialSpec'
@@ -354,7 +355,7 @@ export async function simulateScene(
  * Add or replace one component on an entity of a saved scene (used to attach scripts and UI
  * right after writing them, so the agent can't leave a script that nothing runs).
  */
-function attachComponentToScene(
+export function attachComponentToScene(
   projectPath: string,
   sceneRel: string,
   entityId: string,
@@ -993,6 +994,12 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
       properties: {
         scenePath: { type: 'string', description: 'Path scene yang akan diuji' },
         durationSeconds: { type: 'number', description: 'Durasi simulasi dalam detik game (default 2, maks 10)' },
+        clients: {
+          type: 'number',
+          description:
+            'Multiplayer: 2-4 klien headless di server room lokal. inputScript menggerakkan Klien 1. Melaporkan pemain, avatar, posisi sinkron ' +
+            '(maxPositionError) dan event network. Berjalan real-time.',
+        },
         inputScript: {
           type: 'array',
           description: 'Urutan input tersimulasi berdasarkan nama action',
@@ -1009,7 +1016,7 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
         },
       },
     },
-    async execute(projectPath: string, args: { scenePath?: string; durationSeconds?: number; inputScript?: InputScriptStep[] }) {
+    async execute(projectPath: string, args: { scenePath?: string; durationSeconds?: number; inputScript?: InputScriptStep[]; clients?: number }) {
       try {
         const rel = args.scenePath || 'scenes/Main.lscene'
         const fullPath = resolveProjectSafePath(projectPath, rel)
@@ -1018,6 +1025,11 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
         }
 
         const raw = fs.readFileSync(fullPath, 'utf-8')
+        if (args.clients !== undefined && args.clients > 1) {
+          const clients = Math.min(4, Math.max(2, Math.round(args.clients)))
+          const report = await simulateMultiplayer(raw, args.durationSeconds ?? 2, { projectPath, clients, inputScript: args.inputScript })
+          return { success: report.errors.length === 0, data: { testedScene: rel, ...report }, ...(report.errors.length ? { error: report.errors.slice(0, 5).join('; ') } : {}) }
+        }
         const report = await simulateScene(raw, args.durationSeconds ?? 2, { projectPath, inputScript: args.inputScript })
         return {
           success: report.errors.length === 0,
@@ -1188,6 +1200,7 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
   ...REFERENCE_TOOLS,
   // Listed only while the user's Blender is detected (each tool's `available`)
   ...BLENDER_TOOLS,
+  ...NET_TOOLS,
   // Third-party skill, off unless LINDEN_IMG2THREEJS=1 (electron/agent/features.ts)
   ...(img2threejsEnabled() ? IMG2_TOOLS : {}),
 }
