@@ -14,6 +14,7 @@ import {
   AgentPermissionRequest,
   AgentEvent,
   AgentTurn,
+  AgentPromptOptions,
 } from '../../shared/agentTypes'
 import { LindenMcpServer } from './LindenMcpServer'
 import { TurnTracker, turnsFromMessages } from './TurnTracker'
@@ -23,12 +24,22 @@ import { img2threejsEnabled } from './features'
 import { syncProjectAgentsMd } from './projectAgentFiles'
 import { attachmentNote, resolveAttachments } from './referenceImages'
 import { pathToFileURL } from 'node:url'
+import { beginBlenderTurn, endBlenderTurn } from './blenderMode'
+import { blenderStatusReady, getBlenderStatus, onBlenderStatusChange } from '../bridge/blenderDetect'
+import type { ToolPermissionRequest } from './lindenTools'
 
 /** Oldest OpenCode CLI with the v2 HTTP API (/api/*) this host talks to. */
 export const OPENCODE_MIN_VERSION = '2.0.0'
 const INSTALL_HINT = 'Instal OpenCode terbaru: npm i -g @opencode/cli'
 const SERVER_START_TIMEOUT_MS = 20000
 const MESSAGE_PAGE_SIZE = 200
+/** Startup waits this long for Blender detection before listing the Linden tools */
+const BLENDER_DETECT_WAIT_MS = 5000
+/**
+ * Per-call limit OpenCode applies to Linden tools: covers a user reading a Blender script before
+ * allowing it plus the 120 s Blender run (and the longest existing tool, the web build)
+ */
+const MCP_EXECUTION_TIMEOUT_MS = 15 * 60_000
 
 /** System temp folders the agent may never touch (macOS resolves /tmp to /private/tmp) */
 const TEMP_DIRS = [
@@ -153,8 +164,15 @@ export class AgentHost {
   /** Sessions that already got this app version's Linden instructions */
   private instructedSessions = new Set<string>()
   private sendEventToRenderer?: (event: AgentEvent) => void
+  /** Permission prompts raised by Linden tools themselves (linden_blender_script) */
+  private localPermissions = new Map<string, { req: AgentPermissionRequest; resolve: (allow: boolean) => void }>()
 
-  private constructor() {}
+  private constructor() {
+    // A Blender found (or lost) while the agent runs changes the Linden tool list
+    onBlenderStatusChange(() => {
+      if (this.client && this.mcp) this.registerMcp().catch((e) => console.warn('[Agent] Gagal memperbarui tool Linden:', e?.message ?? e))
+    })
+  }
 
   static getInstance(): AgentHost {
     if (!AgentHost.instance) {
@@ -173,7 +191,44 @@ export class AgentHost {
   }
 
   emitEvent(event: AgentEvent): void {
+    if (event.type === 'turn_ended') this.endBlenderTurn(event.sessionId)
     this.sendEventToRenderer?.(event)
+  }
+
+  /** Blender mode lasts one turn; unanswered Blender script prompts of that turn are refused */
+  private endBlenderTurn(sessionId?: string): void {
+    endBlenderTurn(sessionId)
+    for (const [id, pending] of this.localPermissions) {
+      if (sessionId === undefined || pending.req.sessionId === sessionId) this.resolveLocalPermission(id, false)
+    }
+  }
+
+  private resolveLocalPermission(id: string, allow: boolean): boolean {
+    const pending = this.localPermissions.get(id)
+    if (!pending) return false
+    this.localPermissions.delete(id)
+    pending.resolve(allow)
+    this.emitEvent({ type: 'permission_resolved', sessionId: pending.req.sessionId, data: { id } })
+    return true
+  }
+
+  /** Ask the user in the agent panel (PermissionCard) on behalf of a Linden tool */
+  requestToolPermission(req: ToolPermissionRequest): Promise<boolean> {
+    const sessionId = this.activeSessionId
+    if (!sessionId) return Promise.resolve(false)
+    const request: AgentPermissionRequest = {
+      id: `linden-${req.action}-${crypto.randomUUID()}`,
+      sessionId,
+      action: req.action,
+      resources: req.resources,
+      message: req.message,
+      ...(req.code !== undefined ? { code: req.code } : {}),
+      timestamp: Date.now(),
+    }
+    return new Promise((resolve) => {
+      this.localPermissions.set(request.id, { req: request, resolve })
+      this.emitEvent({ type: 'permission_requested', sessionId, data: request })
+    })
   }
 
   /** Resolved CLI + PATH for child processes (see opencodeBinary.ts) */
@@ -276,6 +331,7 @@ export class AgentHost {
 
       this.mcp = new LindenMcpServer({
         projectPath,
+        requestPermission: (req) => this.requestToolPermission(req),
         onDiff: (diff) => {
           // MCP calls carry no session id; they come from the session that is running
           const sessionId = this.activeSessionId ?? undefined
@@ -288,16 +344,9 @@ export class AgentHost {
         },
       })
       await this.mcp.start()
-      await this.client.mcp.add({
-        server: 'linden',
-        location: { directory: projectPath },
-        config: {
-          type: 'remote',
-          url: this.mcp.url,
-          headers: { Authorization: `Bearer ${this.mcp.token}` },
-          oauth: false,
-        },
-      })
+      // The Blender tools are listed only when Blender is found; give the detection a moment
+      await Promise.race([blenderStatusReady(), new Promise((r) => setTimeout(r, BLENDER_DETECT_WAIT_MS))])
+      await this.registerMcp()
 
       this.subscribeEvents()
       await this.loadDefaultModel()
@@ -310,6 +359,22 @@ export class AgentHost {
     const status = this.getStatus()
     this.emitEvent({ type: 'status_changed', data: status })
     return status
+  }
+
+  /** (Re-)register the Linden MCP server so OpenCode reads the current tool list */
+  private async registerMcp(): Promise<void> {
+    const client = this.requireClient()
+    const mcp = this.mcp
+    if (!mcp) return
+    const config = {
+      type: 'remote' as const,
+      url: mcp.url,
+      headers: { Authorization: `Bearer ${mcp.token}` },
+      oauth: false as const,
+      timeout: { execution: MCP_EXECUTION_TIMEOUT_MS },
+    }
+    await client.mcp.remove({ server: 'linden', location: this.location() } as any).catch(() => {})
+    await client.mcp.add({ server: 'linden', location: this.location(), config })
   }
 
   private spawnServer(projectPath: string, port: number, password: string): Promise<string> {
@@ -371,6 +436,7 @@ export class AgentHost {
    * Stop the OpenCode server and the MCP bridge
    */
   async stopServer(): Promise<void> {
+    this.endBlenderTurn()
     this.eventAbort?.abort()
     this.eventAbort = null
     if (this.client && this.activeSessionId) {
@@ -596,14 +662,7 @@ export class AgentHost {
   /**
    * Send a prompt; the reply streams back through the event subscription
    */
-  async submitPrompt(options: {
-    sessionId?: string
-    prompt: string
-    mode?: 'plan' | 'build' | 'review'
-    context?: any
-    /** references/<file> images attached in the panel */
-    attachments?: string[]
-  }): Promise<{ messageId: string }> {
+  async submitPrompt(options: AgentPromptOptions): Promise<{ messageId: string }> {
     const client = this.requireClient()
     const sessionId = options.sessionId || this.activeSessionId || (await this.createSession()).id
     this.activeSessionId = sessionId
@@ -622,14 +681,29 @@ export class AgentHost {
 
     const attachments = this.projectPath ? resolveAttachments(this.projectPath, options.attachments) : []
     text += attachmentNote(attachments)
+    // "Blender 3D" checked: this turn gets the Blender guide and may use the Blender tools
+    if (options.useBlender && getBlenderStatus().found) {
+      text += `\n\n<blender-mode>\n${this.blenderPrompt()}\n</blender-mode>`
+      beginBlenderTurn(sessionId)
+    } else {
+      this.endBlenderTurn()
+    }
     // Models that take images get the files themselves; others read the paths (and are warned in the panel)
     const files = this.activeModelSeesImages() === false ? [] : attachments.map((rel) => ({ uri: pathToFileURL(path.join(this.projectPath!, rel)).href, name: path.basename(rel) }))
 
-    const res: any = await client.session.prompt({ sessionID: sessionId, text, ...(files.length ? { files } : {}) } as any)
+    let res: any
+    try {
+      res = await client.session.prompt({ sessionID: sessionId, text, ...(files.length ? { files } : {}) } as any)
+    } catch (e) {
+      // No turn starts, so no turn_ended would switch Blender mode off
+      this.endBlenderTurn(sessionId)
+      throw e
+    }
     return { messageId: res?.id ?? `msg_${Date.now()}` }
   }
 
   async abortPrompt(sessionId: string): Promise<boolean> {
+    this.endBlenderTurn(sessionId)
     if (!this.client) return false
     try {
       await this.client.session.interrupt({ sessionID: sessionId })
@@ -672,6 +746,7 @@ export class AgentHost {
   }
 
   async replyPermission(requestId: string, allow: boolean): Promise<void> {
+    if (this.resolveLocalPermission(requestId, allow)) return
     const req = this.pendingPermissions.get(requestId)
     this.resolvePermission(requestId, req?.sessionId)
     if (!req || !this.client) return
@@ -734,6 +809,10 @@ export class AgentHost {
     } else if (ev.type === 'permission.replied') {
       this.resolvePermission(d.requestID, d.sessionID)
     }
+  }
+
+  private blenderPrompt(): string {
+    return fs.readFileSync(resolveAppResource('electron/agent/prompts/blender.md', 'agent/prompts/blender.md'), 'utf-8').trim()
   }
 
   private lindenPrompt(): string {

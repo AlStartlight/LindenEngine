@@ -75,7 +75,10 @@ interface Window {
     agentListSessions?: () => Promise<any[]>
     agentCreateSession?: (title?: string) => Promise<any>
     agentDeleteSession?: (sessionId: string) => Promise<boolean>
-    agentSubmitPrompt?: (options: any) => Promise<{ messageId: string }>
+    agentSubmitPrompt?: (options: import('../shared/agentTypes').AgentPromptOptions) => Promise<{ messageId: string }>
+    blenderStatus?: () => Promise<import('../shared/blenderTypes').BlenderStatus>
+    blenderDetect?: () => Promise<import('../shared/blenderTypes').BlenderStatus>
+    blenderSetPath?: (path: string) => Promise<import('../shared/blenderTypes').BlenderStatus>
     agentAttachImage?: (payload: { projectPath: string; name: string; data: Uint8Array }) => Promise<{ path: string; bytes: number; resized: boolean }>
     factoryPreview?: (req: { projectPath: string; factory: string; exportName?: string; options?: Record<string, unknown> }) => Promise<Uint8Array>
     agentAbortPrompt?: (sessionId: string) => Promise<boolean>
