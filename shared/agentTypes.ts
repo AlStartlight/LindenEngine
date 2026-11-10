@@ -124,6 +124,8 @@ export interface AgentTurn {
   id: string
   sessionId: string
   prompt: string
+  /** references/<file> images sent with the prompt (shown as thumbnails) */
+  attachments?: string[]
   phase: AgentTurnPhase
   phaseDetail?: string
   parts: AgentPart[]
@@ -174,7 +176,7 @@ export interface AgentPermissionRequest {
 
 /** Events about a turn; seq increases by one per event within a turn */
 export type AgentTurnEvent =
-  | { type: 'turn_started'; sessionId: string; turnId: string; seq: number; data: { prompt: string; startedAt: number } }
+  | { type: 'turn_started'; sessionId: string; turnId: string; seq: number; data: { prompt: string; startedAt: number; attachments?: string[] } }
   | { type: 'turn_phase'; sessionId: string; turnId: string; seq: number; data: { phase: AgentTurnPhase; detail?: string } }
   | { type: 'part_upsert'; sessionId: string; turnId: string; seq: number; data: Partial<AgentPart> & { id: string; kind: AgentPart['kind'] } }
   | { type: 'part_append'; sessionId: string; turnId: string; seq: number; data: { id: string; kind: 'reasoning' | 'text'; delta: string; at: number; childSessionId?: string } }

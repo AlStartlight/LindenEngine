@@ -269,7 +269,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const optimistic: AgentTurn = {
       id: `local_${Date.now()}`,
       sessionId,
-      prompt: attachments && attachments.length ? `${prompt}\n\n[${attachments.join(', ')}]` : prompt,
+      prompt,
+      ...(attachments && attachments.length ? { attachments } : {}),
       phase: 'queued',
       parts: [],
       startedAt: Date.now(),

@@ -29,7 +29,9 @@ export function resolveAssetRequest(url: string, root = assetRoot): { status: nu
   }
   if (parsed.protocol !== `${ASSET_SCHEME}:` || parsed.host !== ASSET_HOST || !root) return { status: 404, headers }
   const rel = decodeURIComponent(parsed.pathname).replace(/^\/+/, '')
-  if (!rel.startsWith('assets/')) return { status: 403, headers }
+  // assets/, plus the agent's reference images (thumbnails in the agent panel)
+  const reference = rel.startsWith('references/') && /\.(png|jpe?g|webp)$/i.test(rel)
+  if (!rel.startsWith('assets/') && !reference) return { status: 403, headers }
   const file = safeJoin(root, rel)
   if (!file) return { status: 403, headers }
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return { status: 404, headers }

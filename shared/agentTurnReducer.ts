@@ -12,6 +12,7 @@ export function applyTurnEvent(turns: AgentTurn[], ev: AgentTurnEvent): AgentTur
       id: ev.turnId,
       sessionId: ev.sessionId,
       prompt: ev.data.prompt,
+      ...(ev.data.attachments?.length ? { attachments: ev.data.attachments } : {}),
       phase: 'queued',
       parts: [],
       startedAt: ev.data.startedAt,

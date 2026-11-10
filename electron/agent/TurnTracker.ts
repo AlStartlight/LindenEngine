@@ -8,7 +8,20 @@ type OpenCodeEvent = { type: string; created?: number; data?: any }
 type TurnEventInput = AgentTurnEvent extends infer E ? (E extends AgentTurnEvent ? Omit<E, 'seq' | 'turnId'> : never) : never
 
 const MAX_OUTPUT_CHARS = 4000
-const EDITOR_CONTEXT_RE = /\n*<editor-context>[\s\S]*<\/editor-context>\s*$/
+/** Blocks AgentHost appends to the user's prompt; hidden from the turn's prompt in the panel */
+const EDITOR_CONTEXT_RE = /(?:\s*<(editor-context|reference-images|blender-mode)>[\s\S]*?<\/\1>)+\s*$/
+const REFERENCE_IMAGES_RE = /<reference-images>([\s\S]*?)<\/reference-images>\s*(?:<(?:editor-context|blender-mode)>[\s\S]*?<\/(?:editor-context|blender-mode)>\s*)*$/
+
+/**
+ * The user's own text of a sent prompt, plus the reference images listed in its
+ * <reference-images> block (the panel shows them as thumbnails instead of the raw block)
+ */
+export function splitPrompt(text: string): { prompt: string; attachments?: string[] } {
+  const block = text.match(REFERENCE_IMAGES_RE)?.[1] ?? ''
+  const attachments = [...block.matchAll(/^- (references\/\S+)$/gm)].map((m) => m[1])
+  const prompt = text.replace(EDITOR_CONTEXT_RE, '')
+  return attachments.length ? { prompt, attachments } : { prompt }
+}
 
 type Tokens = { input: number; output: number; reasoning: number }
 const ZERO_TOKENS: Tokens = { input: 0, output: 0, reasoning: 0 }
@@ -103,8 +116,8 @@ export class TurnTracker {
     switch (ev.type) {
       case 'session.inbox.enqueued':
         if (d.item?.type === 'user') {
-          const prompt = String(d.item.payload?.text ?? '').replace(EDITOR_CONTEXT_RE, '')
-          this.startTurn(root, d.inboxID, prompt, at)
+          const { prompt, attachments } = splitPrompt(String(d.item.payload?.text ?? ''))
+          this.startTurn(root, d.inboxID, prompt, at, attachments)
         }
         break
       case 'session.execution.started':
@@ -234,12 +247,12 @@ export class TurnTracker {
     return this.children.get(sessionId)
   }
 
-  private startTurn(sessionId: string, turnId: string, prompt: string, at: number): void {
+  private startTurn(sessionId: string, turnId: string, prompt: string, at: number, attachments?: string[]): void {
     this.flush()
     const current = this.turns.get(sessionId)
     if (current?.id === turnId) return
     this.turnBaseline.set(sessionId, this.sessionTokens.get(sessionId) ?? ZERO_TOKENS)
-    const ev: AgentTurnEvent = { type: 'turn_started', sessionId, turnId, seq: 1, data: { prompt, startedAt: at } }
+    const ev: AgentTurnEvent = { type: 'turn_started', sessionId, turnId, seq: 1, data: { prompt, startedAt: at, ...(attachments?.length ? { attachments } : {}) } }
     this.turns.set(sessionId, applyTurnEvent([], ev)[0])
     this.emit(ev)
   }
@@ -298,7 +311,7 @@ export function turnsFromMessages(sessionId: string, messages: any[]): AgentTurn
       turn = {
         id: m.id,
         sessionId,
-        prompt: String(m.text ?? '').replace(EDITOR_CONTEXT_RE, ''),
+        ...splitPrompt(String(m.text ?? '')),
         phase: 'done',
         parts: [],
         startedAt: m.time?.created ?? 0,
