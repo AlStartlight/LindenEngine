@@ -20,6 +20,7 @@ import { MODEL_TOOLS } from './modelTools'
 import { FACTORY_TOOLS, factoryHash } from './factoryTools'
 import { IMG2_TOOLS } from './img2Tools'
 import { REFERENCE_TOOLS } from './referenceTools'
+import { BLENDER_TOOLS } from './blenderTools'
 import { img2threejsEnabled } from '../features'
 import { ModelSpecSchema } from '../../../engine/model/ModelSpec'
 import { MaterialSpecSchema } from '../../../engine/materials/MaterialSpec'
@@ -28,6 +29,7 @@ import { parseSceneFile } from '../../../engine/scene/parseSceneFile'
 
 export { setPreviewRenderer } from './modelTools'
 export { setFactoryProbe } from './factoryTools'
+export { setBlenderSpawn } from './blenderTools'
 export type { PreviewRenderer, PreviewRequest, PreviewResult } from './modelTools'
 
 export interface ToolDefinition {
@@ -38,11 +40,24 @@ export interface ToolDefinition {
     properties: Record<string, any>
     required?: string[]
   }
-  execute: (
-    projectPath: string,
-    args: any,
-    options?: { onDiff?: (diff: AgentDiffItem) => void }
-  ) => Promise<ToolResult>
+  execute: (projectPath: string, args: any, options?: ToolExecuteOptions) => Promise<ToolResult>
+  /** Listed and callable only while this returns true (default: always) */
+  available?: () => boolean
+}
+
+/** A tool asking the user before it runs something (shown as a PermissionCard in the agent panel) */
+export interface ToolPermissionRequest {
+  action: string
+  message: string
+  resources: string[]
+  /** Full source shown to the user before it runs */
+  code?: string
+}
+
+export interface ToolExecuteOptions {
+  onDiff?: (diff: AgentDiffItem) => void
+  /** Resolves true when the user allows it; absent outside the editor (then the tool refuses) */
+  requestPermission?: (req: ToolPermissionRequest) => Promise<boolean>
 }
 
 export interface ToolResult {
@@ -1171,6 +1186,8 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
   ...MODEL_TOOLS,
   ...FACTORY_TOOLS,
   ...REFERENCE_TOOLS,
+  // Listed only while the user's Blender is detected (each tool's `available`)
+  ...BLENDER_TOOLS,
   // Third-party skill, off unless LINDEN_IMG2THREEJS=1 (electron/agent/features.ts)
   ...(img2threejsEnabled() ? IMG2_TOOLS : {}),
 }

@@ -136,6 +136,36 @@ export function hoistFitArgs(raw: any): any {
   return { ...raw, fitHeight: raw.fitHeight ?? fitHeight, fitScale: raw.fitScale ?? fitScale, model: rest }
 }
 
+/**
+ * Copy a .glb/.gltf/.obj/.hdr/.exr into the project's assets/ and inspect it (linden_asset_import,
+ * linden_blender_build). Throws with a user-facing message when the file cannot be imported.
+ */
+export function importAssetFile(projectPath: string, sourcePath: string, targetPath?: string): { path: string; bytes: number; copied: string[] } & ReturnType<typeof inspectAssetFile> {
+  const source = path.isAbsolute(sourcePath) ? sourcePath : safePath(projectPath, sourcePath)
+  if (!fs.existsSync(source) || !fs.statSync(source).isFile()) throw new Error(`File sumber tidak ditemukan: ${sourcePath}`)
+  const ext = path.extname(source).toLowerCase()
+  if (!['.glb', '.gltf', '.obj', '.hdr', '.exr'].includes(ext)) throw new Error(`Format ${ext} tidak didukung (glb, gltf, obj, hdr, exr)`)
+  const folder = ext === '.hdr' || ext === '.exr' ? 'assets/hdri' : 'assets/models'
+  const target = targetPath ?? `${folder}/${path.basename(source)}`
+  if (!target.startsWith('assets/')) throw new Error('target harus di dalam assets/')
+  const dest = safePath(projectPath, target)
+
+  // Inspect before copying so a broken file does not land in the project
+  const info = inspectAssetFile(source)
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  if (path.resolve(source) !== path.resolve(dest)) fs.copyFileSync(source, dest)
+  const copied = [target]
+  for (const rel of gltfSidecarFiles(source)) {
+    const from = path.join(path.dirname(source), rel)
+    const to = path.join(path.dirname(dest), rel)
+    if (!fs.existsSync(from) || path.resolve(from) === path.resolve(to)) continue
+    fs.mkdirSync(path.dirname(to), { recursive: true })
+    fs.copyFileSync(from, to)
+    copied.push(path.relative(projectPath, to).split(path.sep).join('/'))
+  }
+  return { path: target, bytes: fs.statSync(dest).size, copied, ...info }
+}
+
 export const MODEL_TOOLS: Record<string, ToolDefinition> = {
   linden_dimensions: {
     name: 'linden_dimensions',
@@ -349,29 +379,7 @@ export const MODEL_TOOLS: Record<string, ToolDefinition> = {
     },
     async execute(projectPath: string, args: { source: string; target?: string }) {
       try {
-        const source = path.isAbsolute(args.source) ? args.source : safePath(projectPath, args.source)
-        if (!fs.existsSync(source) || !fs.statSync(source).isFile()) return { success: false, error: `File sumber tidak ditemukan: ${args.source}` }
-        const ext = path.extname(source).toLowerCase()
-        if (!['.glb', '.gltf', '.obj', '.hdr', '.exr'].includes(ext)) return { success: false, error: `Format ${ext} tidak didukung (glb, gltf, obj, hdr, exr)` }
-        const folder = ext === '.hdr' || ext === '.exr' ? 'assets/hdri' : 'assets/models'
-        const target = args.target ?? `${folder}/${path.basename(source)}`
-        if (!target.startsWith('assets/')) return { success: false, error: 'target harus di dalam assets/' }
-        const dest = safePath(projectPath, target)
-
-        // Inspect before copying so a broken file does not land in the project
-        const info = inspectAssetFile(source)
-        fs.mkdirSync(path.dirname(dest), { recursive: true })
-        if (path.resolve(source) !== path.resolve(dest)) fs.copyFileSync(source, dest)
-        const copied = [target]
-        for (const rel of gltfSidecarFiles(source)) {
-          const from = path.join(path.dirname(source), rel)
-          const to = path.join(path.dirname(dest), rel)
-          if (!fs.existsSync(from) || path.resolve(from) === path.resolve(to)) continue
-          fs.mkdirSync(path.dirname(to), { recursive: true })
-          fs.copyFileSync(from, to)
-          copied.push(path.relative(projectPath, to).split(path.sep).join('/'))
-        }
-        return { success: true, data: { path: target, bytes: fs.statSync(dest).size, copied, ...info } }
+        return { success: true, data: importAssetFile(projectPath, args.source, args.target) }
       } catch (err: any) {
         return { success: false, error: err.message }
       }
