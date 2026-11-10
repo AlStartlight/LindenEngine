@@ -12,6 +12,7 @@ import { syncServerInstance } from './bridge/syncServer'
 import { AgentHost } from './agent/AgentHost'
 import { detectBlender, getBlenderStatus, setBlenderPath } from './bridge/blenderDetect'
 import type { AgentPromptOptions } from '../shared/agentTypes'
+import { normalizeMultiplayer } from '../shared/net/config'
 import { LINDEN_TOOLS, setPreviewRenderer, setFactoryProbe } from './agent/lindenTools'
 import { createPreviewRenderer, createFactoryProbe } from './agent/previewWindow'
 import { createFactoryPreviews } from './agent/factoryPreview'
@@ -846,6 +847,21 @@ handle('project:saveGraphics', async (_event, opts: { projectPath: string; quali
     if (opts.renderer === 'webgl' || opts.renderer === 'webgpu') current.renderer = opts.renderer
     await writeFile(configPath, JSON.stringify(current, null, 2), 'utf-8')
     return { status: 'ok' }
+  } catch (err: any) {
+    return { status: 'error', message: err.message || String(err) }
+  }
+})
+
+// Project: read (and optionally patch) the multiplayer block, keeping the rest of the config intact
+handle('project:multiplayer', async (_event, opts: { projectPath: string; patch?: Record<string, unknown> }) => {
+  try {
+    const configPath = join(opts.projectPath, 'project.linden.json')
+    const current = fs.existsSync(configPath) ? JSON.parse(await readFile(configPath, 'utf-8')) : {}
+    if (opts.patch && typeof opts.patch === 'object') {
+      current.multiplayer = normalizeMultiplayer({ ...(current.multiplayer ?? {}), ...opts.patch })
+      await writeFile(configPath, JSON.stringify(current, null, 2), 'utf-8')
+    }
+    return { status: 'ok', config: normalizeMultiplayer(current.multiplayer) }
   } catch (err: any) {
     return { status: 'error', message: err.message || String(err) }
   }

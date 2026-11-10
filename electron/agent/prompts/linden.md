@@ -44,6 +44,7 @@ These come from the `linden` MCP server. In OpenCode code mode they are called a
 10. `linden_reference_view`: show the user's reference image (`references/<file>`) next to the latest `linden_render_preview` frames of an entity, to compare (section 7).
 10b. `linden_factory_write`: write your own three.js factory `models/<name>/create<Name>Model.ts` and compile-check it, for shapes the parts of `linden_model_build` cannot express (section 7).
 11. `linden_model_bake_glb`: bake a factory model (Model.factory) into a GLB in `assets/models/`.
+12. `linden_multiplayer_setup`: turn on online multiplayer (WebSocket) and make the player entity the avatar template every player gets (section 4c). `linden_play {clients: 2}` then plays it with two headless clients.
 
 ---
 
@@ -220,6 +221,26 @@ Rules:
 - **Breakable**: `breakForce` on a `fixed` joint (a hanging sign drops when hit hard); react in `onJointBreak`.
 - **Lake with floating crates**: entity with `Water { size: { x: 30, y: 30 } }` at y = 0 above a sunken ground; crates with `Rigidbody { mass: 300 }` + 1 m `BoxCollider` float (300 kg in 1 m³ < 1000).
 - **Campfire**: fire entity with `ParticleEmitter { preset: 'fire' }` (it adds a flickering light) and a child entity 0.6 m above with `{ preset: 'smoke' }`. Torches: `fire` with `maxParticles: 120`. Hit effects: `ctx.vfx.spawn('sparks' | 'explosion' | 'splash', point)` from collision hooks.
+
+---
+
+## 4c. Multiplayer (online, WebSocket)
+
+Use it only when the user asks for an online/multiplayer game. Clients connect to a room server: the editor runs one locally during Play (Game View → "Klien: 2"), and the web export ships `server/linden-server.mjs` (`node server/linden-server.mjs`).
+
+Setup:
+- `linden_multiplayer_setup {playerEntityId}` sets `multiplayer.enabled` and puts `NetworkSync {template: "player"}` on the player. That entity (with its children, e.g. its camera) becomes a template: hidden at Play, one copy per player (`Ship (Asep)`). The local copy's camera becomes the view.
+- Other entities that must look the same for everyone (doors, enemies, moving platforms, pickups) get `NetworkSync` without a template through `linden_scene_apply`. They belong to the room: the host (oldest player) simulates them, the others see them follow. When the host leaves, the next player takes over.
+- Things players create while playing (bullets, dropped items) are entities with `NetworkSync {template: "bullet"}` in the scene, created with `ctx.net.spawn('bullet', {position, rotation, data})`.
+
+Scripting rules:
+- Every copy runs the same scripts. A script that moves or controls a networked entity MUST start with `if (!this.ctx.net.isMine) return` in `onUpdate`/`onFixedUpdate`. Other players' copies are puppets: their bodies are kinematic, `CharacterMovement` is off, and their Transform comes from the network.
+- Game actions go to everyone as events: `ctx.net.send('fire', {dir}, {to: 'all'|'others'|'host'|playerId})`, received in `onNetEvent(name, data, fromPlayerId)`. Keep event data small JSON (at most 8 KB).
+- Shared values (score, round timer, door open) live in room state: `ctx.net.state.set('score', {...})`, `ctx.net.state.get('score')`, `ctx.net.state.on('score', (value, from) => ...)`. Let the host decide game rules (`if (ctx.net.isHost)`), so two clients never disagree.
+- Hooks: `onNetJoin(player)`, `onNetLeave(player)` (`{id, name, isHost, isLocal}`), `onNetHost(playerId)`. Also available: `ctx.net.players`, `ctx.net.playerId`, `ctx.net.connected`, `ctx.net.ping`, `ctx.net.owner(entity)`, `ctx.net.spawnData()`, `ctx.net.destroy(entity)`.
+- Without multiplayer `ctx.net` is an offline stub (`isMine` and `isHost` true, `send` to 'all' reaches the local `onNetEvent`), so the same scripts run single-player.
+
+Verify with `linden_play {clients: 2, inputScript}`: both clients must be connected with 2 players and 2 avatars, `sync.maxPositionError` must stay under 0.1 m, and it must not warn that a script skips `isMine`. Limits to tell the user: each player simulates their own entities (a modified client can cheat), and the server keeps nothing on disk.
 
 ---
 

@@ -12,6 +12,9 @@ import { resolveHtmlEntry } from '../play/PlaySession'
 import { injectHeadScript } from '../play/GameProtocol'
 import { COMPILED_SCRIPTS_DIR } from '../../shared/playProtocol'
 import { MIME_TYPES } from '../../shared/mime'
+import { normalizeMultiplayer } from '../../shared/net/config'
+import { writeMultiplayerServer } from './multiplayerServer'
+import { RoomServer } from '../../server/net/RoomServer'
 
 export interface WebBuildOptions {
   projectPath: string
@@ -318,6 +321,14 @@ export class WebBuildRunner {
         }
       }
 
+      // Multiplayer: the room server ships next to the game (server/), see server/README.md
+      const multiplayer = normalizeMultiplayer(projectConfig.multiplayer)
+      if (multiplayer.enabled && projectConfig.runtime !== 'html') {
+        const res = writeMultiplayerServer(outDir, multiplayer, appName)
+        if (res.ok) emitLog('[WebBuild] Server multiplayer ditulis ke server/ (jalankan: node server/linden-server.mjs)')
+        else warnings.push(res.reason)
+      }
+
       // 5. Packaging & Zip
       emitProgress('sign', 90, 'Membuat paket distribusi ZIP...')
       let zipPath: string | undefined
@@ -423,15 +434,21 @@ export class WebBuildRunner {
         }
       })
 
+      // A multiplayer build (server/ present) gets its room server on the same port at /net
+      const rooms = fs.existsSync(path.join(buildDir, 'server', 'linden-server.mjs')) ? new RoomServer({ server }) : null
       server.on('error', reject)
-      server.listen(port, '127.0.0.1', () => {
+      server.listen(port, '127.0.0.1', async () => {
+        await rooms?.start()
         const addr = server.address()
         const actualPort = typeof addr === 'object' && addr ? addr.port : port
         const url = `http://127.0.0.1:${actualPort}`
         resolve({
           url,
           port: actualPort,
-          close: () => server.close(),
+          close: () => {
+            void rooms?.close()
+            server.close()
+          },
         })
       })
     })

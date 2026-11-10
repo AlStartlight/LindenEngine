@@ -65,54 +65,51 @@ export function stableStringify(obj: any, space = 2): string {
  * Scene Serializer v2
  */
 export class SceneSerializer {
+  /** One entity as stored in a .lscene (components' runtime-only fields are left out) */
+  static serializeEntity(entity: Entity): SerializedEntity {
+    const components: SerializedComponent[] = []
+
+    for (const comp of entity.getComponents()) {
+      const data: Record<string, any> = {}
+      for (const [key, val] of Object.entries(comp)) {
+        if (key === 'name' || key === 'entityId' || typeof val === 'function' || key.startsWith('_') || key === 'worldGetter') {
+          continue
+        }
+
+        // Handle EventField
+        if (val && typeof (val as any).listeners !== 'undefined') {
+          data[key] = (val as any).listeners
+        } else if (val && typeof val === 'object') {
+          data[key] = JSON.parse(JSON.stringify(val))
+        } else {
+          data[key] = val
+        }
+      }
+
+      components.push({
+        type: comp.name,
+        data,
+      })
+    }
+
+    return {
+      id: entity.id,
+      name: entity.name,
+      active: entity.active,
+      static: entity.isStatic,
+      tags: [...entity.tags],
+      layer: entity.layer,
+      parentId: entity.parentId,
+      prefab: entity.prefab ? JSON.parse(JSON.stringify(entity.prefab)) : undefined,
+      components,
+    }
+  }
+
   static serialize(world: World, sceneName: string = 'Untitled'): string {
     const orderedEntities = world.getEntitiesInHierarchyOrder()
     const serializedEntities: SerializedEntity[] = []
 
-    for (const entity of orderedEntities) {
-      const components: SerializedComponent[] = []
-
-      for (const comp of entity.getComponents()) {
-        const data: Record<string, any> = {}
-        for (const [key, val] of Object.entries(comp)) {
-          if (
-            key === 'name' ||
-            key === 'entityId' ||
-            typeof val === 'function' ||
-            key.startsWith('_') ||
-            key === 'worldGetter'
-          ) {
-            continue
-          }
-
-          // Handle EventField
-          if (val && typeof (val as any).listeners !== 'undefined') {
-            data[key] = (val as any).listeners
-          } else if (val && typeof val === 'object') {
-            data[key] = JSON.parse(JSON.stringify(val))
-          } else {
-            data[key] = val
-          }
-        }
-
-        components.push({
-          type: comp.name,
-          data,
-        })
-      }
-
-      serializedEntities.push({
-        id: entity.id,
-        name: entity.name,
-        active: entity.active,
-        static: entity.isStatic,
-        tags: [...entity.tags],
-        layer: entity.layer,
-        parentId: entity.parentId,
-        prefab: entity.prefab ? JSON.parse(JSON.stringify(entity.prefab)) : undefined,
-        components,
-      })
-    }
+    for (const entity of orderedEntities) serializedEntities.push(SceneSerializer.serializeEntity(entity))
 
     const sceneData: SceneV2Data = {
       format: 'linden-scene',
@@ -123,6 +120,68 @@ export class SceneSerializer {
     }
 
     return stableStringify(sceneData)
+  }
+
+  /** Add one stored entity (and its components) to the world; parent links are left to the caller */
+  static addEntity(world: World, entData: SerializedEntity): Entity {
+    const entity = new Entity(entData.name, entData.id)
+    entity.active = entData.active ?? true
+    entity.isStatic = entData.static ?? false
+    entity.tags = entData.tags ? [...entData.tags] : []
+    entity.layer = entData.layer ?? 0
+    entity.parentId = entData.parentId || null
+    if (entData.prefab) {
+      entity.prefab = JSON.parse(JSON.stringify(entData.prefab))
+    }
+
+    world.addEntity(entity)
+
+    // Add components
+    for (const compData of entData.components) {
+      if (compData.type === 'Transform') {
+        const t = entity.getTransform()
+        if (compData.data) {
+          if (compData.data.position) {
+            const p = compData.data.position
+            t.position = Array.isArray(p) ? { x: p[0], y: p[1], z: p[2] } : { ...p }
+          }
+          if (compData.data.rotation) {
+            const r = compData.data.rotation
+            t.rotation = Array.isArray(r) ? { x: r[0], y: r[1], z: r[2] } : { ...r }
+          }
+          if (compData.data.scale) {
+            const s = compData.data.scale
+            t.scale = Array.isArray(s) ? { x: s[0], y: s[1], z: s[2] } : { ...s }
+          }
+        }
+      } else {
+        // Scenes saved before a component was removed (Blueprint, Animator) still open; the data is
+        // kept as an inert component so a resave does not lose it
+        if (!ComponentRegistry.get(compData.type)) {
+          console.warn(`[Scene] Komponen tidak dikenal "${compData.type}" pada entity "${entData.name}" diabaikan`)
+        }
+        try {
+          world.addComponent(entity.id, compData.type, compData.data)
+        } catch (_) {
+          // Missing script or unknown component: retain data as generic placeholder
+          const missingComp = new (class extends Component {
+            public missingType: string
+            public rawData: Record<string, any>
+            constructor(type: string, data: Record<string, any>) {
+              super(type)
+              this.missingType = type
+              this.rawData = data
+              Object.assign(this, data)
+            }
+            clone() {
+              return new (this.constructor as any)(this.missingType, this.rawData)
+            }
+          })(compData.type, compData.data)
+          entity.addComponent(missingComp)
+        }
+      }
+    }
+    return entity
   }
 
   static deserialize(jsonString: string, world: World): { name: string; version: number } {
@@ -152,65 +211,7 @@ export class SceneSerializer {
     world.setSceneSettings(settings, true)
 
     // Pass 1: Create all entities with their IDs and properties
-    for (const entData of sceneData.entities) {
-      const entity = new Entity(entData.name, entData.id)
-      entity.active = entData.active ?? true
-      entity.isStatic = entData.static ?? false
-      entity.tags = entData.tags ? [...entData.tags] : []
-      entity.layer = entData.layer ?? 0
-      entity.parentId = entData.parentId || null
-      if (entData.prefab) {
-        entity.prefab = JSON.parse(JSON.stringify(entData.prefab))
-      }
-
-      world.addEntity(entity)
-
-      // Add components
-      for (const compData of entData.components) {
-        if (compData.type === 'Transform') {
-          const t = entity.getTransform()
-          if (compData.data) {
-            if (compData.data.position) {
-              const p = compData.data.position
-              t.position = Array.isArray(p) ? { x: p[0], y: p[1], z: p[2] } : { ...p }
-            }
-            if (compData.data.rotation) {
-              const r = compData.data.rotation
-              t.rotation = Array.isArray(r) ? { x: r[0], y: r[1], z: r[2] } : { ...r }
-            }
-            if (compData.data.scale) {
-              const s = compData.data.scale
-              t.scale = Array.isArray(s) ? { x: s[0], y: s[1], z: s[2] } : { ...s }
-            }
-          }
-        } else {
-          // Scenes saved before a component was removed (Blueprint, Animator) still open; the data is
-          // kept as an inert component so a resave does not lose it
-          if (!ComponentRegistry.get(compData.type)) {
-            console.warn(`[Scene] Komponen tidak dikenal "${compData.type}" pada entity "${entData.name}" diabaikan`)
-          }
-          try {
-            world.addComponent(entity.id, compData.type, compData.data)
-          } catch (_) {
-            // Missing script or unknown component: retain data as generic placeholder
-            const missingComp = new (class extends Component {
-              public missingType: string
-              public rawData: Record<string, any>
-              constructor(type: string, data: Record<string, any>) {
-                super(type)
-                this.missingType = type
-                this.rawData = data
-                Object.assign(this, data)
-              }
-              clone() {
-                return new (this.constructor as any)(this.missingType, this.rawData)
-              }
-            })(compData.type, compData.data)
-            entity.addComponent(missingComp)
-          }
-        }
-      }
-    }
+    for (const entData of sceneData.entities) SceneSerializer.addEntity(world, entData)
 
     // Pass 2: Reconstruct parent-child relations
     for (const entData of sceneData.entities) {

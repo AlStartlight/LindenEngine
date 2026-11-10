@@ -77,6 +77,7 @@ interface Window {
     agentDeleteSession?: (sessionId: string) => Promise<boolean>
     agentSubmitPrompt?: (options: import('../shared/agentTypes').AgentPromptOptions) => Promise<{ messageId: string }>
     blenderStatus?: () => Promise<import('../shared/blenderTypes').BlenderStatus>
+    projectMultiplayer?: (opts: { projectPath: string; patch?: Partial<import('../shared/net/config').MultiplayerConfig> }) => Promise<{ status: 'ok' | 'error'; config?: import('../shared/net/config').MultiplayerConfig; message?: string }>
     blenderDetect?: () => Promise<import('../shared/blenderTypes').BlenderStatus>
     blenderSetPath?: (path: string) => Promise<import('../shared/blenderTypes').BlenderStatus>
     agentAttachImage?: (payload: { projectPath: string; name: string; data: Uint8Array }) => Promise<{ path: string; bytes: number; resized: boolean }>

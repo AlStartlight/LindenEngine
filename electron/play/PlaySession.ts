@@ -6,6 +6,8 @@ import { compileScripts } from './ScriptCompiler'
 import { ensurePlayerRuntime } from './playerRuntime'
 import { GAME_ORIGIN, PlayFileChange, PlayStartResult, isValidUiSrc } from '../../shared/playProtocol'
 import type { LindenProjectConfig } from '../../shared/types/project'
+import { normalizeMultiplayer, type MultiplayerConfig } from '../../shared/net/config'
+import { startDevServer, stopDevServer } from '../net/devServer'
 
 /**
  * Play sessions: one per press of Play. A session pins the project root, compiled scripts
@@ -43,6 +45,7 @@ export interface StartPlayOptions {
   preferSourceRuntime: boolean
   /** Project files of a running session changed: HTML Game reload, recompiled scripts, or UI fragments */
   onFilesChanged?: (change: PlayFileChange) => void
+  log?: (msg: string) => void
 }
 
 export async function startPlaySession(opts: StartPlayOptions): Promise<PlayStartResult> {
@@ -81,9 +84,21 @@ export async function startPlaySession(opts: StartPlayOptions): Promise<PlayStar
       return { status: 'error', message: 'Kompilasi script gagal', errors: compiled.errors }
     }
     const session: GameSession & { watcher?: fs.FSWatcher } = { ...base, compiledDir }
+    // Multiplayer: every Game View client of this session joins a local room server
+    let multiplayer: MultiplayerConfig | undefined
+    const mp = normalizeMultiplayer(config.multiplayer)
+    if (mp.enabled) {
+      try {
+        const dev = await startDevServer(id, mp, opts.log)
+        session.allowNetwork = [...session.allowNetwork, dev.origin]
+        multiplayer = { ...mp, serverUrl: dev.url }
+      } catch (err: any) {
+        return { status: 'error', message: `Server multiplayer lokal gagal dijalankan: ${err.message}` }
+      }
+    }
     if (opts.onFilesChanged) session.watcher = watchSceneProject(projectRoot, id, compiledDir, opts.onFilesChanged)
     sessions.set(id, session)
-    return { status: 'ok', sessionId: id, mode, url: `${GAME_ORIGIN}/${id}/index.html?embedded=1` }
+    return { status: 'ok', sessionId: id, mode, url: `${GAME_ORIGIN}/${id}/index.html?embedded=1`, ...(multiplayer ? { multiplayer } : {}) }
   }
 
   const resolved = resolveHtmlEntry(projectRoot, config.html?.entry)
@@ -182,6 +197,7 @@ export function stopPlaySession(id: string): boolean {
   if (!session) return false
   session.watcher?.close()
   sessions.delete(id)
+  void stopDevServer(id)
   return true
 }
 

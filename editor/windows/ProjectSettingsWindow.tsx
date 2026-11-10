@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { useEditorStore } from '../store/editorStore'
+import { MultiplayerSection } from '../panels/MultiplayerSection'
 
-type TabType = 'tags_layers' | 'physics' | 'graphics' | 'time' | 'services'
+type TabType = 'tags_layers' | 'physics' | 'graphics' | 'multiplayer' | 'time' | 'services'
 
 export const ProjectSettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const {
@@ -72,6 +73,14 @@ export const ProjectSettingsWindow: React.FC<{ onClose: () => void }> = ({ onClo
               }`}
             >
               Graphics (Quality)
+            </button>
+            <button
+              onClick={() => setActiveTab('multiplayer')}
+              className={`w-full text-left px-3 py-1.5 rounded transition-colors ${
+                activeTab === 'multiplayer' ? 'bg-blue-600 text-white font-medium' : 'text-gray-400 hover:bg-white/5'
+              }`}
+            >
+              Multiplayer
             </button>
             <button
               onClick={() => setActiveTab('time')}
@@ -274,6 +283,8 @@ export const ProjectSettingsWindow: React.FC<{ onClose: () => void }> = ({ onClo
                 </div>
               </div>
             )}
+
+            {activeTab === 'multiplayer' && <MultiplayerSection projectPath={useEditorStore.getState().projectPath} />}
 
             {activeTab === 'time' && (
               <div className="space-y-4">

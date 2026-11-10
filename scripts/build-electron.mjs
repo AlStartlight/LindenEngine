@@ -3,6 +3,7 @@
 // broke once files were renamed to .cjs ("Cannot find module './bridge/godotExec'").
 // Bundling resolves every relative import (electron/, shared/, engine/) at build time.
 import { build } from 'rolldown'
+import { buildServer } from './build-server.mjs'
 import { readFileSync, rmSync } from 'node:fs'
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf-8'))
@@ -47,3 +48,6 @@ for (const entry of ['main', 'preload']) {
     },
   })
 }
+
+// Multiplayer server shipped with web builds (server/linden-server.mjs)
+await buildServer('dist-electron/linden-server.mjs')

@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { World } from '../engine/ecs/World'
+import type { Entity } from '../engine/ecs/Entity'
 import { SceneBridge } from '../engine/scene/SceneBridge'
 import { SceneSerializer } from '../engine/scene/serializer'
 import { Input } from '../engine/input/InputActions'
@@ -16,6 +17,9 @@ import { createTouchApi, TouchApi } from './touchApi'
 import { normalizeTouchConfig } from '../engine/input/normalizeActions'
 import { DEFAULT_SCENE } from './defaultScene'
 import '../engine/ecs/ComponentRegistry'
+import { NetSystem } from '../engine/net/NetSystem'
+import type { NetStatus } from '../engine/net/NetClient'
+import { normalizeMultiplayer, resolveServerUrl, roomFromUrl } from '../shared/net/config'
 
 export interface PlayerStats {
   fps: number
@@ -176,6 +180,9 @@ export class LindenPlayer {
     if (typeof sceneLayout === 'string' && sceneLayout) this.touch.setLayout(sceneLayout)
     SceneSerializer.deserialize(typeof sceneData === 'string' ? sceneData : JSON.stringify(sceneData), this.world)
     this.pipeline?.applySettings(this.world.getSceneSettings())
+
+    // Multiplayer joins before physics, so other players' entities get kinematic bodies
+    const net = await this.initNet()
     this.resolveActiveCamera()
 
     this.updateLoadingStatus('Menginisialisasi simulasi fisika...', 75)
@@ -199,6 +206,7 @@ export class LindenPlayer {
       three: THREE,
       loadScene: (path) => this.switchScene(path),
       touch: this.touch,
+      createNet: net ? (entity) => net.api(entity) : undefined,
     })
     this.sim.scripts = scripts
 
@@ -207,6 +215,82 @@ export class LindenPlayer {
     await this.ui!.loadAll(this.world, (id) => this.bridge.getObject(id))
     await scripts.loadAll()
     this.sim.startComponents()
+    // Other players' entities and this player's avatar (its camera becomes the view)
+    await net?.start()
+  }
+
+  /** NetSystem when the project has multiplayer.enabled (see docs/specs/SPEC-Multiplayer-WebSocket.md) */
+  private async initNet(): Promise<NetSystem | null> {
+    const cfg = normalizeMultiplayer(this.projectData?.multiplayer)
+    if (!cfg.enabled) return null
+    const fromUrl = roomFromUrl(location.href)
+    const playerName = typeof this.projectData?.multiplayer?.playerName === 'string' ? this.projectData.multiplayer.playerName : undefined
+    const net = new NetSystem({
+      world: this.world,
+      sim: this.sim,
+      config: cfg,
+      url: resolveServerUrl(cfg, location.href),
+      room: fromUrl.room,
+      name: fromUrl.name ?? playerName,
+      onLocalAvatar: (root) => this.resolveActiveCamera(root),
+      onStatus: (status, detail) => this.showNetStatus(status, detail),
+      log: (msg) => (this.config.onInfo ? this.config.onInfo(msg) : console.info(msg)),
+      warn: (msg) => this.warn(msg),
+    })
+    net.prepare()
+    this.updateLoadingStatus('Menghubungkan ke server multiplayer...', 70)
+    await net.connect()
+    this.sim.net = net
+    this.netBadgeTimer ??= setInterval(() => this.updateNetBadge(), 1000)
+    this.updateNetBadge()
+    return net
+  }
+
+  private netBadge: HTMLElement | null = null
+  private netBadgeTimer: ReturnType<typeof setInterval> | null = null
+  private netStatus: NetStatus = 'offline'
+
+  private showNetStatus(status: NetStatus, detail?: string): void {
+    this.netStatus = status
+    if (detail && status !== 'connected') this.warn(`[Net] ${detail}`)
+    this.updateNetBadge()
+  }
+
+  /** Small corner badge: players and ping, or the connection state */
+  private updateNetBadge(): void {
+    const net = this.sim.net as NetSystem | null
+    if (!net) {
+      this.netBadge?.remove()
+      this.netBadge = null
+      return
+    }
+    if (!this.netBadge) {
+      this.netBadge = document.createElement('div')
+      this.netBadge.setAttribute('data-linden-net', '')
+      Object.assign(this.netBadge.style, {
+        position: 'absolute',
+        top: '8px',
+        left: '8px',
+        zIndex: '30',
+        padding: '2px 8px',
+        borderRadius: '999px',
+        font: '11px/1.6 system-ui, sans-serif',
+        color: '#e5e7eb',
+        background: 'rgba(15, 23, 42, 0.7)',
+        pointerEvents: 'none',
+      })
+      this.container.appendChild(this.netBadge)
+    }
+    const players = net.playerList().length
+    const ping = net.ping
+    const text =
+      net.connected
+        ? `● ${players} pemain · ${ping} ms${net.isHost ? ' · host' : ''}`
+        : this.netStatus === 'reconnecting' || this.netStatus === 'connecting'
+          ? '◌ Menyambung ke server…'
+          : '○ Offline'
+    this.netBadge.textContent = text
+    this.netBadge.style.color = net.connected ? '#86efac' : '#fca5a5'
   }
 
   /** Hot reload after the editor recompiled scripts/ */
@@ -245,11 +329,14 @@ export class LindenPlayer {
   }
 
   /** First entity with an active Camera drives the view; otherwise a default camera is used */
-  private resolveActiveCamera(): void {
-    const camEntity = this.world.getEntities().find((e) => {
+  private resolveActiveCamera(within?: Entity): void {
+    const usable = (e: Entity) => {
       const cam = e.getComponent('Camera') as any
       return e.active && cam && cam.isActive !== false
-    })
+    }
+    // The local multiplayer avatar's own camera wins over the scene's
+    const inAvatar = within ? this.subtree(within).find(usable) : undefined
+    const camEntity = inAvatar ?? this.world.getEntities().find(usable)
     if (!camEntity) {
       this.cameraEntityId = null
       this.camera = this.defaultCamera
@@ -265,6 +352,17 @@ export class LindenPlayer {
       this.camera = new THREE.PerspectiveCamera(cam.fov ?? 60, aspect, cam.near ?? 0.1, cam.far ?? 1000)
     }
     this.cameraEntityId = camEntity.id
+  }
+
+  private subtree(root: Entity): Entity[] {
+    const out = [root]
+    for (let i = 0; i < out.length; i++) {
+      for (const id of out[i].childIds) {
+        const child = this.world.getEntity(id)
+        if (child) out.push(child)
+      }
+    }
+    return out
   }
 
   private syncCameraToEntity(): void {
@@ -520,6 +618,9 @@ export class LindenPlayer {
   }
 
   dispose(): void {
+    if (this.netBadgeTimer) clearInterval(this.netBadgeTimer)
+    this.netBadgeTimer = null
+    this.netBadge?.remove()
     this.isRunning = false
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId)

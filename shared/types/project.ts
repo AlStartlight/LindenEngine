@@ -74,4 +74,6 @@ export interface LindenProjectConfig {
   scenesInBuild?: string[]
   exportPresets?: ExportPreset[]
   agent?: AgentProjectSettings
+  /** Online multiplayer (shared/net/config.ts) */
+  multiplayer?: Partial<import('../net/config').MultiplayerConfig>
 }

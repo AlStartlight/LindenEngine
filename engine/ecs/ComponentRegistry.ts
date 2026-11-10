@@ -1,6 +1,7 @@
 import { Component, Transform } from './Component'
 import { MeshRenderer, Camera, Light, LightType } from '../renderer/Components'
 import { Water } from '../environment/Water'
+import { NetworkSync } from '../net/NetworkSync'
 import { ParticleEmitter } from '../vfx/ParticleEmitter'
 import { DEFAULT_PARTICLE_VALUES as PD, PARTICLE_PRESETS } from '../vfx/presets'
 import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, CharacterController, Joint } from '../physics/components'
@@ -317,6 +318,20 @@ ComponentRegistry.register({
     { name: 'stepOffset', label: 'Step Offset', kind: 'number', default: 0.3, min: 0, max: 2, step: 0.05 },
     { name: 'slopeLimit', label: 'Slope Limit', kind: 'number', default: 45, min: 0, max: 90, step: 1 },
     { name: 'skinWidth', label: 'Skin Width', kind: 'number', default: 0.08, min: 0.001, max: 0.5, step: 0.01 },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'NetworkSync',
+  menuPath: 'Network/Network Sync',
+  icon: 'Globe',
+  disallowMultiple: true,
+  create: () => new NetworkSync(),
+  properties: [
+    { name: 'template', label: 'Template', kind: 'string', default: '', tooltip: 'Kosong = entity scene milik room (host). "player" = template avatar tiap pemain; nama lain untuk ctx.net.spawn()' },
+    { name: 'syncTransform', label: 'Sync Transform', kind: 'boolean', default: true },
+    { name: 'rate', label: 'Rate (Hz)', kind: 'number', default: 0, min: 0, max: 60, step: 1, tooltip: '0 = multiplayer.tickRate proyek' },
+    { name: 'interpolate', label: 'Interpolate', kind: 'boolean', default: true, tooltip: 'Gerak halus di klien lain (tertunda ~100 ms)' },
   ],
 })
 
