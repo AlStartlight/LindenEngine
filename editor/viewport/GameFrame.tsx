@@ -23,6 +23,8 @@ interface GameFrameProps {
   session: PlaySessionInfo
   onConsole?: (type: 'info' | 'warn' | 'error', message: string) => void
   onStats?: (stats: GameFrameStats) => void
+  /** Multiplayer: this frame is client `index` of `count`, side by side in the Game View */
+  client?: { index: number; count: number; onCountChange?: (count: number) => void }
 }
 
 /**
@@ -30,7 +32,10 @@ interface GameFrameProps {
  * can't reach window.electronAPI. Scene mode receives the editor's current (possibly unsaved)
  * scene through postMessage; HTML Game mode loads the project's own entry page.
  */
-export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStats }) => {
+export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStats, client }) => {
+  const clientIndex = client?.index ?? 0
+  const clientCount = client?.count ?? 1
+  const clientLabel = session.multiplayer ? `Klien ${clientIndex + 1}` : ''
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
   const [aspect, setAspect] = useState<AspectId>('free')
@@ -86,6 +91,8 @@ export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStat
                 },
                 tags: projectSettings.tags,
                 layers: projectSettings.layers,
+                // Multiplayer: the session's local room server; each Game View client is its own player
+                ...(session.multiplayer ? { multiplayer: { ...session.multiplayer, playerName: clientLabel } } : {}),
               },
             })
           }
@@ -99,7 +106,7 @@ export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStat
         case 'linden:log': {
           const type = msg.level === 'error' ? 'error' : msg.level === 'warn' ? 'warn' : 'info'
           const where = msg.source ? ` (${msg.source.file}:${msg.source.line}:${msg.source.col})` : ''
-          onConsole?.(type, `[Game] ${msg.args.join(' ')}${where}`)
+          onConsole?.(type, `[Game${clientCount > 1 ? ` ${clientIndex + 1}` : ''}] ${msg.args.join(' ')}${where}`)
           break
         }
         case 'linden:stats':
@@ -196,9 +203,28 @@ export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStat
   }, [loading, reloadKey, onConsole])
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-black">
+    <div
+      className={`absolute top-0 bottom-0 z-20 flex flex-col bg-black ${clientIndex > 0 ? 'border-l border-gray-700' : ''}`}
+      style={{ left: `${(clientIndex / clientCount) * 100}%`, width: `${100 / clientCount}%` }}
+      data-testid={`game-frame-${clientIndex}`}
+    >
       <div className="flex items-center justify-end gap-1.5 px-2 h-7 shrink-0 overflow-hidden whitespace-nowrap bg-[#11111d] border-b border-gray-800 text-[11px] text-gray-300">
-        <span className="mr-auto text-blue-300 font-medium">Game</span>
+        <span className="mr-auto text-blue-300 font-medium">{clientLabel ? `Game · ${clientLabel}` : 'Game'}</span>
+        {session.multiplayer && clientIndex === 0 && client?.onCountChange && (
+          <select
+            value={clientCount}
+            onChange={(e) => client.onCountChange?.(Number(e.target.value))}
+            className="bg-transparent text-gray-200 px-1 py-0.5 rounded hover:bg-white/10 outline-none"
+            title="Jumlah klien multiplayer di Game View (semua bergabung ke server lokal sesi Play ini)"
+            data-testid="net-clients"
+          >
+            {[1, 2, 3, 4].map((n) => (
+              <option key={n} value={n} className="bg-gray-900">
+                Klien: {n}
+              </option>
+            ))}
+          </select>
+        )}
         <select
           value={touchMode}
           onChange={(e) => {

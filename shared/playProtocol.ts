@@ -78,6 +78,8 @@ export interface PlayStartResult {
   sessionId?: string
   url?: string
   mode?: 'scene' | 'html'
+  /** Multiplayer settings for the Game View, with serverUrl pointing at the session's local server */
+  multiplayer?: import('./net/config').MultiplayerConfig
   errors?: { file?: string; line?: number; col?: number; message: string }[]
   message?: string
 }

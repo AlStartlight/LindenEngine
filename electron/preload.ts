@@ -143,6 +143,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentCreateSession: (title?: string) => invoke('agent:session:create', title),
   agentDeleteSession: (sessionId: string) => invoke('agent:session:delete', sessionId),
   agentSubmitPrompt: (options: import('../shared/agentTypes').AgentPromptOptions) => invoke('agent:prompt', options),
+  projectMultiplayer: (opts: { projectPath: string; patch?: Record<string, unknown> }) => invoke('project:multiplayer', opts),
   agentAttachImage: (payload: { projectPath: string; name: string; data: Uint8Array }) => invoke('agent:attachImage', payload),
   /** Model.factory output as GLB, built by the host in a sandboxed window (the editor never imports factory code) */
   factoryPreview: (req: { projectPath: string; factory: string; exportName?: string; options?: Record<string, unknown> }) => invoke('factory:preview', req),

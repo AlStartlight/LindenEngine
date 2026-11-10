@@ -74,6 +74,8 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   const [is2DMode, setIs2DMode] = useState(false)
   const [stats, setStats] = useState({ fps: 0, triangles: 0, drawCalls: 0 })
   const [gameStats, setGameStats] = useState<GameFrameStats | null>(null)
+  /** Multiplayer: Game View clients side by side (each joins the Play session's local server) */
+  const [netClients, setNetClients] = useState(1)
   const [showUiPreview, setShowUiPreview] = useState(true)
   // Particle emitters simulate only when selected, unless VFX preview is on (saves CPU on idle scenes)
   const [previewVfx, setPreviewVfx] = useState(false)
@@ -467,9 +469,16 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   return (
     <div ref={containerRef} className="relative w-full h-full overflow-hidden select-none bg-[#1a1a2e]">
       {/* Game Frame: Play runs the real player (or HTML Game) in a sandboxed iframe */}
-      {playSession && (
-        <GameFrame key={playSession.id} session={playSession} onConsole={onConsoleMessage} onStats={setGameStats} />
-      )}
+      {playSession &&
+        Array.from({ length: playSession.multiplayer ? netClients : 1 }, (_, i) => (
+          <GameFrame
+            key={`${playSession.id}:${i}`}
+            session={playSession}
+            onConsole={onConsoleMessage}
+            onStats={i === 0 ? setGameStats : undefined}
+            client={playSession.multiplayer ? { index: i, count: netClients, onCountChange: setNetClients } : undefined}
+          />
+        ))}
 
       {/* Play Mode Overlay (SPEC §5, §7): border only over the Game Frame so game colors stay true */}
       {playState !== 'stopped' && (

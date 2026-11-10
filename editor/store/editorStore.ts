@@ -42,6 +42,8 @@ export interface PlaySessionInfo {
   id: string
   url: string
   mode: 'scene' | 'html'
+  /** Multiplayer settings with the session's local server (absent when the project has none) */
+  multiplayer?: import('../../shared/net/config').MultiplayerConfig
 }
 
 function formatPlayErrors(errors: PlayStartResult['errors']): string {
@@ -328,7 +330,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({
         playState: 'playing',
         playSnapshot: null,
-        playSession: { id: res.sessionId, url: res.url, mode: res.mode ?? 'scene' },
+        playSession: { id: res.sessionId, url: res.url, mode: res.mode ?? 'scene', ...(res.multiplayer ? { multiplayer: res.multiplayer } : {}) },
       })
       return
     }
