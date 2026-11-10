@@ -6,6 +6,8 @@ import { useAgentStore } from '../agent/agentStore'
 import { useEditorStore } from '../store/editorStore'
 import { Icons } from '../ui/Icons'
 import { PromptTemplate } from '../../shared/agentTypes'
+import type { BlenderStatus } from '../../shared/blenderTypes'
+import { getStorage, setStorage } from '../project/projectIO'
 
 export const AgentPanel: React.FC = () => {
   const {
@@ -37,7 +39,7 @@ export const AgentPanel: React.FC = () => {
     setMode,
   } = useAgentStore()
 
-  const { projectPath, sceneName, selectedEntityIds } = useEditorStore()
+  const { projectPath, sceneName, selectedEntityIds, setActiveEditorPanel } = useEditorStore()
 
   const [inputPrompt, setInputPrompt] = useState('')
   // Reference images: copied to references/ as soon as they are attached; the agent rebuilds them as 3D models
@@ -48,6 +50,15 @@ export const AgentPanel: React.FC = () => {
   const activeModel = providers.flatMap((p) => p.models).find((m) => m.id === selectedModel)
   const visionMissing = attachments.length > 0 && activeModel?.imageInput === false
   const [includeContext, setIncludeContext] = useState(true)
+  // "Blender 3D": per project, on only while the user's Blender is detected
+  const [blender, setBlender] = useState<BlenderStatus | null>(null)
+  const [useBlender, setUseBlenderState] = useState(false)
+  const blenderKey = projectPath ? `linden_agent_blender:${projectPath}` : null
+  const blenderOn = useBlender && !!blender?.found
+  const setUseBlender = (on: boolean) => {
+    setUseBlenderState(on)
+    if (blenderKey) setStorage(blenderKey, on ? '1' : '0')
+  }
   const [showTemplatesModal, setShowTemplatesModal] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   // Follow new output only while the user is at the bottom; scrolling up pauses it
@@ -56,6 +67,28 @@ export const AgentPanel: React.FC = () => {
   useEffect(() => {
     init(projectPath || undefined)
   }, [projectPath])
+
+  useEffect(() => {
+    setUseBlenderState(blenderKey ? getStorage(blenderKey) === '1' : false)
+  }, [blenderKey])
+
+  // Blender status from main; read again when the window regains focus (path set in Bridge settings)
+  useEffect(() => {
+    const api = window.electronAPI
+    if (!api?.blenderStatus) return
+    let alive = true
+    const refresh = () => {
+      api.blenderStatus!()
+        .then((s) => alive && setBlender(s))
+        .catch(() => alive && setBlender({ found: false, reason: 'Status Blender tidak bisa dibaca' }))
+    }
+    refresh()
+    window.addEventListener('focus', refresh)
+    return () => {
+      alive = false
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -118,7 +151,7 @@ export const AgentPanel: React.FC = () => {
         }
       : undefined
 
-    sendPrompt(text, context, attachments.map((a) => a.path))
+    sendPrompt(text, context, attachments.map((a) => a.path), { useBlender: blenderOn })
     setInputPrompt('')
     for (const a of attachments) URL.revokeObjectURL(a.previewUrl)
     setAttachments([])
@@ -308,6 +341,35 @@ export const AgentPanel: React.FC = () => {
           />
           <span>Konteks Scene: <strong>{sceneName}</strong></span>
         </label>
+
+        {blender && (
+          <div className="flex items-center gap-1.5 ml-3 mr-auto">
+            <label
+              title={
+                blender.found
+                  ? `Blender ${blender.version} — agent boleh membuat model lewat Blender untuk prompt ini`
+                  : 'Blender tidak ditemukan — atur path di pengaturan Bridge'
+              }
+              className={`flex items-center space-x-1.5 text-[11px] ${
+                blender.found ? 'cursor-pointer text-gray-400 hover:text-gray-200' : 'cursor-not-allowed text-gray-600'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={blenderOn}
+                disabled={!blender.found}
+                onChange={(e) => setUseBlender(e.target.checked)}
+                className="rounded bg-[#1a1a2e] border-gray-600 text-blue-500 focus:ring-0 w-3 h-3 disabled:opacity-40"
+              />
+              <span>Blender 3D</span>
+            </label>
+            {!blender.found && (
+              <button onClick={() => setActiveEditorPanel('bridge')} className="text-[10px] text-blue-400 hover:text-blue-300 underline">
+                Atur
+              </button>
+            )}
+          </div>
+        )}
 
         <button
           onClick={() => setShowTemplatesModal(true)}

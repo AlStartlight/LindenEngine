@@ -3,6 +3,7 @@ import { GodotBridge } from '../../engine/godot/GodotBridge'
 import { CompatReport } from '../../engine/godot/report/CompatReport'
 import { GodotBuildRunner } from '../../engine/godot/build/GodotBuildRunner'
 import { TransmuterWizard } from './TransmuterWizard'
+import { BlenderSettingsSection } from './BlenderSettingsSection'
 import { Icons } from '../ui/Icons'
 
 export interface BridgePanelProps {
@@ -520,6 +521,9 @@ export const BridgePanel: React.FC<BridgePanelProps> = ({
           </div>
         </div>
       )}
+
+      {/* External tools used by the agent (separate processes) */}
+      <BlenderSettingsSection />
     </div>
   )
 }

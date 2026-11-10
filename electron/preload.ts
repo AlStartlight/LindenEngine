@@ -142,7 +142,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentListSessions: () => invoke('agent:session:list'),
   agentCreateSession: (title?: string) => invoke('agent:session:create', title),
   agentDeleteSession: (sessionId: string) => invoke('agent:session:delete', sessionId),
-  agentSubmitPrompt: (options: any) => invoke('agent:prompt', options),
+  agentSubmitPrompt: (options: import('../shared/agentTypes').AgentPromptOptions) => invoke('agent:prompt', options),
   agentAttachImage: (payload: { projectPath: string; name: string; data: Uint8Array }) => invoke('agent:attachImage', payload),
   /** Model.factory output as GLB, built by the host in a sandboxed window (the editor never imports factory code) */
   factoryPreview: (req: { projectPath: string; factory: string; exportName?: string; options?: Record<string, unknown> }) => invoke('factory:preview', req),
@@ -177,6 +177,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Godot Bridge operations
   bridgeValidateGodot: (customPath?: string) => invoke('bridge:godot:validate', customPath),
+
+  // User's own Blender (run as a separate process for the agent's "Blender 3D" mode)
+  blenderStatus: () => invoke('blender:status'),
+  blenderDetect: () => invoke('blender:detect'),
+  blenderSetPath: (p: string) => invoke('blender:setPath', p),
   bridgeDetectGodotProject: (dir: string) => invoke('bridge:import:detect', dir),
   bridgeRunImport: (options: any) => invoke('bridge:import:run', options),
   bridgeCancelImport: (jobId: string) => invoke('bridge:import:cancel', jobId),
@@ -287,7 +292,10 @@ declare global {
       agentListSessions?: () => Promise<any[]>
       agentCreateSession?: (title?: string) => Promise<any>
       agentDeleteSession?: (sessionId: string) => Promise<boolean>
-      agentSubmitPrompt?: (options: any) => Promise<{ messageId: string }>
+      agentSubmitPrompt?: (options: import('../shared/agentTypes').AgentPromptOptions) => Promise<{ messageId: string }>
+      blenderStatus?: () => Promise<import('../shared/blenderTypes').BlenderStatus>
+      blenderDetect?: () => Promise<import('../shared/blenderTypes').BlenderStatus>
+      blenderSetPath?: (path: string) => Promise<import('../shared/blenderTypes').BlenderStatus>
       agentAbortPrompt?: (sessionId: string) => Promise<boolean>
       agentReplyPermission?: (requestId: string, allow: boolean) => Promise<any>
       agentApplyDiff?: (diffId: string) => Promise<boolean>

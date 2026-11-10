@@ -140,6 +140,14 @@
         ]
       },
       {
+        "from": "blender-bridge",
+        "to": "blender-bridge",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**"
+        ]
+      },
+      {
         "from": "electron/agent/prompts",
         "to": "agent/prompts",
         "filter": [

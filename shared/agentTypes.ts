@@ -171,7 +171,22 @@ export interface AgentPermissionRequest {
   files?: AgentPermissionFile[]
   /** Explanation from OpenCode, if it sent one */
   message?: string
+  /** Full source a Linden tool wants to run (linden_blender_script), shown before the user allows it */
+  code?: string
   timestamp: number
+}
+
+/** agent:prompt payload (panel -> main -> AgentHost.submitPrompt) */
+export interface AgentPromptOptions {
+  sessionId?: string
+  prompt: string
+  mode?: 'plan' | 'build' | 'review'
+  /** Scene context, appended to the prompt as <editor-context> JSON */
+  context?: Record<string, unknown>
+  /** references/<file> images attached in the panel */
+  attachments?: string[]
+  /** "Blender 3D" checked: this turn gets the Blender guide and may use the linden_blender_* tools */
+  useBlender?: boolean
 }
 
 /** Events about a turn; seq increases by one per event within a turn */

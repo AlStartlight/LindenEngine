@@ -1,13 +1,17 @@
 import http from 'node:http'
 import crypto from 'node:crypto'
 import { AgentDiffItem } from '../../shared/agentTypes'
-import { LINDEN_TOOLS, ToolResult } from './lindenTools'
+import { LINDEN_TOOLS, ToolResult, ToolDefinition, ToolPermissionRequest } from './lindenTools'
 
 export interface LindenMcpServerOptions {
   projectPath: string
   onDiff?: (diff: AgentDiffItem) => void
   onToolCall?: (name: string, args: unknown, result: ToolResult) => void
+  /** Ask the user before a tool runs something (linden_blender_script) */
+  requestPermission?: (req: ToolPermissionRequest) => Promise<boolean>
 }
+
+const isAvailable = (t: ToolDefinition) => !t.available || t.available()
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024
 
@@ -115,7 +119,7 @@ export class LindenMcpServer {
       case 'tools/list':
         return {
           result: {
-            tools: Object.values(LINDEN_TOOLS).map((t) => ({
+            tools: Object.values(LINDEN_TOOLS).filter(isAvailable).map((t) => ({
               name: t.name.replace(/^linden_/, ''),
               description: t.description,
               inputSchema: t.parameters,
@@ -124,9 +128,9 @@ export class LindenMcpServer {
         }
       case 'tools/call': {
         const tool = LINDEN_TOOLS[`linden_${params.name}`]
-        if (!tool) return { error: { code: -32602, message: `Unknown tool: ${params.name}` } }
+        if (!tool || !isAvailable(tool)) return { error: { code: -32602, message: `Unknown tool: ${params.name}` } }
         const args = params.arguments || {}
-        const out = await tool.execute(this.options.projectPath, args, { onDiff: this.options.onDiff })
+        const out = await tool.execute(this.options.projectPath, args, { onDiff: this.options.onDiff, requestPermission: this.options.requestPermission })
         this.options.onToolCall?.(tool.name, args, out)
         const text = out.success ? JSON.stringify(out.data ?? { ok: true }, null, 2) : `Error: ${out.error}`
         const content: any[] = [{ type: 'text', text }]
