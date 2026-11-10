@@ -1,4 +1,5 @@
 import type { World } from '../ecs/World'
+import type { Entity } from '../ecs/Entity'
 import { RapierBackend } from '../physics/RapierBackend'
 import { Physics, Rigidbody, type Joint } from '../physics/components'
 import { CharacterMovementSystem } from '../movement/CharacterMovement'
@@ -33,6 +34,9 @@ export class GameSimulation {
   private waterIds: string[] | null = null
   private offWorldEvents: (() => void)[]
   readonly movement: CharacterMovementSystem
+  /** Multiplayer: applies remote snapshots before the frame, sends owned ones after it */
+  net: { beforeFrame(dt: number): void; afterFrame(dt: number): void; dispose(): void } | null = null
+  private puppets = new Set<string>()
 
   constructor(readonly world: World) {
     const invalidateWater = () => {
@@ -41,6 +45,7 @@ export class GameSimulation {
     this.offWorldEvents = [
       world.events.on('entityRemoved', (entity: { id: string }) => {
         if (this.physics) this.pendingRemovals.push(entity.id)
+        this.puppets.delete(entity.id)
         this.waterIds = null
       }),
       world.events.on('entityAdded', invalidateWater),
@@ -74,35 +79,84 @@ export class GameSimulation {
     Physics.setBackend(backend)
     this.physics = backend
 
-    for (const ent of this.world.getEntities()) {
-      let rb = ent.getComponent('Rigidbody') as any
-      const transform = ent.getTransform()
-      // A CharacterController needs a kinematic body for Rapier's character controller
-      if (!rb && ent.hasComponent('CharacterController')) {
-        rb = new Rigidbody()
-        rb.bodyType = 'kinematic'
+    for (const ent of this.world.getEntities()) this.createEntityPhysics(backend, ent)
+    this.createJoints(backend)
+  }
+
+  /** Bodies and colliders of one entity (scene load, or an entity added while playing) */
+  private createEntityPhysics(backend: RapierBackend, ent: Entity): void {
+    let rb = ent.getComponent('Rigidbody') as any
+    const transform = ent.getTransform()
+    // A CharacterController needs a kinematic body for Rapier's character controller
+    if (!rb && ent.hasComponent('CharacterController')) {
+      rb = new Rigidbody()
+      rb.bodyType = 'kinematic'
+    }
+    // Remote copies of networked entities are moved by snapshots, not simulated here
+    if (rb && rb.bodyType === 'dynamic' && this.puppets.has(ent.id)) {
+      rb = Object.assign(Object.create(Object.getPrototypeOf(rb)), rb, { bodyType: 'kinematic' })
+    }
+    if (rb) {
+      backend.createBody(ent.id, rb, transform, ent.layer)
+      if (rb.bodyType === 'dynamic') this.dynamicIds.push(ent.id)
+      else if (rb.bodyType === 'kinematic') this.kinematicIds.push(ent.id)
+    }
+    // Model auto collider, only when the entity has no collider of its own
+    const model = ent.getComponent('Model') as any
+    if (model && !ent.getComponents().some((c) => COLLIDER_TYPES.includes(c.name))) {
+      const shape = modelColliderShape(model, transform.scale)
+      if (shape) backend.createModelCollider(ent.id, shape, transform, ent.layer)
+    }
+    for (const comp of ent.getComponents()) {
+      if (COLLIDER_TYPES.includes(comp.name)) {
+        backend.createCollider(ent.id, comp as any, transform, rb, ent.layer)
       }
-      if (rb) {
-        backend.createBody(ent.id, rb, transform, ent.layer)
-        if (rb.bodyType === 'dynamic') this.dynamicIds.push(ent.id)
-        else if (rb.bodyType === 'kinematic') this.kinematicIds.push(ent.id)
-      }
-      // Model auto collider, only when the entity has no collider of its own
-      const model = ent.getComponent('Model') as any
-      if (model && !ent.getComponents().some((c) => COLLIDER_TYPES.includes(c.name))) {
-        const shape = modelColliderShape(model, transform.scale)
-        if (shape) backend.createModelCollider(ent.id, shape, transform, ent.layer)
-      }
-      for (const comp of ent.getComponents()) {
-        if (COLLIDER_TYPES.includes(comp.name)) {
-          backend.createCollider(ent.id, comp as any, transform, rb, ent.layer)
-        }
-        if (comp.name === 'CharacterController') {
-          ;(comp as any).moveCallback = (delta: any) => backend.moveCharacter(ent.id, delta)
-        }
+      if (comp.name === 'CharacterController') {
+        ;(comp as any).moveCallback = (delta: any) => backend.moveCharacter(ent.id, delta)
       }
     }
-    this.createJoints(backend)
+  }
+
+  /**
+   * Entities added while playing (multiplayer avatars, ctx.net.spawn): physics bodies, built-in
+   * components and scripts, like entities loaded with the scene.
+   */
+  async addRuntimeEntities(entities: Entity[]): Promise<void> {
+    const physics = this.physics
+    if (physics) for (const ent of entities) this.createEntityPhysics(physics, ent)
+    for (const ent of entities) {
+      for (const comp of ent.getComponents()) {
+        if (typeof (comp as any).onBeginPlay === 'function') (comp as any).onBeginPlay(this.world)
+        if (typeof (comp as any).start === 'function') (comp as any).start()
+      }
+    }
+    await this.scripts?.attach(entities)
+  }
+
+  /**
+   * Puppet mode for an entity driven over the network: a dynamic body becomes kinematic (it follows
+   * its Transform) and CharacterMovement stops reading input. Off restores the authored setup.
+   */
+  setPuppet(entityId: string, on: boolean): void {
+    if (on === this.puppets.has(entityId)) return
+    if (on) this.puppets.add(entityId)
+    else this.puppets.delete(entityId)
+    const ent = this.world.getEntity(entityId)
+    if (!ent) return
+    const cm = ent.getComponent('CharacterMovement') as any
+    if (cm) cm.setEnabled(!on)
+    const rb = ent.getComponent('Rigidbody') as any
+    const physics = this.physics
+    if (!physics || !rb || rb.bodyType !== 'dynamic') return
+    physics.removeCollider(entityId)
+    physics.removeBody(entityId)
+    this.dynamicIds = this.dynamicIds.filter((id) => id !== entityId)
+    this.kinematicIds = this.kinematicIds.filter((id) => id !== entityId)
+    this.createEntityPhysics(physics, ent)
+  }
+
+  isPuppet(entityId: string): boolean {
+    return this.puppets.has(entityId)
   }
 
   /** Joints go after every body exists, since they can point at any entity */
@@ -146,6 +200,7 @@ export class GameSimulation {
   frame(frameDt: number): number {
     const dt = Math.min(Math.max(frameDt, 0), MAX_FRAME_DT) * this.timeScale
     Input.update()
+    this.net?.beforeFrame(dt)
     this.movement.sampleInput(dt)
 
     this.accumulator += dt
@@ -160,6 +215,7 @@ export class GameSimulation {
     Tween.update(dt)
     this.world.update(dt)
     this.scripts?.lateUpdate(dt)
+    this.net?.afterFrame(dt)
     return steps
   }
 
@@ -274,6 +330,8 @@ export class GameSimulation {
   }
 
   dispose(): void {
+    this.net?.dispose()
+    this.net = null
     for (const off of this.offWorldEvents) off()
     this.scripts?.destroyAll()
     this.physics?.clear()

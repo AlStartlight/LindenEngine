@@ -6,6 +6,7 @@ import { Physics } from '../physics/components'
 import { isValidScriptSrc } from '../../shared/playProtocol'
 import { NULL_TOUCH, type TouchApi } from '../input/TouchApi'
 import type { ParticleEmitter } from '../vfx/ParticleEmitter'
+import { offlineNet, type NetApi } from '../net/netApi'
 
 type Vec3 = { x: number; y: number; z: number }
 
@@ -80,6 +81,8 @@ export interface GameScriptContext {
   /** On-screen touch buttons: show/hide, label, badge, cooldown, layout (no-op on desktop) */
   touch: TouchApi
   vfx: VfxApi
+  /** Multiplayer (offline stub when the project has no multiplayer): isMine, players, send, spawn, state */
+  net: NetApi
   scene: {
     find(name: string): Entity | null
     findByTag(tag: string): Entity[]
@@ -146,6 +149,8 @@ export interface ScriptRuntimeOptions {
   loadScene?: (path: string) => Promise<void>
   log?: (...args: unknown[]) => void
   touch?: TouchApi
+  /** ctx.net for a script's entity (multiplayer); absent = offline stub */
+  createNet?: (entity: Entity) => NetApi
 }
 
 interface ScriptInstance {
@@ -230,6 +235,28 @@ export class ScriptRuntime {
       if (typeof inst.script.onInit === 'function') {
         await this.invokeAsync(inst, 'init', () => inst.script.onInit(inst.ctx))
       }
+    }
+  }
+
+  /**
+   * Scripts of entities added while playing (multiplayer avatars, ctx.net.spawn): instantiated
+   * together, then onInit, so scripts of one copy can find each other
+   */
+  async attach(entities: Entity[]): Promise<void> {
+    const fresh: ScriptInstance[] = []
+    for (const entity of entities) {
+      const comp = entity.getComponent<Script>('Script')
+      if (!comp || !comp.getEnabled() || !entity.active || !comp.src) continue
+      if (this.instances.some((i) => i.entity === entity)) continue
+      const inst = await this.instantiate(entity, comp)
+      if (!inst) continue
+      // The entity may have been removed while its module loaded
+      if (!this.options.world.getEntity(entity.id)) continue
+      this.instances.push(inst)
+      fresh.push(inst)
+    }
+    for (const inst of fresh) {
+      if (typeof inst.script.onInit === 'function') await this.invokeAsync(inst, 'init', () => inst.script.onInit(inst.ctx))
     }
   }
 
@@ -375,6 +402,7 @@ export class ScriptRuntime {
       object3D: null,
       touch: this.options.touch ?? NULL_TOUCH,
       vfx: this.createVfx(entity),
+      net: this.options.createNet?.(entity) ?? offlineNet((name, data) => this.notifyAll('onNetEvent', name, data, 'local')),
       get movement() {
         return entity.getComponent('CharacterMovement') ?? null
       },
@@ -483,6 +511,15 @@ export class ScriptRuntime {
   notifyEntity(entityId: string, hook: string, ...args: unknown[]): void {
     for (const inst of this.instances) {
       if (inst.enabled && inst.entity.id === entityId && typeof inst.script[hook] === 'function') {
+        this.invoke(inst, 'event', () => inst.script[hook](...args))
+      }
+    }
+  }
+
+  /** Call a hook (e.g. onNetJoin) on every script */
+  notifyAll(hook: string, ...args: unknown[]): void {
+    for (const inst of [...this.instances]) {
+      if (inst.enabled && typeof inst.script[hook] === 'function') {
         this.invoke(inst, 'event', () => inst.script[hook](...args))
       }
     }
