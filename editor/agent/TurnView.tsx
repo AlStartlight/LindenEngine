@@ -1,5 +1,6 @@
 import { img2ScriptLabel } from '../../shared/img2Labels'
 import React, { useEffect, useState } from 'react'
+import { projectAssetUrl } from '../../shared/assetProtocol'
 import { AgentDiffItem, AgentPart, AgentTurn, AgentTurnPhase } from '../../shared/agentTypes'
 import { isTurnRunning } from '../../shared/agentTurnReducer'
 
@@ -192,9 +193,22 @@ export const TurnView: React.FC<{
 
   return (
     <div className="space-y-2 min-w-0">
-      {turn.prompt && (
+      {(turn.prompt || turn.attachments?.length) && (
         <div className="flex justify-end">
           <div className="max-w-[92%] min-w-0 rounded-xl rounded-br-none px-3 py-2 text-xs leading-relaxed bg-blue-600 text-white whitespace-pre-wrap [overflow-wrap:anywhere]">
+            {turn.attachments && turn.attachments.length > 0 && (
+              <div className={`flex flex-wrap gap-1 ${turn.prompt ? 'mb-1.5' : ''}`} data-testid="turn-attachments">
+                {turn.attachments.map((p) => (
+                  <img
+                    key={p}
+                    src={projectAssetUrl(p)}
+                    alt={p}
+                    title={p}
+                    className="w-12 h-12 object-cover rounded border border-white/30 bg-black/20"
+                  />
+                ))}
+              </div>
+            )}
             {turn.prompt}
           </div>
         </div>
