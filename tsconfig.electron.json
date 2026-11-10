@@ -15,6 +15,6 @@
     "resolveJsonModule": true,
     "declaration": false
   },
-  "include": ["electron", "shared", "engine"],
+  "include": ["electron", "shared", "engine", "server"],
   "exclude": ["node_modules", "dist", "engine/mesh/worker/geometry.worker.ts"]
 }
