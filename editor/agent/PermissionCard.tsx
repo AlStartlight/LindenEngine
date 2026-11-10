@@ -37,7 +37,7 @@ export const PermissionCard: React.FC<{
     <div
       role="alertdialog"
       aria-label={permissionTitle(request.action)}
-      className="m-2 p-2.5 bg-amber-500/10 border border-amber-500/40 rounded-lg flex flex-col gap-1.5 min-w-0 max-h-[40%] overflow-y-auto"
+      className={`m-2 p-2.5 bg-amber-500/10 border border-amber-500/40 rounded-lg flex flex-col gap-1.5 min-w-0 ${request.code !== undefined ? 'max-h-[70%]' : 'max-h-[40%]'} overflow-y-auto`}
     >
       <div className="flex items-start gap-1.5 text-amber-300 font-semibold text-[11px] min-w-0">
         <span aria-hidden>⚠️</span>
@@ -78,6 +78,16 @@ export const PermissionCard: React.FC<{
         <button onClick={() => setExpanded(!expanded)} className="self-start text-[11px] text-amber-300 hover:text-amber-200">
           {expanded ? 'Tampilkan lebih sedikit' : `Tampilkan semua${lines.length > 1 ? ` (${lines.length})` : ''}`}
         </button>
+      )}
+
+      {request.code !== undefined && (
+        // Shown in full (never collapsed): this is the exact code that will run
+        <pre
+          aria-label="Kode yang akan dijalankan"
+          className="text-[11px] leading-normal bg-black/40 border border-amber-500/20 rounded p-1.5 font-mono text-gray-200 max-h-72 overflow-auto whitespace-pre select-text"
+        >
+          {request.code}
+        </pre>
       )}
 
       <div className="flex flex-wrap items-center justify-end gap-2 pt-0.5">
