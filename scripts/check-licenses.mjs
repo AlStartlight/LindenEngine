@@ -2,7 +2,7 @@
 // Reads package-lock.json (lockfileVersion 3), so it checks exactly what npm installs.
 //   node scripts/check-licenses.mjs                 -> checks the geometry stack roots below
 //   node scripts/check-licenses.mjs pkg-a pkg-b     -> checks those roots
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -100,6 +100,56 @@ export function checkVendored(dirs = VENDORED, base = root) {
   return { checked, violations }
 }
 
+/**
+ * GPL code Linden ships but only runs in a separate program (never bundled, linked or imported):
+ * blender-bridge/ runs inside the user's own Blender, started with spawn. Each folder must carry a
+ * GPL LICENSE, and no source in the MIT code may import from it.
+ */
+export const SEPARATE_PROCESS_GPL = ['blender-bridge']
+const SOURCE_DIRS = ['electron', 'editor', 'engine', 'shared', 'src', 'player']
+const SOURCE_EXT = /\.(ts|tsx|js|mjs|cjs|jsx)$/
+
+function listSources(dir) {
+  let out = []
+  let entries = []
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return out
+  }
+  for (const name of entries) {
+    if (name === 'node_modules' || name.startsWith('.')) continue
+    const full = path.join(dir, name)
+    const st = statSync(full)
+    if (st.isDirectory()) out = out.concat(listSources(full))
+    else if (SOURCE_EXT.test(name)) out.push(full)
+  }
+  return out
+}
+
+export function checkSeparateProcess(dirs = SEPARATE_PROCESS_GPL, base = root, sourceDirs = SOURCE_DIRS) {
+  const violations = []
+  const checked = []
+  for (const rel of dirs) {
+    let text = ''
+    try {
+      text = readFileSync(path.join(base, rel, 'LICENSE'), 'utf8')
+    } catch {
+      violations.push(`${rel}: LICENSE tidak ada`)
+      continue
+    }
+    if (!/GNU GENERAL PUBLIC LICENSE/.test(text.slice(0, 400))) violations.push(`${rel}: LICENSE bukan GPL`)
+    const importRe = new RegExp(`(?:from\\s*|import\\s*\\(\\s*|require\\s*\\(\\s*|import\\s+)['"][^'"]*\\b${rel}\\/`)
+    for (const dir of sourceDirs) {
+      for (const file of listSources(path.join(base, dir))) {
+        if (importRe.test(readFileSync(file, 'utf8'))) violations.push(`${path.relative(base, file)} meng-import ${rel}/ (hanya boleh dijalankan sebagai proses terpisah)`)
+      }
+    }
+    checked.push(`${rel} (GPL, spawn only)`)
+  }
+  return { checked, violations }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const roots = process.argv.length > 2 ? process.argv.slice(2) : GEOMETRY_ROOTS
   const { checked, violations, excepted, unknown, missingRoots } = checkLicenses(roots)
@@ -110,6 +160,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const vendored = checkVendored()
   if (vendored.checked.length) console.log(`vendored: ${vendored.checked.join(', ')}`)
   violations.push(...vendored.violations)
+  const separate = checkSeparateProcess()
+  if (separate.checked.length) console.log(`separate-process GPL: ${separate.checked.join(', ')}`)
+  violations.push(...separate.violations)
   if (violations.length) {
     console.error(`copyleft licenses found:\n  ${violations.join('\n  ')}`)
     process.exit(1)
