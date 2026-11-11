@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { useEditorStore } from '../store/editorStore'
+import { CursorSettingsSection } from './CursorSettingsSection'
 
-type TabType = 'tags_layers' | 'physics' | 'graphics' | 'time' | 'services'
+type TabType = 'tags_layers' | 'physics' | 'graphics' | 'cursor' | 'time' | 'services'
 
 export const ProjectSettingsWindow: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const {
@@ -72,6 +73,14 @@ export const ProjectSettingsWindow: React.FC<{ onClose: () => void }> = ({ onClo
               }`}
             >
               Graphics (Quality)
+            </button>
+            <button
+              onClick={() => setActiveTab('cursor')}
+              className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
+                activeTab === 'cursor' ? 'bg-blue-600 text-white font-medium' : 'text-gray-400 hover:bg-white/5'
+              }`}
+            >
+              Cursor (Mouse)
             </button>
             <button
               onClick={() => setActiveTab('time')}
@@ -274,6 +283,8 @@ export const ProjectSettingsWindow: React.FC<{ onClose: () => void }> = ({ onClo
                 </div>
               </div>
             )}
+
+            {activeTab === 'cursor' && <CursorSettingsSection />}
 
             {activeTab === 'time' && (
               <div className="space-y-4">

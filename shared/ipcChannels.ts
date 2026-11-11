@@ -18,6 +18,8 @@ export const IPC_INVOKE_CHANNELS = [
   'project:saveSettings',
   'project:saveInput',
   'project:saveGraphics',
+  'project:saveCursor',
+  'project:readCursor',
   'project:recent:list',
   'project:recent:add',
   'project:recent:remove',

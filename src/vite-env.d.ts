@@ -8,6 +8,9 @@ interface Window {
     /** Files under the open project's assets/ (Asset Browser, Scene settings) */
     listAssets?: () => Promise<import('../shared/assetProtocol').AssetEntry[]>
     saveProjectGraphics?: (opts: { projectPath: string; quality?: string; renderer?: string }) => Promise<{ status: string; message?: string }>
+    /** Cursor settings as stored in project.linden.json right now (normalized) */
+    readProjectCursor?: (projectPath: string) => Promise<import('../shared/cursorSettings').CursorSettings>
+    saveProjectCursor?: (opts: { projectPath: string; cursor: import('../shared/cursorSettings').CursorSettings }) => Promise<{ status: string; message?: string }>
     setWindowTitle?: (title: string) => Promise<void>
     getIpcChannels?: () => Promise<string[]>
     relaunchApp?: () => Promise<void>
