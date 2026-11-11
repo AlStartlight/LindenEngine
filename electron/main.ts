@@ -10,6 +10,8 @@ import { runGodotImportJob, cancelImportJob } from './bridge/importRunner'
 import { importSingleGodotScene } from './bridge/sceneImport'
 import { syncServerInstance } from './bridge/syncServer'
 import { AgentHost } from './agent/AgentHost'
+import { detectBlender, getBlenderStatus, setBlenderPath } from './bridge/blenderDetect'
+import type { AgentPromptOptions } from '../shared/agentTypes'
 import { LINDEN_TOOLS, setPreviewRenderer, setFactoryProbe } from './agent/lindenTools'
 import { createPreviewRenderer, createFactoryProbe } from './agent/previewWindow'
 import { createFactoryPreviews } from './agent/factoryPreview'
@@ -274,6 +276,8 @@ if (exportArgIdx !== -1) {
     setBridgeSettingsDir(app.getPath('userData'))
     setFactoryCacheRoot(join(app.getPath('userData'), 'play-cache'))
     setImg2RuntimeRoot(join(app.getPath('userData'), 'agent-skills'))
+    // Look for the user's Blender in the background (agent "Blender 3D" mode, Bridge settings)
+    detectBlender().catch((e) => console.warn('[Blender] Deteksi gagal:', e?.message ?? e))
     installGameProtocol()
     installAssetProtocol()
     // linden_render_preview renders through the player runtime in a hidden window
@@ -916,6 +920,11 @@ handle('godot:detect', async (_event, customPath?: string) => {
   return res.ok && res.path ? res.path : null
 })
 
+// Blender (user's own install, spawned as a separate process only)
+handle('blender:status', () => getBlenderStatus())
+handle('blender:detect', () => detectBlender({ refresh: true }))
+handle('blender:setPath', (_event, p: string) => setBlenderPath(String(p ?? '')))
+
 // Godot Bridge IPC Handlers
 handle('bridge:godot:validate', async (_event, customPath?: string) => {
   return await resolveGodotExecutable(customPath)
@@ -1239,7 +1248,7 @@ handle('agent:session:get', async (_event, sessionId: string) => {
   return sessions.find((s) => s.id === sessionId) || null
 })
 
-handle('agent:prompt', async (_event, options: any) => {
+handle('agent:prompt', async (_event, options: AgentPromptOptions) => {
   return await AgentHost.getInstance().submitPrompt(options)
 })
 

@@ -12,6 +12,7 @@ const ACTION_TITLES: Record<string, string> = {
   websearch: 'Mencari di web',
   browser: 'Membuka browser',
   external_directory: 'Mengakses folder di luar proyek',
+  blender_script: 'Menjalankan script Python di Blender',
 }
 
 export function permissionTitle(action: string): string {

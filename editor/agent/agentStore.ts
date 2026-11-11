@@ -44,7 +44,7 @@ interface AgentState {
   createSession: (title?: string) => Promise<void>
   selectSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
-  sendPrompt: (prompt: string, context?: any, attachments?: string[]) => Promise<void>
+  sendPrompt: (prompt: string, context?: any, attachments?: string[], options?: { useBlender?: boolean }) => Promise<void>
   abortPrompt: () => Promise<void>
   applyDiff: (diffId: string) => Promise<void>
   rejectDiff: (diffId: string) => Promise<void>
@@ -254,7 +254,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
-  sendPrompt: async (prompt: string, context?: any, attachments?: string[]) => {
+  sendPrompt: async (prompt: string, context?: any, attachments?: string[], options?: { useBlender?: boolean }) => {
     const api = electronApi()
     if (!api?.agentSubmitPrompt) return
 
@@ -287,6 +287,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           mode: get().mode,
           context,
           ...(attachments && attachments.length ? { attachments } : {}),
+          // Top level, not in context: context is pasted into the prompt as JSON
+          ...(options?.useBlender ? { useBlender: true } : {}),
         })
       )
     } catch (e: any) {

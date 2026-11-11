@@ -23,7 +23,8 @@ const STARTUP_KEY = 'linden_open_last_project_startup'
 
 const memoryStorage = new Map<string, string>()
 
-function getStorage(key: string): string | null {
+/** localStorage with an in-memory fallback (tests, blocked storage) */
+export function getStorage(key: string): string | null {
   if (typeof localStorage !== 'undefined') {
     try {
       return localStorage.getItem(key)
@@ -32,7 +33,7 @@ function getStorage(key: string): string | null {
   return memoryStorage.get(key) || null
 }
 
-function setStorage(key: string, val: string): void {
+export function setStorage(key: string, val: string): void {
   if (typeof localStorage !== 'undefined') {
     try {
       localStorage.setItem(key, val)

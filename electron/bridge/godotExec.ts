@@ -9,7 +9,15 @@ export function setBridgeSettingsDir(userDataDir: string) {
   cachedSettingsPath = path.join(userDataDir, 'bridge-settings.json')
 }
 
-export function loadBridgeSettings(): { godotExecutable?: string; godotVersion?: string } {
+/** userData/bridge-settings.json: external programs Linden runs as separate processes */
+export interface BridgeSettings {
+  godotExecutable?: string
+  godotVersion?: string
+  blenderExecutable?: string
+  blenderVersion?: string
+}
+
+export function loadBridgeSettings(): BridgeSettings {
   if (cachedSettingsPath && fs.existsSync(cachedSettingsPath)) {
     try {
       const data = JSON.parse(fs.readFileSync(cachedSettingsPath, 'utf-8'))
@@ -21,7 +29,7 @@ export function loadBridgeSettings(): { godotExecutable?: string; godotVersion?:
   return {}
 }
 
-export function saveBridgeSettings(settings: { godotExecutable?: string; godotVersion?: string }) {
+export function saveBridgeSettings(settings: BridgeSettings) {
   if (cachedSettingsPath) {
     try {
       const existing = loadBridgeSettings()
