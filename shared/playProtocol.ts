@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CURSOR_STYLES } from './cursorSettings'
 
 /**
  * Messages between the editor and the Game Frame (the sandboxed iframe that runs
@@ -30,6 +31,16 @@ export const EditorToGameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('linden:reloadScripts'), version: z.string().regex(/^[\w-]+$/) }),
   /** HtmlUI fragments changed on disk (project-relative paths) */
   z.object({ type: z.literal('linden:reloadUi'), files: z.array(z.string()).max(200) }),
+  /** Project Settings → Cursor changed while Play runs */
+  z.object({
+    type: z.literal('linden:cursor'),
+    cursor: z.object({
+      mode: z.enum(['auto', 'visible', 'hidden', 'locked']),
+      style: z.enum(CURSOR_STYLES),
+      image: z.string().max(512).optional(),
+      hotspot: z.tuple([z.number(), z.number()]),
+    }),
+  }),
 ])
 
 export const GameToEditorSchema = z.discriminatedUnion('type', [

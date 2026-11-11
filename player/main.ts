@@ -82,6 +82,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         resetSourceMapCache()
         player.reloadScripts(msg.version)
       } else if (msg.type === 'linden:reloadUi') player.reloadUi(msg.files)
+      else if (msg.type === 'linden:cursor') player.setCursor(msg.cursor)
     })
     player.initAudio()
   }

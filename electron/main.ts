@@ -26,6 +26,7 @@ import { getAssetRoot, listProjectAssets, resolveAssetRequest, setAssetRoot } fr
 import { isFactoryModuleRequest, resolveFactoryModule, setFactoryCacheRoot } from './play/factoryModules'
 import { setImg2RuntimeRoot } from './agent/img2threejs'
 import { saveReferenceImage } from './agent/referenceImages'
+import { normalizeCursorSettings } from '../shared/cursorSettings'
 
 // Check if in development mode
 const isDev = !app.isPackaged
@@ -848,6 +849,29 @@ handle('project:saveGraphics', async (_event, opts: { projectPath: string; quali
     return { status: 'ok' }
   } catch (err: any) {
     return { status: 'error', message: err.message || String(err) }
+  }
+})
+
+// Project: game mouse cursor (shown/hidden/locked, shape)
+handle('project:saveCursor', async (_event, opts: { projectPath: string; cursor?: unknown }) => {
+  try {
+    const configPath = join(opts.projectPath, 'project.linden.json')
+    const current = fs.existsSync(configPath) ? JSON.parse(await readFile(configPath, 'utf-8')) : {}
+    current.cursor = normalizeCursorSettings(opts.cursor)
+    await writeFile(configPath, JSON.stringify(current, null, 2), 'utf-8')
+    return { status: 'ok' }
+  } catch (err: any) {
+    return { status: 'error', message: err.message || String(err) }
+  }
+})
+
+// Project: cursor as stored on disk (Project Settings re-reads it so the UI never shows a stale mode)
+handle('project:readCursor', async (_event, projectPath: string) => {
+  const configPath = join(String(projectPath ?? ''), 'project.linden.json')
+  try {
+    return normalizeCursorSettings(fs.existsSync(configPath) ? JSON.parse(await readFile(configPath, 'utf-8')).cursor : undefined)
+  } catch {
+    return normalizeCursorSettings(undefined)
   }
 })
 

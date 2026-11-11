@@ -12,6 +12,7 @@ import { ScenePipeline } from '../engine/renderer/sceneFactory'
 import { AssetLoader } from '../engine/assets/AssetLoader'
 import { resolveQuality } from '../engine/scene/SceneSettings'
 import { TouchControls, shouldShowTouchControls } from './touchControls'
+import { CursorController } from './cursorController'
 import { createTouchApi, TouchApi } from './touchApi'
 import { normalizeTouchConfig } from '../engine/input/normalizeActions'
 import { DEFAULT_SCENE } from './defaultScene'
@@ -65,6 +66,7 @@ export class LindenPlayer {
   private sim: GameSimulation
   private ui: HtmlUiLayer | null = null
   private touchControls: TouchControls | null = null
+  private cursor: CursorController | null = null
   /** ctx.touch for scripts; works (as no-op) without on-screen controls */
   readonly touch: TouchApi
   private projectData: any = null
@@ -352,22 +354,32 @@ export class LindenPlayer {
     // On-screen joystick + buttons write straight into Input (Touch/Joystick, Touch/Button/<id> -> action)
     const { config, warnings } = normalizeTouchConfig(this.projectData?.input?.touch, Input.getActions())
     warnings.forEach((w) => this.warn(`Kontrol sentuh: ${w}`))
-    if (shouldShowTouchControls(config)) {
+    const touch = shouldShowTouchControls(config)
+    if (touch) {
       this.touchControls = new TouchControls({
         container: this.container,
         config,
         input: Input,
         resolveAsset: (path) => this.resolveUrl(path),
       })
-      return
     }
-    // Desktop: mouse look needs pointer lock; a click on the game grabs it (Esc releases)
-    const usesMouseLook = Input.getActions().some((a) => a.bindings?.includes('Mouse/Delta'))
-    if (usesMouseLook) {
-      this.canvas.addEventListener('click', () => {
-        if (document.pointerLockElement !== this.canvas) this.canvas.requestPointerLock?.()
-      })
-    }
+    // Cursor from project settings: shape over the canvas, lock-on-click (Esc releases), and a guard
+    // that releases locks the mode doesn't allow ("Selalu tampil" must never hide the cursor)
+    this.cursor?.dispose()
+    this.cursor = new CursorController({
+      canvas: this.canvas,
+      document,
+      resolveUrl: (path) => this.resolveUrl(path),
+      usesMouseLook: () => Input.getActions().some((a) => a.bindings?.includes('Mouse/Delta')),
+      touch,
+      warn: (msg) => this.warn(msg),
+    })
+    this.cursor.apply(this.projectData?.cursor)
+  }
+
+  /** Live update from Project Settings while Play runs (linden:cursor) */
+  setCursor(settings: unknown): void {
+    this.cursor?.apply(settings)
   }
 
   pause(): void {
@@ -525,6 +537,7 @@ export class LindenPlayer {
       cancelAnimationFrame(this.animFrameId)
     }
     this.touchControls?.destroy()
+    this.cursor?.dispose()
     this.sim.dispose()
     this.ui?.dispose()
     this.bridge.detach()

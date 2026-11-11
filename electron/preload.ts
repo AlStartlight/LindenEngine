@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveProjectSettings: (opts: any) => invoke('project:saveSettings', opts),
   saveProjectInput: (opts: { projectPath: string; input: { actions?: unknown[]; touch?: unknown } }) => invoke('project:saveInput', opts),
   saveProjectGraphics: (opts: { projectPath: string; quality?: string; renderer?: string }) => invoke('project:saveGraphics', opts),
+  saveProjectCursor: (opts: { projectPath: string; cursor: unknown }) => invoke('project:saveCursor', opts),
+  readProjectCursor: (projectPath: string) => invoke('project:readCursor', projectPath),
   getRecentProjects: () => invoke('project:recent:list'),
   addRecentProject: (project: any) => invoke('project:recent:add', project),
   removeRecentProject: (path: string) => invoke('project:recent:remove', path),
