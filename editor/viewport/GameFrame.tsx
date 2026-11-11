@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEditorStore, PlaySessionInfo } from '../store/editorStore'
 import { SceneSerializer } from '../../engine/scene/serializer'
 import { parseGameToEditor, EditorToGameMessage } from '../../shared/playProtocol'
+import { normalizeCursorSettings } from '../../shared/cursorSettings'
+import { buildPlayProjectConfig } from './playProjectConfig'
 
 export interface GameFrameStats {
   fps: number
@@ -71,22 +73,10 @@ export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStat
               type: 'linden:init',
               mode: 'scene',
               scene: SceneSerializer.serialize(world, sceneName),
-              projectConfig: {
-                name: projectName,
-                collisionMatrix: projectSettings.collisionMatrix,
-                renderer: (projectSettings as { renderer?: string }).renderer === 'webgpu' ? 'webgpu' : 'webgl',
-                quality: projectSettings.quality ?? 'medium',
-                input: {
-                  actions: projectSettings.inputActions,
-                  touch: {
-                    ...projectSettings.touch,
-                    enabled: touchModeRef.current === 'auto' ? projectSettings.touch.enabled : touchModeRef.current,
-                    initialLayout: touchLayoutRef.current || projectSettings.touch.initialLayout,
-                  },
-                },
-                tags: projectSettings.tags,
-                layers: projectSettings.layers,
-              },
+              projectConfig: buildPlayProjectConfig(projectName, projectSettings, {
+                mode: touchModeRef.current,
+                layout: touchLayoutRef.current,
+              }),
             })
           }
           if (state.playState === 'paused') post({ type: 'linden:pause' })
@@ -119,6 +109,15 @@ export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStat
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
   }, [session, post, onConsole, onStats])
+
+  // Project Settings → Cursor applies to the running game right away (no Stop/Play)
+  const cursorSetting = useEditorStore((s) => s.projectSettings.cursor)
+  const sentCursor = useRef(cursorSetting)
+  useEffect(() => {
+    if (session.mode !== 'scene' || sentCursor.current === cursorSetting) return
+    sentCursor.current = cursorSetting
+    post({ type: 'linden:cursor', cursor: normalizeCursorSettings(cursorSetting) })
+  }, [cursorSetting, session.mode, post])
 
   // Pause / resume follow the toolbar
   useEffect(() => {
