@@ -74,7 +74,8 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   const [is2DMode, setIs2DMode] = useState(false)
   const [stats, setStats] = useState({ fps: 0, triangles: 0, drawCalls: 0 })
   const [gameStats, setGameStats] = useState<GameFrameStats | null>(null)
-  const [showUiPreview, setShowUiPreview] = useState(true)
+  const showUiPreview = useEditorStore((s) => s.uiOverlayVisible)
+  const toggleUiOverlay = useEditorStore((s) => s.toggleUiOverlay)
   // Particle emitters simulate only when selected, unless VFX preview is on (saves CPU on idle scenes)
   const [previewVfx, setPreviewVfx] = useState(false)
   const previewVfxRef = useRef(previewVfx)
@@ -387,9 +388,20 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
 
     // Keyboard Shortcuts: Q/W/E/R
     const handleKeyDown = (e: KeyboardEvent) => {
-      const activeTag = (document.activeElement?.tagName || '').toLowerCase()
-      if (activeTag === 'input' || activeTag === 'textarea') return
+      const active = document.activeElement as HTMLElement | null
+      const activeTag = (active?.tagName || '').toLowerCase()
+      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || active?.isContentEditable) return
       if (meshEditController.handleKeyDown(e)) return
+
+      // U: show/hide HtmlUI overlays (edit mode only; during Play the game owns the keyboard)
+      if (e.key.toLowerCase() === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !e.repeat) {
+        const state = useEditorStore.getState()
+        if (!state.playSession && state.projectRuntime === 'scene') {
+          e.preventDefault()
+          state.toggleUiOverlay()
+        }
+        return
+      }
 
       if (e.key.toLowerCase() === 'w') setTransformMode('translate')
       else if (e.key.toLowerCase() === 'e') setTransformMode('rotate')
@@ -484,6 +496,12 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
 
       {/* HTML UI preview in edit mode */}
       {playState === 'stopped' && showUiPreview && projectRuntime === 'scene' && <HtmlUiPreview />}
+
+      {playState === 'stopped' && !showUiPreview && projectRuntime === 'scene' && (
+        <div className="absolute bottom-2 right-2 z-30 pointer-events-none rounded bg-black/60 px-2 py-0.5 text-[10px] text-gray-300 border border-gray-700/60">
+          UI disembunyikan
+        </div>
+      )}
 
       {/* HTML Game projects have no editable scene: the game is the project's own page */}
       {playState === 'stopped' && projectRuntime === 'html' && (
@@ -604,8 +622,9 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
           className={`px-2 py-1 rounded text-xs transition-colors ${
             showUiPreview ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
           }`}
-          onClick={() => setShowUiPreview((v) => !v)}
-          title="Tampilkan pratinjau HTML UI"
+          aria-pressed={showUiPreview}
+          onClick={toggleUiOverlay}
+          title={showUiPreview ? 'Sembunyikan HTML UI (U)' : 'Tampilkan HTML UI (U)'}
         >
           UI
         </button>
