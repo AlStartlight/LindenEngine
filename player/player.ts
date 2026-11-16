@@ -65,6 +65,7 @@ export class LindenPlayer {
   private assets: AssetLoader | null = null
   private sim: GameSimulation
   private ui: HtmlUiLayer | null = null
+  private uiVisible = true
   private touchControls: TouchControls | null = null
   private cursor: CursorController | null = null
   /** ctx.touch for scripts; works (as no-op) without on-screen controls */
@@ -139,6 +140,7 @@ export class LindenPlayer {
         fetchText: (src) => this.fetchText(src),
         onWarning: (msg) => this.warn(msg),
       })
+      this.ui.setVisible(this.uiVisible)
 
       // 5. Load Project & Scene Data
       this.updateLoadingStatus('Memuat scene...', 40)
@@ -375,6 +377,12 @@ export class LindenPlayer {
       warn: (msg) => this.warn(msg),
     })
     this.cursor.apply(this.projectData?.cursor)
+  }
+
+  /** Editor toggle (linden:uiVisible); may arrive before the UI layer exists */
+  setUiVisible(visible: boolean): void {
+    this.uiVisible = visible
+    this.ui?.setVisible(visible)
   }
 
   /** Live update from Project Settings while Play runs (linden:cursor) */

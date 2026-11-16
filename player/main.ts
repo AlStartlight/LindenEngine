@@ -83,6 +83,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         player.reloadScripts(msg.version)
       } else if (msg.type === 'linden:reloadUi') player.reloadUi(msg.files)
       else if (msg.type === 'linden:cursor') player.setCursor(msg.cursor)
+      else if (msg.type === 'linden:uiVisible') player.setUiVisible(msg.visible)
     })
     player.initAudio()
   }
