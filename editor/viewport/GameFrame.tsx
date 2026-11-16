@@ -78,6 +78,8 @@ export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStat
                 layout: touchLayoutRef.current,
               }),
             })
+            // After init, so Reload and a fresh Play keep the editor's UI toggle
+            if (!state.uiOverlayVisible) post({ type: 'linden:uiVisible', visible: false })
           }
           if (state.playState === 'paused') post({ type: 'linden:pause' })
           break
@@ -118,6 +120,16 @@ export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStat
     sentCursor.current = cursorSetting
     post({ type: 'linden:cursor', cursor: normalizeCursorSettings(cursorSetting) })
   }, [cursorSetting, session.mode, post])
+
+  // Editor UI toggle applies to the running game without reloading it
+  const uiVisible = useEditorStore((s) => s.uiOverlayVisible)
+  const toggleUiOverlay = useEditorStore((s) => s.toggleUiOverlay)
+  const sentUiVisible = useRef(uiVisible)
+  useEffect(() => {
+    if (session.mode !== 'scene' || sentUiVisible.current === uiVisible) return
+    sentUiVisible.current = uiVisible
+    post({ type: 'linden:uiVisible', visible: uiVisible })
+  }, [uiVisible, session.mode, post])
 
   // Pause / resume follow the toolbar
   useEffect(() => {
@@ -253,6 +265,16 @@ export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStat
           ))}
         </select>
         <div className="w-px h-4 bg-gray-700/60" />
+        {session.mode === 'scene' && (
+          <button
+            className={`px-2 py-0.5 rounded transition-colors ${uiVisible ? 'bg-blue-600 text-white' : 'hover:bg-white/10'}`}
+            aria-pressed={uiVisible}
+            onClick={toggleUiOverlay}
+            title={uiVisible ? 'Sembunyikan HTML UI game' : 'Tampilkan HTML UI game'}
+          >
+            UI
+          </button>
+        )}
         <button
           className="px-2 py-0.5 rounded hover:bg-white/10"
           onClick={() => {
@@ -290,6 +312,11 @@ export const GameFrame: React.FC<GameFrameProps> = ({ session, onConsole, onStat
           style={frameSize ? { width: frameSize.width, height: frameSize.height } : { width: '100%', height: '100%' }}
           onLoad={() => session.mode === 'html' && setLoading(false)}
         />
+        {session.mode === 'scene' && !uiVisible && (
+          <div className="absolute top-2 right-2 pointer-events-none rounded bg-black/60 px-2 py-0.5 text-[10px] text-gray-300 border border-gray-700/60">
+            UI disembunyikan
+          </div>
+        )}
         {loading && !stalled && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-xs text-gray-400">
             Memuat game…

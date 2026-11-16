@@ -55,6 +55,7 @@ export class HtmlUiLayer {
   private worldRenderer: CSS3DRenderer | null = null
   private entries = new Map<string, UiEntry>()
   private bindings: Binding[] = []
+  private visible = true
 
   constructor(private options: HtmlUiLayerOptions) {
     this.screenRoot = document.createElement('div')
@@ -157,8 +158,31 @@ export class HtmlUiLayer {
     if (this.worldRenderer) return
     this.worldRenderer = new CSS3DRenderer()
     Object.assign(this.worldRenderer.domElement.style, { position: 'absolute', inset: '0', pointerEvents: 'none', zIndex: '9' })
+    if (!this.visible) this.worldRenderer.domElement.style.display = 'none'
     this.options.container.appendChild(this.worldRenderer.domElement)
     this.worldRenderer.setSize(this.options.container.clientWidth, this.options.container.clientHeight)
+  }
+
+  get isVisible(): boolean {
+    return this.visible
+  }
+
+  /**
+   * Editor toggle: hide every fragment (screen and world) while keeping the DOM, bindings and
+   * script show/hide state intact. display:none, not visibility, because each host resets
+   * its styles with `all: initial`, which would turn visibility back on.
+   */
+  setVisible(visible: boolean): void {
+    this.visible = visible
+    const display = visible ? '' : 'none'
+    this.screenRoot.style.display = display
+    if (this.worldRenderer) this.worldRenderer.domElement.style.display = display
+    if (visible) return
+    // A focused (now hidden) button would otherwise swallow Space/Enter meant for the game
+    for (const entry of this.entries.values()) {
+      const active = entry.shadow.activeElement as HTMLElement | null
+      active?.blur?.()
+    }
   }
 
   setSize(width: number, height: number): void {

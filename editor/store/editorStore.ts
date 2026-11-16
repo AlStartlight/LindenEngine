@@ -16,6 +16,7 @@ import type { PlayStartResult } from '../../shared/playProtocol'
 import type { SelectMode } from '../../engine/mesh/modeling/selection'
 import type { Pivot } from '../../engine/mesh/modeling/ops'
 import { normalizeCursorSettings, type CursorSettings } from '../../shared/cursorSettings'
+import { loadUiOverlayVisible, saveUiOverlayVisible } from '../viewport/uiOverlayPreference'
 
 /** Mesh Edit Mode of one entity's EditableMesh; the viewport's MeshEditController does the work */
 export interface MeshEditState {
@@ -84,6 +85,11 @@ export interface EditorState {
 
   /** Non-null while a mesh is in Edit Mode */
   meshEdit: MeshEditState | null
+
+  /** Editor-only: draw HtmlUI overlays over the viewport and Game Frame (persisted per project) */
+  uiOverlayVisible: boolean
+  setUiOverlayVisible: (visible: boolean) => void
+  toggleUiOverlay: () => void
 
   // Actions
   /** Enters Edit Mode for an entity with an EditableMesh (only while stopped); false if not possible */
@@ -208,6 +214,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   playSnapshot: null,
   playSession: null,
   playStepNonce: 0,
+  uiOverlayVisible: true,
   projectRuntime: 'scene',
   sceneName: 'Untitled',
   currentScenePath: null,
@@ -573,6 +580,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
+  setUiOverlayVisible: (visible: boolean) => {
+    saveUiOverlayVisible(get().projectPath, visible)
+    set({ uiOverlayVisible: visible })
+  },
+
+  toggleUiOverlay: () => get().setUiOverlayVisible(!get().uiOverlayVisible),
+
   setProjectSettings: (settings: Partial<ProjectSettingsState>) => {
     set((state) => ({
       projectSettings: { ...state.projectSettings, ...settings },
@@ -598,6 +612,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         projectPath: path,
         projectName: pName,
+        uiOverlayVisible: loadUiOverlayVisible(path),
         isProjectOpen: Boolean(path),
         projectRuntime: (settings as any)?.runtime === 'html' ? 'html' : 'scene',
         projectSettings: settings
@@ -628,6 +643,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       currentScenePath: null,
       selectedEntityIds: [],
       isDirty: false,
+      uiOverlayVisible: true,
     })
   },
 

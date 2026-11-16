@@ -41,6 +41,8 @@ export const EditorToGameSchema = z.discriminatedUnion('type', [
       hotspot: z.tuple([z.number(), z.number()]),
     }),
   }),
+  /** Editor UI toggle: show/hide HtmlUI overlays without touching game state */
+  z.object({ type: z.literal('linden:uiVisible'), visible: z.boolean() }),
 ])
 
 export const GameToEditorSchema = z.discriminatedUnion('type', [
