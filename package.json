@@ -23,6 +23,7 @@
     "bench:mesh": "vitest run --config vitest.bench.config.ts --silent=false",
     "check:licenses": "node scripts/check-licenses.mjs",
     "check:skills": "node scripts/check-skills.mjs",
+    "check:security": "node scripts/security-scan.mjs",
     "test:cases": "playwright test -c docs/test-case/playwright.config.ts",
     "test:cases:1m": "bash docs/test-case-1m/tools/run-all.sh",
     "test:e2e:play": "npm run build:electron && node tests/e2e/playViewport.e2e.mjs",
