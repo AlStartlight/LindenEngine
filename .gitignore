@@ -5,6 +5,8 @@ dist-player/
 # Copied from node_modules by scripts/copy-decoders.mjs
 public/decoders/
 .DS_Store
+__pycache__/
+*.pyc
 .env
 .env.local
 .env.*.local

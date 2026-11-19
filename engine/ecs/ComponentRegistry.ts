@@ -7,6 +7,7 @@ import { Rigidbody, BoxCollider, SphereCollider, CapsuleCollider, MeshCollider, 
 import { TimerComponent } from '../time/Timer'
 import { Script, HtmlUI } from '../scripting/ScriptComponents'
 import { CharacterMovement } from '../movement/CharacterMovement'
+import { CharacterAnimator } from '../animation/CharacterAnimator'
 import { ModelComponent } from '../model/ModelComponent'
 import { PRIMITIVE_KINDS } from '../renderer/primitives'
 import { EditableMesh } from '../mesh/EditableMeshComponent'
@@ -445,5 +446,30 @@ ComponentRegistry.register({
     { name: 'sprintAction', label: 'Sprint Action', kind: 'string', default: 'Sprint' },
     { name: 'crouchAction', label: 'Crouch Action', kind: 'string', default: 'Crouch' },
     { name: 'lookAction', label: 'Look Action', kind: 'string', default: 'Look' },
+  ],
+})
+
+ComponentRegistry.register({
+  type: 'CharacterAnimator',
+  menuPath: 'Animation/Character Animator',
+  icon: 'Activity',
+  disallowMultiple: true,
+  create: () => new CharacterAnimator(),
+  properties: [
+    { name: 'clipIdle', label: 'Idle Clip', kind: 'string', default: 'Idle' },
+    { name: 'clipWalk', label: 'Walk Clip', kind: 'string', default: 'Walk' },
+    { name: 'clipRun', label: 'Run Clip', kind: 'string', default: 'Run' },
+    { name: 'clipJump', label: 'Jump Clip', kind: 'string', default: 'Jump_Start' },
+    { name: 'clipFall', label: 'Fall Clip', kind: 'string', default: 'Fall' },
+    { name: 'clipLand', label: 'Land Clip', kind: 'string', default: 'Land' },
+    { name: 'clipCrouchIdle', label: 'Crouch Idle', kind: 'string', default: 'Crouch_Idle' },
+    { name: 'clipCrouchWalk', label: 'Crouch Walk', kind: 'string', default: 'Crouch_Walk' },
+    { name: 'clipAttack', label: 'Attack Clip', kind: 'string', default: 'Attack' },
+    { name: 'fadeDuration', label: 'Crossfade (s)', kind: 'number', default: 0.2, min: 0, max: 2, step: 0.05 },
+    { name: 'walkThreshold', label: 'Walk Threshold', kind: 'number', default: 0.15, min: 0, max: 5, step: 0.05 },
+    { name: 'runThreshold', label: 'Run Threshold', kind: 'number', default: 5.0, min: 1, max: 30, step: 0.5 },
+    { name: 'syncPlaybackSpeed', label: 'Sync Speed', kind: 'boolean', default: true },
+    { name: 'baseWalkSpeed', label: 'Base Walk Speed', kind: 'number', default: 3.5, min: 0.5, max: 20, step: 0.5 },
+    { name: 'baseRunSpeed', label: 'Base Run Speed', kind: 'number', default: 7.0, min: 1, max: 30, step: 0.5 },
   ],
 })

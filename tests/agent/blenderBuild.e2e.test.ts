@@ -53,4 +53,23 @@ describe.skipIf(!status.found)(`linden_blender_build with a real Blender (${stat
     expect(res.data.bounds[0][1]).toBeCloseTo(0, 3)
     expect(res.data.size[1]).toBeCloseTo(0.5, 2)
   }, 180_000)
+
+  it('rigs a character with standard biped armature and locomotion actions', async () => {
+    const res = await LINDEN_TOOLS.linden_blender_rig_character.execute(dir, {
+      name: 'Robot Hero',
+      spec: {
+        objects: [
+          { name: 'body', primitive: 'cube', scale: [0.6, 0.4, 0.8], location: [0, 0, 1.2], material: { baseColor: '#5588cc' } },
+          { name: 'head', primitive: 'uv_sphere', params: { radius: 0.25 }, location: [0, 0, 1.8], material: { baseColor: '#ffffff' } },
+        ],
+      },
+      height: 1.8,
+    })
+    expect(res.error).toBeUndefined()
+    expect(res.success).toBe(true)
+    const file = path.join(dir, 'assets/models/robot_hero.glb')
+    expect(fs.readFileSync(file).subarray(0, 4).toString('latin1')).toBe('glTF')
+    expect(res.data.blender.bones).toBe(22)
+    expect(res.data.blender.animations).toEqual(expect.arrayContaining(['Idle', 'Walk', 'Run', 'Jump_Start', 'Fall', 'Land']))
+  }, 180_000)
 })

@@ -4,3 +4,4 @@
 
 export * from './AnimationPlayer'
 export * from './AnimationTree'
+export * from './CharacterAnimator'

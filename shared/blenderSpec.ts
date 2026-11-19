@@ -84,11 +84,35 @@ function stackFactor(mods: z.infer<typeof ModifierSchema>[] = []): number {
 /** Highest stack factor summed over all objects; above this a spec could produce millions of faces */
 export const BLENDER_MAX_STACK = 4096
 
+export const RIG_TYPES = ['humanoid_biped', 'mechanical_biped', 'custom'] as const
+export const LOCOMOTION_ACTIONS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'crouch_idle', 'crouch_walk', 'attack'] as const
+
+export const RigBoneMappingSchema = z
+  .object({
+    bone: z.string().min(1).max(64),
+    objectName: z.string().min(1).max(64),
+  })
+  .strict()
+
+export const CharacterRigSpecSchema = z
+  .object({
+    type: z.enum(RIG_TYPES).default('humanoid_biped'),
+    height: positive(100).optional(),
+    autoSkin: z.boolean().optional(),
+    rigMapping: z.array(RigBoneMappingSchema).max(128).optional(),
+    generateLocomotion: z.boolean().optional(),
+    actions: z.array(z.string().min(1).max(32)).max(32).optional(),
+  })
+  .strict()
+
+export type CharacterRigSpec = z.infer<typeof CharacterRigSpecSchema>
+
 export const BlenderSpecSchema = z
   .object({
     objects: z.array(ObjectSchema).min(1).max(64),
     ground: z.boolean().optional(),
     join: z.boolean().optional(),
+    rig: CharacterRigSpecSchema.optional(),
   })
   .strict()
   .superRefine((spec, ctx) => {
@@ -120,6 +144,8 @@ export interface BlenderRunResult {
   bounds: { min: [number, number, number]; max: [number, number, number] }
   materials: string[]
   warnings: string[]
+  animations?: string[]
+  bones?: number
 }
 
 export const RESULT_MARKER = 'LINDEN_RESULT:'
@@ -139,6 +165,8 @@ export function parseBlenderResult(stdout: string): BlenderRunResult | null {
       bounds: data.bounds,
       materials: Array.isArray(data.materials) ? data.materials.map(String) : [],
       warnings: Array.isArray(data.warnings) ? data.warnings.map(String) : [],
+      animations: Array.isArray(data.animations) ? data.animations.map(String) : undefined,
+      bones: typeof data.bones === 'number' ? data.bones : undefined,
     }
   } catch {
     return null

@@ -21,6 +21,7 @@ export class CharacterMovement extends Component {
   public jumpAction = 'Jump'
   public sprintAction = 'Sprint'
   public crouchAction = 'Crouch'
+  public attackAction = 'Attack'
   public lookAction = 'Look'
   public mode: 'walk' | 'fly' | 'topdown' = 'walk'
   public qeMode: 'turn' | 'vertical' | 'strafe' = 'turn'
@@ -49,6 +50,7 @@ export class CharacterMovement extends Component {
   _grounded = false
   _sprinting = false
   _crouching = false
+  _attacking = false
   _jumpsUsed = 0
   _coyote = 0
   _buffer = 0
@@ -85,6 +87,9 @@ export class CharacterMovement extends Component {
   }
   get isCrouching(): boolean {
     return this._crouching
+  }
+  get isAttacking(): boolean {
+    return this._attacking
   }
   get jumpsUsed(): number {
     return this._jumpsUsed
@@ -178,6 +183,7 @@ export class CharacterMovementSystem {
         this.events?.onSprint?.(entity, sprinting)
       }
       cm._crouching = this.input.isActionPressed(cm.crouchAction)
+      if (this.input.isActionJustPressed(cm.attackAction)) cm._attacking = true
       cm._cameraChild =
         this.world.getEntities().find((e) => e.parentId === entity.id && e.hasComponent('Camera') && e.active) ?? null
       // A camera on the character itself also follows its yaw: same first-person rules
