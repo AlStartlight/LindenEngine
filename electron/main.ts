@@ -660,8 +660,11 @@ handle(
   'scene:write',
   async (_event, opts: { path: string; content: string }) => {
     try {
-      if (!opts?.path) {
+      if (!opts?.path || typeof opts.path !== 'string') {
         return { status: 'error', message: 'Path tidak boleh kosong.' }
+      }
+      if (opts.path.includes('\0')) {
+        return { status: 'error', message: 'Path mengandung karakter ilegal.' }
       }
       const dir = dirname(opts.path)
       if (!fs.existsSync(dir)) {
@@ -919,7 +922,7 @@ handle('file:save', async (_event, data) => {
 
 handle('file:load', async (_event, filePath) => {
   try {
-    if (filePath && fs.existsSync(filePath)) {
+    if (typeof filePath === 'string' && !filePath.includes('\0') && fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath, 'utf-8')
       return { success: true, data }
     }
@@ -1176,9 +1179,18 @@ handle('build:export', async (_event, options) => {
   return await ipcMain.emit('export:run', _event, options)
 })
 
-// Open external link
+// Open external link (restrict to http and https schemes)
 handle('shell:openExternal', async (_event, url) => {
-  await shell.openExternal(url)
+  if (typeof url === 'string') {
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        await shell.openExternal(url)
+      }
+    } catch {
+      // Invalid URL scheme ignored
+    }
+  }
 })
 
 // Get system info
