@@ -164,6 +164,18 @@ const blenderAvailable = () => getBlenderStatus().found
 
 const BuildArgs = z.object({ name: z.string().min(1).max(64), spec: BlenderSpecSchema, target: TargetSchema.optional() }).strict()
 const ScriptArgs = z.object({ name: z.string().min(1).max(64), code: z.string().min(1), target: TargetSchema.optional() }).strict()
+const RigCharacterArgs = z
+  .object({
+    name: z.string().min(1).max(64),
+    sourceModel: z.string().min(1).max(256).optional(),
+    spec: BlenderSpecSchema.optional(),
+    rigType: z.enum(['humanoid_biped', 'mechanical_biped']).optional(),
+    height: z.number().positive().max(100).optional(),
+    actions: z.array(z.string().min(1).max(32)).max(32).optional(),
+    target: TargetSchema.optional(),
+  })
+  .strict()
+  .refine((d) => d.sourceModel || d.spec, 'harus menyertakan setidaknya satu dari sourceModel atau spec')
 
 export const BLENDER_TOOLS: Record<string, ToolDefinition> = {
   linden_blender_status: {
@@ -252,6 +264,57 @@ export const BLENDER_TOOLS: Record<string, ToolDefinition> = {
           const file = path.join(jobDir, 'script.py')
           fs.writeFileSync(file, code)
           return ['--script', file]
+        })
+      } catch (err: any) {
+        return { success: false, error: err.message }
+      }
+    },
+  },
+
+  linden_blender_rig_character: {
+    name: 'linden_blender_rig_character',
+    description:
+      'Menerapkan rigging bipedal, skinning, dan menghasilkan suite animasi locomotion lengkap (Idle, Walk, Run, Jump_Start, Fall, Land, Crouch_Idle, Crouch_Walk, Attack) ' +
+      'pada model karakter dari spec atau file GLB yang ada di assets/. Output .glb siap pakai dengan Three.js SkinnedMesh dan CharacterAnimator.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Nama karakter, juga nama file default assets/models/<nama>.glb' },
+        sourceModel: { type: 'string', description: 'Path file .glb sumber di assets/ (opsional jika menggunakan spec)' },
+        spec: { type: 'object', description: 'BlenderSpec deklaratif untuk membuat model mesh baru sebelum dirig' },
+        rigType: { type: 'string', enum: ['humanoid_biped', 'mechanical_biped'], description: 'Tipe rig (default humanoid_biped)' },
+        height: { type: 'number', description: 'Tinggi karakter dalam meter (default dihitung dari bounding box atau 1.8)' },
+        actions: { type: 'array', items: { type: 'string' }, description: 'Daftar animasi yang digenerate (default: full locomotion set)' },
+        target: { type: 'string', description: 'Tujuan file .glb di assets/ (default assets/models/<nama>.glb)' },
+      },
+      required: ['name'],
+    },
+    available: blenderAvailable,
+    async execute(projectPath: string, args: unknown) {
+      if (!blenderTurnActive()) return { success: false, error: BLENDER_MODE_OFF_ERROR }
+      const parsed = RigCharacterArgs.safeParse(args)
+      if (!parsed.success) return { success: false, error: `Argumen tidak valid: ${zodMessage(parsed.error)}` }
+      const { name, sourceModel, spec, rigType, height, actions, target } = parsed.data
+      try {
+        return await buildJob(projectPath, name, target, (jobDir) => {
+          const rigConfig = {
+            type: rigType ?? 'humanoid_biped',
+            height,
+            generateLocomotion: true,
+            actions,
+          }
+          if (spec) {
+            const specWithRig = { ...spec, rig: rigConfig }
+            const specFile = path.join(jobDir, 'spec.json')
+            fs.writeFileSync(specFile, JSON.stringify(specWithRig, null, 2))
+            return ['--spec', specFile]
+          }
+          // sourceModel mode
+          const sourcePath = path.resolve(projectPath, sourceModel!)
+          if (!fs.existsSync(sourcePath)) throw new Error(`Source model "${sourceModel}" tidak ditemukan`)
+          const rigFile = path.join(jobDir, 'rig.json')
+          fs.writeFileSync(rigFile, JSON.stringify(rigConfig, null, 2))
+          return ['--source', sourcePath, '--rig', rigFile]
         })
       } catch (err: any) {
         return { success: false, error: err.message }

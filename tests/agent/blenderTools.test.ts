@@ -265,6 +265,62 @@ describe('linden_blender_script', () => {
   })
 })
 
+describe('linden_blender_rig_character', () => {
+  beforeEach(() => beginBlenderTurn('ses_1'))
+
+  it('builds, rigs, and generates locomotion animations from a spec', async () => {
+    let passedSpec: any
+    setBlenderSpawn(
+      fakeSpawn((args) => {
+        passedSpec = JSON.parse(fs.readFileSync(args[args.indexOf('--spec') + 1], 'utf-8'))
+        return ok(args)
+      }, calls)
+    )
+    const res = await run('linden_blender_rig_character', {
+      name: 'Hero',
+      spec: cube,
+      height: 1.8,
+    })
+    expect(res.success).toBe(true)
+    expect(passedSpec.rig).toBeDefined()
+    expect(passedSpec.rig.type).toBe('humanoid_biped')
+    expect(passedSpec.rig.height).toBe(1.8)
+    expect(passedSpec.rig.generateLocomotion).toBe(true)
+    expect(res.data.path).toBe('assets/models/hero.glb')
+    expect(calls[0].args).toContain('--spec')
+  })
+
+  it('rigs an existing sourceModel GLB', async () => {
+    const heroSrc = path.join(dir, 'assets/models/raw_hero.glb')
+    fs.mkdirSync(path.dirname(heroSrc), { recursive: true })
+    fs.writeFileSync(heroSrc, 'fake-glb')
+
+    let passedRig: any
+    setBlenderSpawn(
+      fakeSpawn((args) => {
+        passedRig = JSON.parse(fs.readFileSync(args[args.indexOf('--rig') + 1], 'utf-8'))
+        return ok(args)
+      }, calls)
+    )
+
+    const res = await run('linden_blender_rig_character', {
+      name: 'HeroRigged',
+      sourceModel: 'assets/models/raw_hero.glb',
+      rigType: 'mechanical_biped',
+    })
+    expect(res.success).toBe(true)
+    expect(passedRig.type).toBe('mechanical_biped')
+    expect(calls[0].args).toContain('--source')
+    expect(calls[0].args).toContain('--rig')
+  })
+
+  it('rejects when neither sourceModel nor spec is provided', async () => {
+    const res = await run('linden_blender_rig_character', { name: 'Invalid' })
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/sourceModel atau spec/)
+  })
+})
+
 describe('MCP tool list', () => {
   it('lists the Blender tools only while Blender is detected', async () => {
     const server = new LindenMcpServer({ projectPath: dir })
@@ -278,7 +334,7 @@ describe('MCP tool list', () => {
       return ((await res.json()).result.tools as any[]).map((t) => t.name)
     }
     try {
-      expect(await list()).toEqual(expect.arrayContaining(['blender_build', 'blender_script', 'blender_status']))
+      expect(await list()).toEqual(expect.arrayContaining(['blender_build', 'blender_script', 'blender_status', 'blender_rig_character']))
       setBlenderStatusForTest({ found: false })
       const names = await list()
       expect(names.some((n) => n.startsWith('blender_'))).toBe(false)

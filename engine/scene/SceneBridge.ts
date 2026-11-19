@@ -28,6 +28,8 @@ import { ModelSpecSchema, ModelSpec } from '../model/ModelSpec'
 import { pickFactoryExport } from '../../shared/modelFactory'
 import { buildModelObject } from '../model/buildModel'
 import { AnimationPlayer } from '../animation/AnimationPlayer'
+import type { CharacterAnimator } from '../animation/CharacterAnimator'
+import type { CharacterMovement } from '../movement/CharacterMovement'
 import { WATER, createPlainWater, createWaterObject, sunDirection, updateWater } from '../renderer/water'
 import { createParticleSystem, ParticleSystem } from '../vfx/particleRenderer'
 import type { ParticleEmitter } from '../vfx/ParticleEmitter'
@@ -139,7 +141,18 @@ export class SceneBridge {
 
   /** Advance glTF animations, factory idle animations and water waves */
   update(dt: number): void {
-    for (const anim of this.animators.values()) anim.advance(dt)
+    for (const [entityId, anim] of this.animators) {
+      const entity = this.world.getEntity(entityId)
+      if (entity) {
+        const parent = entity.parentId ? this.world.getEntity(entity.parentId) : null
+        const charAnim = entity.getComponent<CharacterAnimator>('CharacterAnimator') ?? parent?.getComponent<CharacterAnimator>('CharacterAnimator')
+        const charMove = entity.getComponent<CharacterMovement>('CharacterMovement') ?? parent?.getComponent<CharacterMovement>('CharacterMovement')
+        if (charAnim && charMove && charAnim.getEnabled()) {
+          charAnim.updateLocomotion(charMove, anim, dt)
+        }
+      }
+      anim.advance(dt)
+    }
     if (this.animateFactories && this.factoryTicks.size > 0) {
       this.factoryElapsed += dt
       for (const [id, tick] of this.factoryTicks) {

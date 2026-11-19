@@ -21,10 +21,18 @@
 
 import json
 import math
+import os
 import sys
 
 import bpy
 from mathutils import Matrix, Vector
+
+bridge_dir = os.path.dirname(os.path.abspath(__file__))
+if bridge_dir not in sys.path:
+    sys.path.insert(0, bridge_dir)
+
+from rigging.armature import bind_meshes_to_armature, create_humanoid_armature
+from rigging.locomotion import generate_locomotion_actions
 
 RESULT_MARKER = "LINDEN_RESULT:"
 ERROR_MARKER = "LINDEN_ERROR:"
@@ -37,6 +45,7 @@ PARAM_KEYS = {
     "size", "radius", "radius1", "radius2", "depth", "segments", "rings", "vertices",
     "majorRadius", "minorRadius", "majorSegments", "minorSegments",
 }
+RIG_TYPES = {"humanoid_biped", "mechanical_biped", "custom"}
 
 
 class SpecError(Exception):
@@ -55,13 +64,16 @@ def parse_args(argv):
     i = 0
     while i < len(args):
         key = args[i]
-        if key in ("--spec", "--script", "--out") and i + 1 < len(args):
+        if key in ("--spec", "--script", "--source", "--rig", "--out") and i + 1 < len(args):
             opts[key[2:]] = args[i + 1]
             i += 2
         else:
             raise SpecError("argumen tidak dikenal: %s" % key)
-    if "out" not in opts or ("spec" in opts) == ("script" in opts):
-        raise SpecError("pakai --out dengan tepat satu dari --spec atau --script")
+    if "out" not in opts:
+        raise SpecError("harus menyertakan --out")
+    modes = sum(1 for k in ("spec", "script", "source") if k in opts)
+    if modes != 1:
+        raise SpecError("pakai --out dengan tepat satu dari --spec, --script, atau --source")
     return opts
 
 
@@ -117,6 +129,15 @@ def validate_spec(spec):
                 raise SpecError("boolean pada %s menunjuk objek yang tidak valid: %s" % (obj["name"], mod.get("with")))
     if all(obj.get("cutter") for obj in spec["objects"]):
         raise SpecError("minimal satu objek bukan cutter")
+    if "rig" in spec and spec["rig"] is not None:
+        rig = spec["rig"]
+        if not isinstance(rig, dict):
+            raise SpecError("spec.rig harus object")
+        rig_type = rig.get("type", "humanoid_biped")
+        if rig_type not in RIG_TYPES:
+            raise SpecError("spec.rig.type harus salah satu %s" % sorted(RIG_TYPES))
+        if "height" in rig:
+            num(rig["height"], "spec.rig.height", 0.1, 100)
 
 
 # ---------------------------------------------------------------- scene helpers
@@ -315,11 +336,16 @@ def main():
     try:
         opts = parse_args(sys.argv)
         reset_scene()
+        spec = None
         if "spec" in opts:
             with open(opts["spec"], "r", encoding="utf-8") as fh:
                 spec = json.load(fh)
             objs = build_from_spec(spec)
             ground = spec.get("ground", True)
+        elif "source" in opts:
+            bpy.ops.import_scene.gltf(filepath=opts["source"])
+            objs = [o for o in bpy.context.scene.objects if o.type == "MESH" and not o.hide_get()]
+            ground = False
         else:
             objs = run_script(opts["script"])
             ground = True
@@ -337,6 +363,24 @@ def main():
             bpy.context.view_layer.update()
         lo, hi = world_bounds(objs)
 
+        rig_spec = None
+        if "rig" in opts:
+            with open(opts["rig"], "r", encoding="utf-8") as fh:
+                rig_spec = json.load(fh)
+        elif spec and isinstance(spec, dict) and "rig" in spec and spec["rig"]:
+            rig_spec = spec["rig"]
+
+        armature_obj = None
+        if rig_spec:
+            default_h = max(0.5, float(hi.z - lo.z))
+            h = num(rig_spec.get("height", default_h), "rig.height", 0.1, 100)
+            w = max(0.2, float(hi.x - lo.x))
+            d = max(0.2, float(hi.y - lo.y))
+            armature_obj = create_humanoid_armature(height=h, width=w, depth=d, base_z=lo.z)
+            bind_meshes_to_armature(objs, armature_obj, rig_type=rig_spec.get("type", "humanoid_biped"), rig_mapping=rig_spec.get("rigMapping"))
+            if rig_spec.get("generateLocomotion", True):
+                generate_locomotion_actions(armature_obj, actions=rig_spec.get("actions"), height=h)
+
         triangles = 0
         materials = set()
         for obj in objs:
@@ -348,21 +392,42 @@ def main():
         if triangles > MAX_TRIANGLES:
             raise SpecError("hasil terlalu berat: %d segitiga" % triangles)
 
-        for o in bpy.context.view_layer.objects:
-            o.select_set(o in objs)
-        bpy.context.view_layer.objects.active = objs[0]
-        bpy.ops.export_scene.gltf(
-            filepath=opts["out"], export_format="GLB", export_apply=True,
-            use_selection=True, export_yup=True,
-        )
+        has_armature = any(o.type == "ARMATURE" for o in bpy.context.scene.objects)
+        if has_armature:
+            for o in bpy.context.view_layer.objects:
+                o.select_set(True)
+            bpy.ops.export_scene.gltf(
+                filepath=opts["out"],
+                export_format="GLB",
+                export_apply=False,
+                export_animations=True,
+                export_animation_mode="ACTIONS",
+                export_skins=True,
+                export_morph=True,
+                export_def_bones=True,
+                use_selection=False,
+                export_yup=True,
+            )
+        else:
+            for o in bpy.context.view_layer.objects:
+                o.select_set(o in objs)
+            bpy.context.view_layer.objects.active = objs[0]
+            bpy.ops.export_scene.gltf(
+                filepath=opts["out"], export_format="GLB", export_apply=True,
+                use_selection=True, export_yup=True,
+            )
 
+        actions = sorted({a.name for a in bpy.data.actions})
         result = {
             "objects": len(objs),
             "triangles": triangles,
             "bounds": {"min": [round(v, 5) for v in lo], "max": [round(v, 5) for v in hi]},
             "materials": sorted(materials),
             "warnings": warnings,
+            "animations": actions,
         }
+        if armature_obj:
+            result["bones"] = len(armature_obj.data.bones)
         sys.stdout.write(RESULT_MARKER + json.dumps(result) + "\n")
         sys.stdout.flush()
     except SpecError as err:

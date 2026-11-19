@@ -70,4 +70,15 @@ Contoh mug (boolean + solidify):
 3. `linden_render_preview {entityId}`. Periksa proporsi, skala, material, dan apakah model melayang.
 4. Kalau belum pas, perbaiki spec lalu ulangi langkah 1–3 (maksimal 3 iterasi). Panggil ulang dengan `name` yang sama: file GLB akan ditimpa dan entity diperbarui.
 
+## Karakter Hidup Beranimasi (`linden_blender_rig_character`)
+Untuk membuat karakter yang hidup dengan pergerakan lengkap (bisa jalan, lari, lompat, jatuh, land, merunduk, attack):
+1. Panggil `linden_blender_rig_character { name: "Knight", spec: {...}, height: 1.8 }` (atau dengan `sourceModel: "assets/models/raw.glb"`).
+   - Tool ini otomatis membuat Humanoid Armature bipedal, melakukan skinning (automatic vertex weights), dan menghasilkan 9 animasi locomotion: `Idle`, `Walk`, `Run`, `Jump_Start`, `Fall`, `Land`, `Crouch_Idle`, `Crouch_Walk`, `Attack`.
+2. Buat entitas karakter di scene dengan komponen:
+   - `ModelComponent { src: path }` (memuat .glb yang ber-rig)
+   - `CharacterController { ... }` (kinematic Rapier collider)
+   - `CharacterMovement { mode: "walk", walkSpeed: 4, sprintSpeed: 7 }` (membaca input keyboard/gamepad/touch)
+   - `CharacterAnimator { ... }` (secara otomatis menghubungkan telemetry CharacterMovement dengan klip animasi, mengontrol crossfading, dan menyesuaikan kecepatan animasi dengan pergerakan fisik karakter untuk mencegah foot-sliding).
+3. Karakter langsung hidup seketika saat dimainkan!
+
 Kalau tool mengembalikan error Blender, baca pesannya, perbaiki spec, dan jangan ulangi spec yang sama persis. Kalau Blender tidak tersedia, kembali ke `linden_model_build` dan beri tahu user.
