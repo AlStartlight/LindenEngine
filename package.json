@@ -183,6 +183,7 @@
   "overrides": {
     "nixie-fx": {
       "three": "$three"
-    }
+    },
+    "minimatch": "^11.0.9"
   }
 }
