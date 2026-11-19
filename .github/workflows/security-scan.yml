@@ -1,0 +1,46 @@
+name: Security Vulnerability Scan
+
+on:
+  push:
+    branches: [main, "feat/**", "spec/**", "fix/**"]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run every Monday at 02:00 UTC
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-audit:
+    name: Security & Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run dependency license check
+        run: npm run check:licenses
+
+      - name: Run integrated security scan
+        run: npm run check:security
+
+      - name: Run npm audit (high and critical)
+        # Audit dependencies against known CVEs; fails on HIGH or CRITICAL severity
+        run: npm audit --audit-level=high
