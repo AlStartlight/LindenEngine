@@ -26,6 +26,7 @@ import { ModelSpecSchema } from '../../../engine/model/ModelSpec'
 import { MaterialSpecSchema } from '../../../engine/materials/MaterialSpec'
 import { normalizeSceneSettings } from '../../../engine/scene/SceneSettings'
 import { parseSceneFile } from '../../../engine/scene/parseSceneFile'
+import { TransmuterCore, PolyglotLanguage } from '../../../engine/transmuter/core/TransmuterCore'
 
 export { setPreviewRenderer } from './modelTools'
 export { setFactoryProbe } from './factoryTools'
@@ -579,6 +580,58 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
           return { success: false, error: schemaError }
         }
 
+        // Auto-enrich: ensure environment/ground/floor entities have solid collision so characters don't fall through
+        const colliderTypes = ['BoxCollider', 'SphereCollider', 'CapsuleCollider', 'MeshCollider']
+        for (const ent of entities) {
+          const compTypes = new Set(ent.components.map((c) => c.type))
+          const hasCollider = colliderTypes.some((t) => compTypes.has(t))
+          if (hasCollider) continue
+
+          const mr = ent.components.find((c) => c.type === 'MeshRenderer')
+          const nameOrTag = (ent.name + ' ' + (ent.tags || []).join(' ')).toLowerCase()
+          const isGround = /ground|floor|terrain|land|map|arena|stage|environment|platform/i.test(nameOrTag) || mr?.data?.primitive === 'plane'
+
+          if (isGround) {
+            const tr = ent.components.find((c) => c.type === 'Transform')
+            const scaleY = Array.isArray(tr?.data?.scale) ? tr.data.scale[1] : 1
+            ent.components.push({
+              type: 'BoxCollider',
+              data: {
+                size: { x: 1, y: Math.max(1, typeof scaleY === 'number' && scaleY > 0 ? 1 / scaleY : 1), z: 1 },
+                center: { x: 0, y: 0, z: 0 },
+              },
+            })
+          }
+        }
+
+        const hasCharacter = entities.some((e) => e.components?.some((c) => c.type === 'CharacterMovement' || c.type === 'CharacterController'))
+        const hasAnyCollider = entities.some((e) => e.components?.some((c) => colliderTypes.includes(c.type)))
+        if (hasCharacter && !hasAnyCollider) {
+          entities.push({
+            id: `ground_${Date.now()}`,
+            name: 'Ground',
+            active: true,
+            static: true,
+            tags: ['Ground'],
+            layer: 0,
+            parentId: null,
+            components: [
+              {
+                type: 'Transform',
+                data: { position: [0, -0.5, 0], rotation: [0, 0, 0], scale: [100, 1, 100] },
+              },
+              {
+                type: 'MeshRenderer',
+                data: { primitive: 'box', color: '#4a5568' },
+              },
+              {
+                type: 'BoxCollider',
+                data: { size: { x: 1, y: 1, z: 1 }, center: { x: 0, y: 0, z: 0 } },
+              },
+            ],
+          })
+        }
+
         let beforeContent = ''
         let previousSettings: Record<string, unknown> = {}
         if (fs.existsSync(fullPath)) {
@@ -656,19 +709,19 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
   linden_script_write: {
     name: 'linden_script_write',
     description:
-      'Menulis atau memperbarui script TypeScript logika game di folder scripts/ (export default class). ' +
+      'Menulis atau memperbarui script gameplay (TypeScript, GDScript .gd, C# .cs, atau Rust .rs) di folder scripts/. ' +
       'Isi attachTo agar script langsung terpasang (komponen Script) pada entity; script yang tidak terpasang tidak pernah dijalankan. ' +
-      'Import yang boleh hanya "three" dan "linden", serta file lain di scripts/.',
+      'Linden Engine Polyglot Core secara otomatis mentranspilasi GDScript, C#, dan Rust ke runtime saat Play.',
     parameters: {
       type: 'object',
       properties: {
         scriptPath: {
           type: 'string',
-          description: 'Path relatif file script, misalnya scripts/PlayerController.ts',
+          description: 'Path relatif file script, misalnya scripts/PlayerController.ts, scripts/Player.gd, scripts/Mover.cs, scripts/Voxel.rs',
         },
         code: {
           type: 'string',
-          description: 'Kode sumber TypeScript untuk script game',
+          description: 'Kode sumber script game (TypeScript, GDScript, C#, atau Rust)',
         },
         attachTo: attachToSchema,
       },
@@ -683,7 +736,7 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
         const fullPath = resolveProjectSafePath(projectPath, args.scriptPath)
         const scriptPath = args.scriptPath.replace(/\\/g, '/').replace(/^\.\//, '')
         if (!isValidScriptSrc(scriptPath)) {
-          return { success: false, error: `scriptPath harus di dalam scripts/ dan berakhiran .ts/.js (dapat: ${args.scriptPath})` }
+          return { success: false, error: `scriptPath harus di dalam scripts/ dan berakhiran .ts/.js/.gd/.cs/.rs (dapat: ${args.scriptPath})` }
         }
         let before = ''
         if (fs.existsSync(fullPath)) {
@@ -723,6 +776,100 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
             scriptPath,
             size: args.code.length,
             warning: 'Script belum ditautkan ke entity mana pun; isi attachTo atau tambahkan komponen Script lewat linden_scene_apply.',
+          },
+        }
+      } catch (err: any) {
+        return { success: false, error: err.message }
+      }
+    },
+  },
+
+  linden_script_transmute: {
+    name: 'linden_script_transmute',
+    description:
+      'Mengonversi (transmutasi) script game dari satu bahasa ke bahasa lain (antara GDScript, C#, Rust, dan TypeScript) menggunakan Linden Polyglot Transmuter.',
+    parameters: {
+      type: 'object',
+      properties: {
+        sourcePath: {
+          type: 'string',
+          description: 'Path relatif file script sumber di scripts/ (misal: scripts/Player.gd atau scripts/Enemy.cs)',
+        },
+        targetLang: {
+          type: 'string',
+          enum: ['typescript', 'gdscript', 'csharp', 'rust'],
+          description: 'Bahasa target konversi',
+        },
+        targetPath: {
+          type: 'string',
+          description: 'Opsional: path file output di scripts/ (default: mengganti ekstensi file sumber)',
+        },
+      },
+      required: ['sourcePath', 'targetLang'],
+    },
+    async execute(
+      projectPath: string,
+      args: { sourcePath: string; targetLang: PolyglotLanguage; targetPath?: string },
+      options
+    ) {
+      try {
+        const fullSource = resolveProjectSafePath(projectPath, args.sourcePath)
+        if (!fs.existsSync(fullSource)) {
+          return { success: false, error: `File sumber tidak ditemukan: ${args.sourcePath}` }
+        }
+        const sourceCode = fs.readFileSync(fullSource, 'utf-8')
+        const sourceLang = TransmuterCore.detectLanguage(args.sourcePath)
+
+        let targetPath = args.targetPath
+        if (!targetPath) {
+          const extMap: Record<PolyglotLanguage, string> = {
+            typescript: '.ts',
+            gdscript: '.gd',
+            csharp: '.cs',
+            rust: '.rs',
+          }
+          targetPath = args.sourcePath.replace(/\.(ts|js|mjs|gd|cs|rs)$/, extMap[args.targetLang])
+        }
+
+        const className = path.basename(targetPath).replace(/\.[^.]+$/, '')
+        const result = TransmuterCore.transmute({
+          sourceLang,
+          targetLang: args.targetLang,
+          code: sourceCode,
+          className,
+        })
+
+        const fullTarget = resolveProjectSafePath(projectPath, targetPath)
+        let before = ''
+        if (fs.existsSync(fullTarget)) {
+          before = fs.readFileSync(fullTarget, 'utf-8')
+        }
+
+        const diff: AgentDiffItem = {
+          id: `diff_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          file: targetPath,
+          kind: 'script',
+          action: before ? 'modify' : 'create',
+          description: `Transmutasi ${args.sourcePath} (${sourceLang}) ke ${targetPath} (${args.targetLang})`,
+          before,
+          after: result.code,
+          status: 'applied',
+        }
+
+        fs.mkdirSync(path.dirname(fullTarget), { recursive: true })
+        fs.writeFileSync(fullTarget, result.code, 'utf-8')
+        options?.onDiff?.(diff)
+
+        return {
+          success: true,
+          data: {
+            sourcePath: args.sourcePath,
+            targetPath,
+            sourceLang,
+            targetLang: args.targetLang,
+            warnings: result.warnings,
+            hasUnsupported: result.hasUnsupported,
+            codeLength: result.code.length,
           },
         }
       } catch (err: any) {

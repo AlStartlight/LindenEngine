@@ -1,16 +1,44 @@
 import type { PhysicsBackend } from './PhysicsBackend'
 import type { Transform } from '../ecs/Component'
 import type { Rigidbody, BaseCollider, RaycastHit, Joint } from './components'
-import { BoxCollider, SphereCollider, CapsuleCollider } from './components'
+import { BoxCollider, SphereCollider, CapsuleCollider, MeshCollider } from './components'
 import type { ModelColliderShape } from '../model/modelCollider'
 import * as THREE from 'three'
 
+export type Vec3 = { x: number; y: number; z: number }
+
+export function toVec3(v: unknown, fallback: Vec3 = { x: 0, y: 0, z: 0 }): Vec3 {
+  if (Array.isArray(v)) {
+    const x = Number(v[0])
+    const y = Number(v[1])
+    const z = Number(v[2])
+    return {
+      x: Number.isFinite(x) ? x : fallback.x,
+      y: Number.isFinite(y) ? y : fallback.y,
+      z: Number.isFinite(z) ? z : fallback.z,
+    }
+  }
+  if (v && typeof v === 'object') {
+    const obj = v as any
+    const x = Number(obj.x)
+    const y = Number(obj.y)
+    const z = Number(obj.z)
+    return {
+      x: Number.isFinite(x) ? x : fallback.x,
+      y: Number.isFinite(y) ? y : fallback.y,
+      z: Number.isFinite(z) ? z : fallback.z,
+    }
+  }
+  return { ...fallback }
+}
+
 /** Transform rotation (degrees) as a Rapier quaternion; the physics backend uses YXZ order throughout */
 function transformRotation(transform: Transform): { x: number; y: number; z: number; w: number } {
+  const rot = toVec3(transform?.rotation, { x: 0, y: 0, z: 0 })
   const euler = new THREE.Euler(
-    THREE.MathUtils.degToRad(transform.rotation.x),
-    THREE.MathUtils.degToRad(transform.rotation.y),
-    THREE.MathUtils.degToRad(transform.rotation.z),
+    THREE.MathUtils.degToRad(rot.x),
+    THREE.MathUtils.degToRad(rot.y),
+    THREE.MathUtils.degToRad(rot.z),
     'YXZ'
   )
   const q = new THREE.Quaternion().setFromEuler(euler)
@@ -18,8 +46,6 @@ function transformRotation(transform: Transform): { x: number; y: number; z: num
 }
 
 let RAPIER: any = null
-
-type Vec3 = { x: number; y: number; z: number }
 
 interface JointRecord {
   raw: any
@@ -81,6 +107,12 @@ export class RapierBackend implements PhysicsBackend {
     return this.rapierWorld !== null
   }
 
+  get colliderCount(): number {
+    let count = 0
+    for (const list of this.colliders.values()) count += list.length
+    return count
+  }
+
   async init(): Promise<void> {
     if (this.rapierWorld) return
     const rapier = await loadRapier()
@@ -123,7 +155,8 @@ export class RapierBackend implements PhysicsBackend {
       desc = RAPIER.RigidBodyDesc.fixed()
     }
 
-    desc.setTranslation(transform.position.x, transform.position.y, transform.position.z)
+    const pos = toVec3(transform?.position, { x: 0, y: 0, z: 0 })
+    desc.setTranslation(pos.x, pos.y, pos.z)
     desc.setRotation(transformRotation(transform))
 
     if (!rb.useGravity && rb.bodyType === 'dynamic') {
@@ -175,24 +208,52 @@ export class RapierBackend implements PhysicsBackend {
     if (!this.rapierWorld) return
 
     let colDesc: any
+    const center = toVec3(collider?.center, { x: 0, y: 0, z: 0 })
+    const scale = toVec3(transform?.scale, { x: 1, y: 1, z: 1 })
+    let cx = center.x
+    let cy = center.y
+    let cz = center.z
+
     if (collider instanceof BoxCollider) {
-      colDesc = RAPIER.ColliderDesc.cuboid(
-        Math.max((collider.size.x * transform.scale.x) / 2, 0.001),
-        Math.max((collider.size.y * transform.scale.y) / 2, 0.001),
-        Math.max((collider.size.z * transform.scale.z) / 2, 0.001)
-      )
+      const size = toVec3(collider.size, { x: 1, y: 1, z: 1 })
+      const sx = Math.max((size.x * Math.abs(scale.x)) / 2, 0.001)
+      let sy = Math.max((size.y * Math.abs(scale.y)) / 2, 0.001)
+      const sz = Math.max((size.z * Math.abs(scale.z)) / 2, 0.001)
+
+      // Quantum tunneling prevention: If this is a static ground/floor collider (sy < 0.25, sx/sz wide),
+      // give it at least 0.5m half-height (1m total thickness) extending downward
+      if ((!rb || rb.bodyType === 'static') && sy < 0.25 && (sx >= 1.5 || sz >= 1.5)) {
+        const minHalfHeight = 0.5
+        cy = cy - (minHalfHeight - sy)
+        sy = minHalfHeight
+      }
+
+      colDesc = RAPIER.ColliderDesc.cuboid(sx, sy, sz)
     } else if (collider instanceof SphereCollider) {
-      const maxScale = Math.max(transform.scale.x, transform.scale.y, transform.scale.z)
+      const maxScale = Math.max(Math.abs(scale.x), Math.abs(scale.y), Math.abs(scale.z))
       colDesc = RAPIER.ColliderDesc.ball(Math.max(collider.radius * maxScale, 0.001))
     } else if (collider instanceof CapsuleCollider) {
-      const radius = Math.max(collider.radius * Math.max(transform.scale.x, transform.scale.z), 0.001)
-      const halfHeight = Math.max((collider.height * transform.scale.y) / 2 - radius, 0.001)
+      const radius = Math.max(collider.radius * Math.max(Math.abs(scale.x), Math.abs(scale.z)), 0.001)
+      const halfHeight = Math.max((collider.height * Math.abs(scale.y)) / 2 - radius, 0.001)
       colDesc = RAPIER.ColliderDesc.capsule(halfHeight, radius)
+    } else if (collider instanceof MeshCollider) {
+      const sx = Math.max(Math.abs(scale.x) / 2, 0.5)
+      let sy = Math.max(Math.abs(scale.y) / 2, 0.5)
+      const sz = Math.max(Math.abs(scale.z) / 2, 0.5)
+      if ((!rb || rb.bodyType === 'static') && sy < 0.25 && (sx >= 1.5 || sz >= 1.5)) {
+        const minHalfHeight = 0.5
+        cy = cy - (minHalfHeight - sy)
+        sy = minHalfHeight
+      }
+      colDesc = RAPIER.ColliderDesc.cuboid(sx, sy, sz)
     } else {
-      colDesc = RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5)
+      const sx = Math.max(Math.abs(scale.x) / 2, 0.5)
+      const sy = Math.max(Math.abs(scale.y) / 2, 0.5)
+      const sz = Math.max(Math.abs(scale.z) / 2, 0.5)
+      colDesc = RAPIER.ColliderDesc.cuboid(sx, sy, sz)
     }
 
-    colDesc.setTranslation(collider.center.x, collider.center.y, collider.center.z)
+    colDesc.setTranslation(cx, cy, cz)
     if (collider.material) {
       colDesc.setFriction(collider.material.friction ?? 0.5)
       colDesc.setRestitution(collider.material.bounciness ?? 0.1)
@@ -216,7 +277,8 @@ export class RapierBackend implements PhysicsBackend {
         else if (c.kind === 'cylinder') desc = RAPIER.ColliderDesc.cylinder(c.halfHeight, c.radius)
         else desc = RAPIER.ColliderDesc.convexHull(c.points)
         if (!desc) continue // degenerate (flat) hull
-        desc.setTranslation(...c.center)
+        const center = toVec3(c.center, { x: 0, y: 0, z: 0 })
+        desc.setTranslation(center.x, center.y, center.z)
         desc.setRotation({ x: c.rotation[0], y: c.rotation[1], z: c.rotation[2], w: c.rotation[3] })
         desc.setFriction(c.friction)
         desc.setRestitution(c.restitution)
@@ -234,7 +296,8 @@ export class RapierBackend implements PhysicsBackend {
       if (!colDesc) return // degenerate (flat) hull
     } else {
       colDesc = RAPIER.ColliderDesc.cuboid(...shape.halfExtents)
-      colDesc.setTranslation(...shape.center)
+      const center = toVec3(shape.center, { x: 0, y: 0, z: 0 })
+      colDesc.setTranslation(center.x, center.y, center.z)
     }
     colDesc.setFriction(shape.friction ?? 0.5)
     colDesc.setRestitution(shape.restitution ?? 0.1)
@@ -260,7 +323,8 @@ export class RapierBackend implements PhysicsBackend {
     } else {
       // Static standalone collider: attach to a static body
       const staticDesc = RAPIER.RigidBodyDesc.fixed()
-      staticDesc.setTranslation(transform.position.x, transform.position.y, transform.position.z)
+      const pos = toVec3(transform?.position, { x: 0, y: 0, z: 0 })
+      staticDesc.setTranslation(pos.x, pos.y, pos.z)
       staticDesc.setRotation(transformRotation(transform))
       const staticBody = this.rapierWorld.createRigidBody(staticDesc)
       staticBody.userData = { entityId, isAutoStatic: true }
@@ -292,10 +356,11 @@ export class RapierBackend implements PhysicsBackend {
   setTranslation(entityId: string, pos: { x: number; y: number; z: number }): void {
     const body = this.bodies.get(entityId)
     if (body) {
+      const p = toVec3(pos, { x: 0, y: 0, z: 0 })
       if (body.bodyType() === RAPIER.RigidBodyType.KinematicPositionBased) {
-        body.setNextKinematicTranslation(pos)
+        body.setNextKinematicTranslation(p)
       } else {
-        body.setTranslation(pos, true)
+        body.setTranslation(p, true)
       }
     }
   }

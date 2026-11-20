@@ -83,8 +83,22 @@ export function resolveAttachments(projectPath: string, paths: unknown): string[
 }
 
 /** Text the agent sees for the attachments (the image itself goes as a file part when the model can see images) */
-export function attachmentNote(paths: string[]): string {
+export function attachmentNote(paths: string[], useBlender = false): string {
   if (paths.length === 0) return ''
   const list = paths.map((p) => `- ${p}`).join('\n')
+
+  if (useBlender) {
+    return (
+      `\n\n<reference-images>\n` +
+      `Gambar referensi dari user (di folder proyek):\n${list}\n` +
+      `MODE BLENDER 3D AKTIF: Bangun objek atau seluruh lingkungan (environment) 3D sesuai gambar menggunakan Blender MCP.\n` +
+      `- Bila gambar berupa satu objek/prop: rekonstruksi model 3D di Blender dan ekspor ke assets/models/<nama>.glb.\n` +
+      `- Bila gambar berupa pemandangan/ruangan/lingkungan (environment): ekstrak tata letak ruang, pencahayaan, dan prop, ` +
+      `bangun seluruh environment di Blender, ekspor GLB, lalu sesuaikan settings scene (sun, ambient, fog) dan entities via linden_scene_apply.\n` +
+      `Ikuti petunjuk lengkap di blok <blender-mode>. JANGAN membuat Three.js factory hand-written.\n` +
+      `</reference-images>`
+    )
+  }
+
   return `\n\n<reference-images>\nGambar referensi dari user (di folder proyek):\n${list}\nUntuk membangun ulang objek di gambar sebagai model 3D, ikuti bagian 7 instruksi Linden (linden_model_build / linden_factory_write, bandingkan dengan linden_reference_view).\n</reference-images>`
 }

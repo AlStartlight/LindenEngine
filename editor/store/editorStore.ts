@@ -91,6 +91,11 @@ export interface EditorState {
   setUiOverlayVisible: (visible: boolean) => void
   toggleUiOverlay: () => void
 
+  /** Framing / Focus camera on selected object */
+  focusEntityNonce: number
+  focusEntityId: string | null
+  focusOnEntity: (id?: string | null) => void
+
   // Actions
   /** Enters Edit Mode for an entity with an EditableMesh (only while stopped); false if not possible */
   enterMeshEdit: (entityId: string) => boolean
@@ -215,6 +220,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   playSession: null,
   playStepNonce: 0,
   uiOverlayVisible: true,
+  focusEntityNonce: 0,
+  focusEntityId: null,
+  focusOnEntity: (id) => {
+    const { selectedEntityIds } = get()
+    const targetId = id || selectedEntityIds[0] || null
+    if (targetId && !selectedEntityIds.includes(targetId)) {
+      set({ selectedEntityIds: [targetId] })
+    }
+    set((s) => ({ focusEntityId: targetId, focusEntityNonce: s.focusEntityNonce + 1 }))
+  },
   projectRuntime: 'scene',
   sceneName: 'Untitled',
   currentScenePath: null,

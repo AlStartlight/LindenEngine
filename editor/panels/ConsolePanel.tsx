@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react'
 import { Icons } from '../ui/Icons'
 import { useEditorStore } from '../store/editorStore'
+import { useI18n } from '../i18n/translations'
 
 export interface ConsoleMessage {
   type: string
@@ -20,6 +21,7 @@ export const ConsolePanel: React.FC<ConsolePanelProps> = ({
   onClearMessages,
   onExecuteCommand,
 }) => {
+  const { t } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [filterType, setFilterType] = useState<'all' | 'error' | 'warn' | 'info'>('all')
@@ -244,7 +246,7 @@ export const ConsolePanel: React.FC<ConsolePanelProps> = ({
               filterType === 'all' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            All <span className="opacity-70 text-[10px]">({counts.all})</span>
+            {t('console.filter_all')} <span className="opacity-70 text-[10px]">({counts.all})</span>
           </button>
           <button
             onClick={() => setFilterType('error')}
@@ -256,7 +258,7 @@ export const ConsolePanel: React.FC<ConsolePanelProps> = ({
                 : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <span>Errors</span>
+            <span>{t('console.errors')}</span>
             <span
               className={`px-1 py-0.2 rounded text-[10px] font-bold ${
                 filterType === 'error' ? 'bg-red-800' : 'bg-red-950/60 text-red-300'
@@ -275,7 +277,7 @@ export const ConsolePanel: React.FC<ConsolePanelProps> = ({
                 : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            <span>Warnings</span>
+            <span>{t('console.warnings')}</span>
             <span
               className={`px-1 py-0.2 rounded text-[10px] font-bold ${
                 filterType === 'warn' ? 'bg-amber-800' : 'bg-amber-950/60 text-yellow-300'
@@ -290,7 +292,7 @@ export const ConsolePanel: React.FC<ConsolePanelProps> = ({
               filterType === 'info' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
-            Info <span className="opacity-70 text-[10px]">({counts.info})</span>
+            {t('console.logs')} <span className="opacity-70 text-[10px]">({counts.info})</span>
           </button>
         </div>
 
@@ -301,7 +303,7 @@ export const ConsolePanel: React.FC<ConsolePanelProps> = ({
             <Icons.Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1.5 pointer-events-none" />
             <input
               type="text"
-              placeholder="Filter logs..."
+              placeholder={t('console.search_placeholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="bg-black/30 border border-gray-700/60 rounded pl-7 pr-2 py-0.5 text-[11px] text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 w-32 focus:w-44 transition-all"
@@ -357,7 +359,7 @@ export const ConsolePanel: React.FC<ConsolePanelProps> = ({
             className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 text-red-300 border border-red-500/30 text-[11px] font-medium"
             title="Clear all console logs"
           >
-            Clear
+            {t('console.clear')}
           </button>
         </div>
       </div>

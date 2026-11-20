@@ -392,7 +392,8 @@ ComponentRegistry.register({
   disallowMultiple: true,
   create: () => new Script(),
   properties: [
-    { name: 'src', label: 'Script', kind: 'assetRef', assetType: 'script', default: '', tooltip: 'scripts/PlayerController.ts' },
+    { name: 'src', label: 'Script', kind: 'assetRef', assetType: 'script', default: '', tooltip: 'scripts/PlayerController.ts, .gd, .cs, .rs' },
+    { name: 'language', label: 'Language', kind: 'enum', default: 'auto', options: ['auto', 'typescript', 'gdscript', 'csharp', 'rust'], tooltip: 'Pilihan bahasa script (auto mendeteksi dari ekstensi)' },
     { name: 'props', label: 'Properties', kind: 'json', default: {}, tooltip: 'Nilai awal field publik script (JSON)' },
   ],
 })

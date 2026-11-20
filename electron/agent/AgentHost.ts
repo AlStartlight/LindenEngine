@@ -27,6 +27,7 @@ import { pathToFileURL } from 'node:url'
 import { beginBlenderTurn, endBlenderTurn } from './blenderMode'
 import { blenderStatusReady, getBlenderStatus, onBlenderStatusChange } from '../bridge/blenderDetect'
 import type { ToolPermissionRequest } from './lindenTools'
+import { ProcessRegistry } from '../utils/processRegistry'
 
 /** Oldest OpenCode CLI with the v2 HTTP API (/api/*) this host talks to. */
 export const OPENCODE_MIN_VERSION = '2.0.0'
@@ -65,11 +66,12 @@ const TEMP_DENY_RULES = TEMP_DIRS.flatMap((dir) =>
 /**
  * Permission rules for Linden sessions (last match wins). Linden tools and reads run
  * freely; shell commands, web access and raw file edits need the user's approval.
+ * In auto-approve mode, all workspace actions are allowed directly without prompts.
  * The agent works only inside the project folder: system temp folders (/tmp, ...) are
  * denied for every action, and OpenCode's external_directory check (reads, edits, globs,
  * shell workdir outside the session folder) is always denied.
  */
-export const SESSION_PERMISSIONS = [
+export const SESSION_PERMISSIONS_MANUAL = [
   { action: '*', resource: '*', effect: 'ask' as const },
   { action: 'read', resource: '*', effect: 'allow' as const },
   { action: 'glob', resource: '*', effect: 'allow' as const },
@@ -80,9 +82,19 @@ export const SESSION_PERMISSIONS = [
   { action: 'question', resource: '*', effect: 'allow' as const },
   { action: 'mcp', resource: 'linden*', effect: 'allow' as const },
   { action: 'linden*', resource: '*', effect: 'allow' as const },
+  { action: 'mcp', resource: 'blender*', effect: 'allow' as const },
+  { action: 'blender*', resource: '*', effect: 'allow' as const },
   ...TEMP_DENY_RULES,
   { action: 'external_directory', resource: '*', effect: 'deny' as const },
 ]
+
+export const SESSION_PERMISSIONS_AUTO = [
+  { action: '*', resource: '*', effect: 'allow' as const },
+  ...TEMP_DENY_RULES,
+  { action: 'external_directory', resource: '*', effect: 'deny' as const },
+]
+
+export const SESSION_PERMISSIONS = SESSION_PERMISSIONS_MANUAL
 
 const samePath = (a: string, b: string) => path.resolve(a) === path.resolve(b)
 
@@ -166,11 +178,45 @@ export class AgentHost {
   private sendEventToRenderer?: (event: AgentEvent) => void
   /** Permission prompts raised by Linden tools themselves (linden_blender_script) */
   private localPermissions = new Map<string, { req: AgentPermissionRequest; resolve: (allow: boolean) => void }>()
+  private autoApprove: boolean = false
+
+  async setAutoApprove(enabled: boolean): Promise<void> {
+    this.autoApprove = enabled
+
+    // 1. Update ruleset on the active OpenCode session if running
+    if (this.client) {
+      const permissions = this.getEffectivePermissions()
+      if (this.activeSessionId && this.client.session?.update) {
+        await this.client.session.update({ sessionID: this.activeSessionId, permissions }).catch(() => {})
+      }
+    }
+
+    // 2. Resolve & flush any pending permissions immediately
+    if (enabled) {
+      for (const [id] of this.localPermissions) {
+        this.resolveLocalPermission(id, true)
+      }
+      for (const [id, req] of this.pendingPermissions) {
+        await this.replyPermission(id, true, req.sessionId).catch(() => {})
+      }
+    }
+  }
+
+  getAutoApprove(): boolean {
+    return this.autoApprove
+  }
+
+  getEffectivePermissions() {
+    return this.autoApprove ? SESSION_PERMISSIONS_AUTO : SESSION_PERMISSIONS_MANUAL
+  }
 
   private constructor() {
-    // A Blender found (or lost) while the agent runs changes the Linden tool list
+    // A Blender found (or lost) while the agent runs changes the Linden tool list & Blender MCP
     onBlenderStatusChange(() => {
-      if (this.client && this.mcp) this.registerMcp().catch((e) => console.warn('[Agent] Gagal memperbarui tool Linden:', e?.message ?? e))
+      if (this.client) {
+        if (this.mcp) this.registerMcp().catch((e) => console.warn('[Agent] Gagal memperbarui tool Linden:', e?.message ?? e))
+        this.registerBlenderMcp().catch((e) => console.warn('[Agent] Gagal memperbarui server Blender MCP:', e?.message ?? e))
+      }
     })
   }
 
@@ -214,6 +260,7 @@ export class AgentHost {
 
   /** Ask the user in the agent panel (PermissionCard) on behalf of a Linden tool */
   requestToolPermission(req: ToolPermissionRequest): Promise<boolean> {
+    if (this.autoApprove) return Promise.resolve(true)
     const sessionId = this.activeSessionId
     if (!sessionId) return Promise.resolve(false)
     const request: AgentPermissionRequest = {
@@ -347,6 +394,7 @@ export class AgentHost {
       // The Blender tools are listed only when Blender is found; give the detection a moment
       await Promise.race([blenderStatusReady(), new Promise((r) => setTimeout(r, BLENDER_DETECT_WAIT_MS))])
       await this.registerMcp()
+      await this.registerBlenderMcp()
 
       this.subscribeEvents()
       await this.loadDefaultModel()
@@ -377,6 +425,29 @@ export class AgentHost {
     await client.mcp.add({ server: 'linden', location: this.location(), config })
   }
 
+  /** (Re-)register the Blender MCP server (via proxy to port 9876 or headless daemon) */
+  private async registerBlenderMcp(): Promise<void> {
+    if (!this.client) return
+    const status = getBlenderStatus()
+    if (!status.found || !status.path) {
+      await this.client.mcp.remove({ server: 'blender', location: this.location() } as any).catch(() => {})
+      return
+    }
+    const config = {
+      type: 'local' as const,
+      command: [
+        'node',
+        resolveAppResource('blender-bridge/mcp_proxy.js', 'blender-bridge/mcp_proxy.js'),
+        status.path,
+      ],
+      timeout: { execution: MCP_EXECUTION_TIMEOUT_MS },
+    }
+    await this.client.mcp.remove({ server: 'blender', location: this.location() } as any).catch(() => {})
+    await this.client.mcp.add({ server: 'blender', location: this.location(), config }).catch((e) => {
+      console.warn('[Agent] Peringatan saat mendaftarkan server Blender MCP:', e?.message ?? e)
+    })
+  }
+
   private spawnServer(projectPath: string, port: number, password: string): Promise<string> {
     return new Promise((resolve, reject) => {
       // Temp files of the server and its shell commands go into the project, not /tmp
@@ -387,8 +458,10 @@ export class AgentHost {
         cwd: projectPath,
         env: this.childEnv({ OPENCODE_SERVER_PASSWORD: password, TMPDIR: tmpDir, TMP: tmpDir, TEMP: tmpDir }),
         shell: needsShell(bin),
+        detached: process.platform !== 'win32',
       })
       this.opencodeProcess = proc
+      ProcessRegistry.getInstance().registerProcess(proc, 'opencode-serve')
 
       let output = ''
       let settled = false
@@ -453,9 +526,13 @@ export class AgentHost {
     this.client = null
     this.serverUrl = null
     if (proc) {
-      try {
-        proc.kill('SIGTERM')
-      } catch (_) {}
+      if (proc.pid) {
+        ProcessRegistry.getInstance().killProcessTree(proc.pid, 'SIGTERM').catch(() => {})
+      } else {
+        try {
+          proc.kill('SIGTERM')
+        } catch (_) {}
+      }
       this.emitEvent({ type: 'status_changed', data: this.getStatus() })
     }
   }
@@ -470,6 +547,7 @@ export class AgentHost {
       activeSessionId: this.activeSessionId,
       activeModel: this.activeModel,
       activeProvider: this.activeProvider,
+      autoApprove: this.autoApprove,
       error: this.lastError,
     }
   }
@@ -580,7 +658,7 @@ export class AgentHost {
       title,
       agent: 'build',
       model: this.activeModel && this.activeProvider ? { id: this.activeModel, providerID: this.activeProvider } : undefined,
-      permissions: SESSION_PERMISSIONS,
+      permissions: this.getEffectivePermissions(),
     })
 
     await this.ensureInstructions(info.id)
@@ -624,7 +702,7 @@ export class AgentHost {
       }
       await client.session.move({ sessionID: sessionId, directory: this.projectPath! })
     }
-    await client.session.update({ sessionID: sessionId, permissions: SESSION_PERMISSIONS })
+    await client.session.update({ sessionID: sessionId, permissions: this.getEffectivePermissions() })
     this.tracker.watch(sessionId, info?.tokens)
   }
 
@@ -679,10 +757,11 @@ export class AgentHost {
       text += `\n\n<editor-context>\n${JSON.stringify(options.context, null, 2)}\n</editor-context>`
     }
 
+    const useBlenderMode = !!(options.useBlender && getBlenderStatus().found)
     const attachments = this.projectPath ? resolveAttachments(this.projectPath, options.attachments) : []
-    text += attachmentNote(attachments)
+    text += attachmentNote(attachments, useBlenderMode)
     // "Blender 3D" checked: this turn gets the Blender guide and may use the Blender tools
-    if (options.useBlender && getBlenderStatus().found) {
+    if (useBlenderMode) {
       text += `\n\n<blender-mode>\n${this.blenderPrompt()}\n</blender-mode>`
       beginBlenderTurn(sessionId)
     } else {
@@ -745,13 +824,14 @@ export class AgentHost {
     }
   }
 
-  async replyPermission(requestId: string, allow: boolean): Promise<void> {
+  async replyPermission(requestId: string, allow: boolean, sessionId?: string): Promise<void> {
     if (this.resolveLocalPermission(requestId, allow)) return
     const req = this.pendingPermissions.get(requestId)
-    this.resolvePermission(requestId, req?.sessionId)
-    if (!req || !this.client) return
+    const targetSessionId = sessionId || req?.sessionId || this.activeSessionId
+    this.resolvePermission(requestId, targetSessionId ?? undefined)
+    if (!this.client || !targetSessionId) return
     await this.client.permission
-      .reply({ sessionID: req.sessionId, requestID: requestId, decision: allow ? 'once' : 'reject' })
+      .reply({ sessionID: targetSessionId, requestID: requestId, decision: allow ? 'always' : 'reject' })
       // Rejecting one call rejects its whole batch, so later requests may already be gone
       .catch((e) => console.warn('[Agent] Balasan izin diabaikan:', e.message))
   }
@@ -789,6 +869,22 @@ export class AgentHost {
   handleEvent(ev: { type: string; created?: number; data?: any }): void {
     this.tracker.handle(ev)
     const d = ev.data ?? {}
+
+    // When autoApprove is enabled, reply immediately for all sessions (including child/sub-agent sessions)
+    // without requiring user prompt cards or filtering by watched session.
+    if (ev.type === 'permission.asked' && this.autoApprove) {
+      if (this.client && d.id && d.sessionID) {
+        this.client.permission
+          .reply({
+            sessionID: d.sessionID,
+            requestID: d.id,
+            decision: 'always',
+          })
+          .catch((e) => console.warn('[Agent] Auto approve reply gagal:', e.message))
+      }
+      return
+    }
+
     if (!d.sessionID || !this.tracker.isWatched(d.sessionID)) return
 
     if (ev.type === 'permission.asked') {

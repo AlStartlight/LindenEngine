@@ -3,6 +3,31 @@ import type { BlenderStatus } from '../../shared/blenderTypes'
 import { loadBridgeSettings, saveBridgeSettings } from './godotExec'
 import { blenderCandidates, normalizeBlenderPath, validateBlenderBinary, type VersionRunner, runVersion } from './blenderExec'
 import path from 'node:path'
+import net from 'node:net'
+
+/** Probe whether official Blender Lab MCP server is listening on port 9876 */
+export function probeBlenderMcpPort(port = 9876, timeoutMs = 150): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket()
+    let resolved = false
+    const finish = (ok: boolean) => {
+      if (!resolved) {
+        resolved = true
+        socket.destroy()
+        resolve(ok)
+      }
+    }
+    socket.setTimeout(timeoutMs)
+    socket.once('connect', () => finish(true))
+    socket.once('timeout', () => finish(false))
+    socket.once('error', () => finish(false))
+    try {
+      socket.connect(port, '127.0.0.1')
+    } catch {
+      finish(false)
+    }
+  })
+}
 
 /**
  * Cached Blender detection for the editor (Bridge settings, agent panel) and the agent tools.
@@ -60,6 +85,8 @@ export function detectBlender(opts: { refresh?: boolean } = {}): Promise<Blender
     for (const cand of candidates) {
       const res = await validateBlenderBinary(cand.bin, cand.source, runner)
       if (res.found) {
+        const isLive = await probeBlenderMcpPort().catch(() => false)
+        res.mcpMode = isLive ? 'live' : 'headless'
         saveBridgeSettings({ blenderExecutable: res.path, blenderVersion: res.version })
         return update(res)
       }
@@ -81,6 +108,8 @@ export async function setBlenderPath(input: string): Promise<BlenderStatus> {
   const bin = normalizeBlenderPath(input)
   const res = await validateBlenderBinary(bin, 'manual', runner)
   if (!res.found) return res
+  const isLive = await probeBlenderMcpPort().catch(() => false)
+  res.mcpMode = isLive ? 'live' : 'headless'
   saveBridgeSettings({ blenderExecutable: res.path, blenderVersion: res.version })
   pending = Promise.resolve(res)
   return update(res)

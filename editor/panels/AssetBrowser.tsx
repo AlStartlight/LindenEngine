@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState, useMemo } from 'react'
 import * as THREE from 'three'
 import { useEditorStore } from '../store/editorStore'
+import { useI18n } from '../i18n/translations'
 import { AssetLoader } from '../../engine/assets/AssetLoader'
 import { AssetEntry, projectAssetUrl } from '../../shared/assetProtocol'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
@@ -117,6 +118,7 @@ function formatFileSize(bytes: number): string {
 }
 
 export const AssetBrowser: React.FC = () => {
+  const { t } = useI18n()
   const { executeCommand, projectPath } = useEditorStore()
   const [assets, setAssets] = useState<AssetEntry[]>([])
   const [filter, setFilter] = useState<'all' | AssetEntry['kind']>('all')
@@ -213,7 +215,7 @@ export const AssetBrowser: React.FC = () => {
             <Icons.Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1.5 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search assets..."
+              placeholder={t('assets.search_placeholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="bg-black/30 border border-gray-700/60 rounded pl-7 pr-2 py-0.5 text-[11px] text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 w-32 focus:w-44 transition-all"
@@ -242,7 +244,7 @@ export const AssetBrowser: React.FC = () => {
           <button
             onClick={refresh}
             className={`p-1 rounded hover:bg-white/10 text-gray-300 transition-colors ${isLoading ? 'animate-spin' : ''}`}
-            title="Reload assets"
+            title={t('assets.refresh')}
           >
             <Icons.RefreshCw className="w-3.5 h-3.5" />
           </button>
@@ -261,7 +263,7 @@ export const AssetBrowser: React.FC = () => {
         {!error && filteredAssets.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-2">
             <Icons.Box className="w-10 h-10 opacity-30 text-gray-400" />
-            <p className="text-xs font-medium">No assets found</p>
+            <p className="text-xs font-medium">{t('assets.no_assets')}</p>
             <p className="text-[11px] opacity-70">
               Import 3D models (.glb/.gltf), HDR, or textures into the <code className="text-gray-400">assets/</code> folder.
             </p>

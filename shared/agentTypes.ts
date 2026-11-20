@@ -60,6 +60,7 @@ export interface AgentStatus {
   activeModel: string | null
   activeProvider: string | null
   error?: string | null
+  autoApprove?: boolean
 }
 
 export interface AgentProviderModel {

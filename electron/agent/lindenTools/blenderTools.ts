@@ -10,6 +10,7 @@ import { getBlenderStatus } from '../../bridge/blenderDetect'
 import { blenderSpawnEnv } from '../../bridge/blenderExec'
 import { blenderTurnActive, BLENDER_MODE_OFF_ERROR } from '../blenderMode'
 import { resolveAppResource } from '../../resourcePaths'
+import { ProcessRegistry } from '../../utils/processRegistry'
 
 /**
  * "Blender 3D" mode: the agent builds a model in the user's own Blender (separate process,
@@ -73,7 +74,9 @@ export function runBlender(bin: string, jobDir: string, modeArgs: string[], time
     let stderr = ''
     let settled = false
     let timedOut = false
+    let unregisterProc = () => {}
     const finish = (out: BlenderRunOutput) => {
+      unregisterProc()
       if (settled) return
       settled = true
       clearTimeout(timer)
@@ -85,6 +88,7 @@ export function runBlender(bin: string, jobDir: string, modeArgs: string[], time
     let child: ReturnType<BlenderSpawn>
     try {
       child = spawnImpl(bin, args, { cwd: jobDir, env: blenderSpawnEnv(path.join(jobDir, 'user')), shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      unregisterProc = ProcessRegistry.getInstance().registerProcess(child, 'blender-job')
     } catch (e: any) {
       resolve({ ok: false, error: `Gagal menjalankan Blender: ${e.message}` })
       return
@@ -176,6 +180,139 @@ const RigCharacterArgs = z
   })
   .strict()
   .refine((d) => d.sourceModel || d.spec, 'harus menyertakan setidaknya satu dari sourceModel atau spec')
+
+const OpeningSchema = z.object({
+  wall: z.enum(['north', 'south', 'east', 'west']),
+  type: z.enum(['window', 'door']),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  offset: z.number().optional(),
+})
+
+const EnvironmentArgs = z
+  .object({
+    name: z.string().min(1).max(64),
+    dimensions: z.object({
+      width: z.number().positive().max(100),
+      length: z.number().positive().max(100),
+      height: z.number().positive().max(50),
+    }),
+    floorColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+    wallColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+    ceilingColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+    hasCeiling: z.boolean().optional(),
+    openings: z.array(OpeningSchema).optional(),
+    atmosphere: z
+      .object({
+        sunColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        sunIntensity: z.number().optional(),
+        sunDirection: z.tuple([z.number(), z.number(), z.number()]).optional(),
+        ambientColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        fog: z.boolean().optional(),
+      })
+      .optional(),
+    target: TargetSchema.optional(),
+  })
+  .strict()
+
+function generateEnvironmentScript(config: z.infer<typeof EnvironmentArgs>): string {
+  const w = config.dimensions.width
+  const l = config.dimensions.length
+  const h = config.dimensions.height
+  const floorCol = config.floorColor ?? '#4a3c31'
+  const wallCol = config.wallColor ?? '#dcdcdc'
+  const ceilCol = config.ceilingColor ?? '#f5f5f5'
+  const hasCeiling = config.hasCeiling ?? true
+  const openings = JSON.stringify(config.openings ?? [])
+
+  return `
+import bpy
+
+def hex_to_rgb(hex_str):
+    s = hex_str.lstrip('#')
+    return (int(s[0:2], 16)/255.0, int(s[2:4], 16)/255.0, int(s[4:6], 16)/255.0, 1.0)
+
+def make_mat(name, color_hex, roughness=0.6):
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get('Principled BSDF')
+    if bsdf:
+        if 'Base Color' in bsdf.inputs:
+            bsdf.inputs['Base Color'].default_value = hex_to_rgb(color_hex)
+        if 'Roughness' in bsdf.inputs:
+            bsdf.inputs['Roughness'].default_value = roughness
+    return mat
+
+for o in list(bpy.data.objects):
+    bpy.data.objects.remove(o, do_unlink=True)
+
+floor_mat = make_mat('FloorMat', '${floorCol}', 0.6)
+wall_mat = make_mat('WallMat', '${wallCol}', 0.8)
+ceil_mat = make_mat('CeilMat', '${ceilCol}', 0.9)
+
+w, l, h = ${w}, ${l}, ${h}
+wt = 0.15
+
+# Floor
+bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, -wt/2.0))
+floor_obj = bpy.context.active_object
+floor_obj.name = 'Env_Floor'
+floor_obj.scale = (w, l, wt)
+bpy.ops.object.transform_apply(scale=True)
+floor_obj.data.materials.append(floor_mat)
+
+# Ceiling
+if ${hasCeiling ? 'True' : 'False'}:
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, h + wt/2.0))
+    ceil_obj = bpy.context.active_object
+    ceil_obj.name = 'Env_Ceiling'
+    ceil_obj.scale = (w, l, wt)
+    bpy.ops.object.transform_apply(scale=True)
+    ceil_obj.data.materials.append(ceil_mat)
+
+# Walls
+bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, (l + wt)/2.0, h/2.0))
+wall_n = bpy.context.active_object; wall_n.name = 'Env_Wall_North'; wall_n.scale = (w + 2*wt, wt, h); bpy.ops.object.transform_apply(scale=True); wall_n.data.materials.append(wall_mat)
+
+bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, -(l + wt)/2.0, h/2.0))
+wall_s = bpy.context.active_object; wall_s.name = 'Env_Wall_South'; wall_s.scale = (w + 2*wt, wt, h); bpy.ops.object.transform_apply(scale=True); wall_s.data.materials.append(wall_mat)
+
+bpy.ops.mesh.primitive_cube_add(size=1.0, location=((w + wt)/2.0, 0, h/2.0))
+wall_e = bpy.context.active_object; wall_e.name = 'Env_Wall_East'; wall_e.scale = (wt, l, h); bpy.ops.object.transform_apply(scale=True); wall_e.data.materials.append(wall_mat)
+
+bpy.ops.mesh.primitive_cube_add(size=1.0, location=(-(w + wt)/2.0, 0, h/2.0))
+wall_w = bpy.context.active_object; wall_w.name = 'Env_Wall_West'; wall_w.scale = (wt, l, h); bpy.ops.object.transform_apply(scale=True); wall_w.data.materials.append(wall_mat)
+
+openings = ${openings}
+walls_map = {'north': wall_n, 'south': wall_s, 'east': wall_e, 'west': wall_w}
+for i, op in enumerate(openings):
+    w_side = op.get('wall')
+    target = walls_map.get(w_side)
+    if not target: continue
+    op_w = float(op.get('width', 1.2))
+    op_h = float(op.get('height', 1.4))
+    op_type = op.get('type', 'window')
+    offset = float(op.get('offset', 0.0))
+    z_pos = op_h/2.0 if op_type == 'door' else 1.0 + op_h/2.0
+
+    if w_side == 'north':
+        cx, cy = offset, (l + wt)/2.0; s_xyz = (op_w, wt*2.0, op_h)
+    elif w_side == 'south':
+        cx, cy = offset, -(l + wt)/2.0; s_xyz = (op_w, wt*2.0, op_h)
+    elif w_side == 'east':
+        cx, cy = (w + wt)/2.0, offset; s_xyz = (wt*2.0, op_w, op_h)
+    else:
+        cx, cy = -(w + wt)/2.0, offset; s_xyz = (wt*2.0, op_w, op_h)
+
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(cx, cy, z_pos))
+    cutter = bpy.context.active_object; cutter.name = 'Cut_' + str(i); cutter.scale = s_xyz; bpy.ops.object.transform_apply(scale=True)
+    mod = target.modifiers.new(name='CutMod_' + str(i), type='BOOLEAN')
+    mod.operation = 'DIFFERENCE'; mod.object = cutter
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    bpy.data.objects.remove(cutter, do_unlink=True)
+`
+}
 
 export const BLENDER_TOOLS: Record<string, ToolDefinition> = {
   linden_blender_status: {
@@ -316,6 +453,122 @@ export const BLENDER_TOOLS: Record<string, ToolDefinition> = {
           fs.writeFileSync(rigFile, JSON.stringify(rigConfig, null, 2))
           return ['--source', sourcePath, '--rig', rigFile]
         })
+      } catch (err: any) {
+        return { success: false, error: err.message }
+      }
+    },
+  },
+
+  linden_blender_environment: {
+    name: 'linden_blender_environment',
+    description:
+      'Membangun struktur lingkungan/ruangan 3D lengkap (lantai, dinding tebal, plafon, bukaan pintu/jendela, material PBR) di Blender milik user, ' +
+      'mengekspor file .glb ke assets/models/environments/, dan menghasilkan struktur konfigurasi linden_scene_apply (settings render atmosfer & entities siap pakai).',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Nama lingkungan/scene (mis. CozyBedroom, SciFiCorridor)' },
+        dimensions: {
+          type: 'object',
+          properties: {
+            width: { type: 'number', description: 'Lebar ruangan (X, dalam meter)' },
+            length: { type: 'number', description: 'Panjang ruangan (Y, dalam meter)' },
+            height: { type: 'number', description: 'Tinggi ruangan (Z, dalam meter)' },
+          },
+          required: ['width', 'length', 'height'],
+        },
+        floorColor: { type: 'string', description: 'Hex warna lantai (#rrggbb)' },
+        wallColor: { type: 'string', description: 'Hex warna dinding (#rrggbb)' },
+        ceilingColor: { type: 'string', description: 'Hex warna plafon (#rrggbb)' },
+        hasCeiling: { type: 'boolean', description: 'Buat plafon atau tidak (default true)' },
+        openings: {
+          type: 'array',
+          description: 'Daftar bukaan jendela atau pintu pada dinding',
+          items: {
+            type: 'object',
+            properties: {
+              wall: { type: 'string', enum: ['north', 'south', 'east', 'west'] },
+              type: { type: 'string', enum: ['window', 'door'] },
+              width: { type: 'number' },
+              height: { type: 'number' },
+              offset: { type: 'number' },
+            },
+            required: ['wall', 'type', 'width', 'height'],
+          },
+        },
+        atmosphere: {
+          type: 'object',
+          description: 'Pencahayaan atmosfer (sun, ambient, fog) yang diinterpretasikan dari gambar',
+          properties: {
+            sunColor: { type: 'string', description: 'Warna cahaya matahari hex (#rrggbb)' },
+            sunIntensity: { type: 'number', description: 'Intensitas matahari (default 2.5)' },
+            sunDirection: { type: 'array', items: { type: 'number' }, description: '[x, y, z] arah datangnya cahaya matahari' },
+            ambientColor: { type: 'string', description: 'Warna cahaya ambient hex (#rrggbb)' },
+            fog: { type: 'boolean', description: 'Aktifkan kabut atmosfer atau tidak' },
+          },
+        },
+        target: { type: 'string', description: 'Path tujuan file GLB (default assets/models/environments/<name>_env.glb)' },
+      },
+      required: ['name', 'dimensions'],
+    },
+    available: blenderAvailable,
+    async execute(projectPath: string, args: unknown) {
+      if (!blenderTurnActive()) return { success: false, error: BLENDER_MODE_OFF_ERROR }
+      const parsed = EnvironmentArgs.safeParse(args)
+      if (!parsed.success) return { success: false, error: `Argumen tidak valid: ${zodMessage(parsed.error)}` }
+      const data = parsed.data
+      const defaultTarget = `assets/models/environments/${slug(data.name)}_env.glb`
+      const target = data.target ?? defaultTarget
+
+      try {
+        const res = await buildJob(projectPath, data.name, target, (jobDir) => {
+          const script = generateEnvironmentScript(data)
+          const scriptFile = path.join(jobDir, 'build_env.py')
+          fs.writeFileSync(scriptFile, script)
+          return ['--script', scriptFile]
+        })
+
+        if (!res.success || !res.data) return res
+
+        const importedPath = (res.data as any).path || target
+        const atmo = data.atmosphere ?? {}
+        const suggestedSceneApply = {
+          settings: {
+            sun: {
+              enabled: true,
+              color: atmo.sunColor ?? '#fff4e5',
+              intensity: atmo.sunIntensity ?? 2.5,
+              direction: atmo.sunDirection ?? [0.5, 1, 0.35],
+            },
+            ambientColor: atmo.ambientColor ?? '#666666',
+            fog: {
+              enabled: !!atmo.fog,
+              color: '#c8d2dc',
+              density: 0.015,
+            },
+            skybox: 'room',
+            toneMapping: 'agx',
+          },
+          entities: [
+            {
+              name: `${data.name}_Environment`,
+              components: [
+                { type: 'Transform', data: { position: [0, 0, 0] } },
+                { type: 'ModelComponent', data: { src: importedPath } },
+                { type: 'MeshCollider', data: { type: 'trimesh' } },
+              ],
+            },
+          ],
+        }
+
+        return {
+          success: true,
+          data: {
+            ...res.data,
+            suggestedSceneApply,
+            next: `Panggil linden_scene_apply dengan settings dan entities di atas untuk menaruh seluruh lingkungan ke scene Linden.`,
+          },
+        }
       } catch (err: any) {
         return { success: false, error: err.message }
       }

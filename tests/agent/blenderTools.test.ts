@@ -321,6 +321,44 @@ describe('linden_blender_rig_character', () => {
   })
 })
 
+describe('linden_blender_environment', () => {
+  beforeEach(() => beginBlenderTurn('ses_1'))
+
+  it('builds an environment shell script and returns suggestedSceneApply', async () => {
+    let passedScript = ''
+    setBlenderSpawn(
+      fakeSpawn((args) => {
+        passedScript = fs.readFileSync(args[args.indexOf('--script') + 1], 'utf-8')
+        return ok(args)
+      }, calls)
+    )
+    const res = await run('linden_blender_environment', {
+      name: 'CozyRoom',
+      dimensions: { width: 5.0, length: 6.0, height: 2.8 },
+      floorColor: '#4a3c31',
+      wallColor: '#e0e0e0',
+      openings: [
+        { wall: 'north', type: 'window', width: 1.5, height: 1.2, offset: 0.5 },
+      ],
+      atmosphere: {
+        sunColor: '#ffe8d1',
+        sunIntensity: 2.5,
+        sunDirection: [0.5, 1, 0.35],
+        ambientColor: '#333333',
+        fog: false,
+      },
+    })
+    expect(res.success).toBe(true)
+    expect(passedScript).toContain('Env_Floor')
+    expect(passedScript).toContain('Env_Wall_North')
+    expect(passedScript).toContain("'CutMod_' + str(i)")
+    expect(res.data.path).toBe('assets/models/environments/cozyroom_env.glb')
+    expect(res.data.suggestedSceneApply).toBeDefined()
+    expect(res.data.suggestedSceneApply.settings.sun.color).toBe('#ffe8d1')
+    expect(res.data.suggestedSceneApply.entities[0].name).toBe('CozyRoom_Environment')
+  })
+})
+
 describe('MCP tool list', () => {
   it('lists the Blender tools only while Blender is detected', async () => {
     const server = new LindenMcpServer({ projectPath: dir })
@@ -334,7 +372,7 @@ describe('MCP tool list', () => {
       return ((await res.json()).result.tools as any[]).map((t) => t.name)
     }
     try {
-      expect(await list()).toEqual(expect.arrayContaining(['blender_build', 'blender_script', 'blender_status', 'blender_rig_character']))
+      expect(await list()).toEqual(expect.arrayContaining(['blender_build', 'blender_script', 'blender_status', 'blender_rig_character', 'blender_environment']))
       setBlenderStatusForTest({ found: false })
       const names = await list()
       expect(names.some((n) => n.startsWith('blender_'))).toBe(false)

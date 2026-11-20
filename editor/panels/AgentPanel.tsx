@@ -5,11 +5,13 @@ import { isTurnRunning } from '../../shared/agentTurnReducer'
 import { useAgentStore } from '../agent/agentStore'
 import { useEditorStore } from '../store/editorStore'
 import { Icons } from '../ui/Icons'
+import { useI18n } from '../i18n/translations'
 import { PromptTemplate } from '../../shared/agentTypes'
 import type { BlenderStatus } from '../../shared/blenderTypes'
 import { getStorage, setStorage } from '../project/projectIO'
 
 export const AgentPanel: React.FC = () => {
+  const { t } = useI18n()
   const {
     status,
     providers,
@@ -20,6 +22,7 @@ export const AgentPanel: React.FC = () => {
     turns,
     pendingDiffs,
     permissionQueue,
+    autoApprove,
     mode,
     isGenerating,
     error,
@@ -36,6 +39,7 @@ export const AgentPanel: React.FC = () => {
     applyDiff,
     rejectDiff,
     replyPermission,
+    setAutoApprove,
     setMode,
   } = useAgentStore()
 
@@ -272,8 +276,8 @@ export const AgentPanel: React.FC = () => {
         </div>
       )}
 
-      {/* Permission queue: answer the oldest request first */}
-      {permissionQueue.length > 0 && (
+      {/* Permission queue: answer the oldest request first (suppressed in autoApprove mode) */}
+      {permissionQueue.length > 0 && !autoApprove && (
         <PermissionCard
           request={permissionQueue[0]}
           position={1}
@@ -347,7 +351,7 @@ export const AgentPanel: React.FC = () => {
             <label
               title={
                 blender.found
-                  ? `Blender ${blender.version} — agent boleh membuat model lewat Blender untuk prompt ini`
+                  ? `Blender ${blender.version} — agent boleh membuat model 3D & lingkungan (environment) dari prompt atau gambar referensi via Blender MCP`
                   : 'Blender tidak ditemukan — atur path di pengaturan Bridge'
               }
               className={`flex items-center space-x-1.5 text-[11px] ${
@@ -361,7 +365,25 @@ export const AgentPanel: React.FC = () => {
                 onChange={(e) => setUseBlender(e.target.checked)}
                 className="rounded bg-[#1a1a2e] border-gray-600 text-blue-500 focus:ring-0 w-3 h-3 disabled:opacity-40"
               />
-              <span>Blender 3D</span>
+              <span className="flex items-center gap-1">
+                Blender 3D
+                {blender.found && (
+                  <span
+                    className={`text-[9px] px-1 py-0.5 rounded font-mono font-medium leading-none ${
+                      blender.mcpMode === 'live'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                    }`}
+                    title={
+                      blender.mcpMode === 'live'
+                        ? 'Blender Lab MCP Server aktif di port 9876 (Live GUI)'
+                        : 'Blender MCP siap via background daemon'
+                    }
+                  >
+                    {blender.mcpMode === 'live' ? '● Live' : '● MCP'}
+                  </span>
+                )}
+              </span>
             </label>
             {!blender.found && (
               <button onClick={() => setActiveEditorPanel('bridge')} className="text-[10px] text-blue-400 hover:text-blue-300 underline">
@@ -377,6 +399,34 @@ export const AgentPanel: React.FC = () => {
         >
           <span>Template</span>
         </button>
+      </div>
+
+      {/* Auto Approve Automation Bar */}
+      <div className="px-3 py-1.5 bg-[#0f3460]/20 border-t border-gray-700/30 flex items-center justify-between text-[11px]">
+        <label
+          className="flex items-center space-x-1.5 cursor-pointer text-gray-300 hover:text-white"
+          title="Otomatis menyetujui semua aksi agent (eksekusi tools, skrip, dan modifikasi file) tanpa konfirmasi izin manual (mode otonom)"
+        >
+          <input
+            type="checkbox"
+            checked={autoApprove}
+            onChange={(e) => setAutoApprove(e.target.checked)}
+            className="rounded bg-[#1a1a2e] border-gray-600 text-emerald-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+          />
+          <span className="flex items-center gap-1.5">
+            <span className="font-medium text-emerald-400">Auto Approve</span>
+            <span className="text-[10px] text-gray-400">(Jalankan aksi agent otomatis tanpa izin manual)</span>
+          </span>
+        </label>
+        {autoApprove && (
+          <span
+            className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono flex items-center gap-1"
+            title="Agent beroperasi dalam mode otonom tanpa meminta izin dialog"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Autonomous
+          </span>
+        )}
       </div>
 
       {/* Input Box */}
@@ -424,11 +474,7 @@ export const AgentPanel: React.FC = () => {
             onChange={(e) => setInputPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={
-              mode === 'plan'
-                ? 'Tanyakan arsitektur atau ide game (Mode Plan)...'
-                : 'Ketik prompt (mis: buat platformer 2D dengan koin)...'
-            }
+            placeholder={t('agent.prompt_placeholder')}
             rows={2}
             className="w-full bg-transparent p-2.5 text-xs text-white placeholder-gray-500 focus:outline-none resize-none leading-relaxed"
           />
@@ -461,7 +507,7 @@ export const AgentPanel: React.FC = () => {
                 onClick={abortPrompt}
                 className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded-md text-[11px] font-medium flex items-center space-x-1"
               >
-                <span>Berhenti</span>
+                <span>{t('agent.stop')}</span>
               </button>
             ) : (
               <button
@@ -473,7 +519,7 @@ export const AgentPanel: React.FC = () => {
                     : 'bg-gray-700 text-gray-400 cursor-not-allowed'
                 }`}
               >
-                <span>Kirim</span>
+                <span>{t('agent.send')}</span>
                 <Icons.Play className="w-2.5 h-2.5" />
               </button>
             )}

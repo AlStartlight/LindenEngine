@@ -5,6 +5,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { resolveAppResource } from '../resourcePaths'
 import { resolvePython, type PythonResolution } from './pythonBinary'
+import { ProcessRegistry } from '../utils/processRegistry'
 
 /**
  * img2threejs (https://github.com/img2threejs/img2threejs) inside Linden Agent. A pinned, trimmed
@@ -339,6 +340,7 @@ export async function runForgeScript(opts: Img2RunOptions): Promise<Img2RunResul
         IMG2_HOME: img2Home,
       },
     })
+    const unregister = ProcessRegistry.getInstance().registerProcess(child, 'img2threejs-python')
     const cap = (cur: string, d: Buffer) => (cur.length > OUTPUT_CAP * 4 ? cur.slice(-OUTPUT_CAP * 2) + d.toString() : cur + d.toString())
     child.stdout.on('data', (d) => (stdout = cap(stdout, d)))
     child.stderr.on('data', (d) => (stderr = cap(stderr, d)))
@@ -347,10 +349,12 @@ export async function runForgeScript(opts: Img2RunOptions): Promise<Img2RunResul
       child.kill('SIGKILL')
     }, timeoutMs)
     child.on('error', (err) => {
+      unregister()
       clearTimeout(timer)
       reject(new Error(`Python tidak bisa dijalankan (${python.bin}): ${err.message}`))
     })
     child.on('close', (code) => {
+      unregister()
       clearTimeout(timer)
       resolve({ code, stdout, stderr, timedOut })
     })

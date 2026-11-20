@@ -98,15 +98,15 @@ export interface PlayStartResult {
 /** 'scripts/ai/Enemy.ts' -> 'game-scripts/ai/Enemy.js' */
 export function compiledScriptPath(src: string): string {
   const rel = src.replace(/\\/g, '/').replace(/^\.?\//, '').replace(/^scripts\//, '')
-  return `${COMPILED_SCRIPTS_DIR}/${rel.replace(/\.(ts|tsx|mts|js|mjs)$/, '')}.js`
+  return `${COMPILED_SCRIPTS_DIR}/${rel.replace(/\.(ts|tsx|mts|js|mjs|gd|cs|rs)$/, '')}.js`
 }
 
-/** Script sources must stay inside scripts/ and be TS/JS modules */
+/** Script sources must stay inside scripts/ and be supported language modules (TS/JS, GDScript, C#, Rust) */
 export function isValidScriptSrc(src: unknown): src is string {
   if (typeof src !== 'string' || !src) return false
   const norm = src.replace(/\\/g, '/')
   if (!norm.startsWith('scripts/') || norm.split('/').some((seg) => seg === '..' || seg === '')) return false
-  return /\.(ts|js|mjs)$/.test(norm) && !norm.endsWith('.d.ts')
+  return /\.(ts|js|mjs|gd|cs|rs)$/.test(norm) && !norm.endsWith('.d.ts')
 }
 
 /** HTML UI fragments must stay inside the project and be .html files */

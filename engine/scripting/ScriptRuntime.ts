@@ -6,6 +6,7 @@ import { Physics } from '../physics/components'
 import { isValidScriptSrc } from '../../shared/playProtocol'
 import { NULL_TOUCH, type TouchApi } from '../input/TouchApi'
 import type { ParticleEmitter } from '../vfx/ParticleEmitter'
+import { I18nManager, globalI18n } from '../i18n/I18nManager'
 
 type Vec3 = { x: number; y: number; z: number }
 
@@ -88,6 +89,8 @@ export interface GameScriptContext {
   emit(eventName: string, data?: unknown): void
   on(eventName: string, handler: (data: unknown) => void): () => void
   log: (...args: unknown[]) => void
+  /** In-game localization service for multi-language text & dialogs */
+  i18n: I18nManager
 }
 
 export interface ScriptModelApi {
@@ -146,6 +149,7 @@ export interface ScriptRuntimeOptions {
   loadScene?: (path: string) => Promise<void>
   log?: (...args: unknown[]) => void
   touch?: TouchApi
+  i18n?: I18nManager
 }
 
 interface ScriptInstance {
@@ -243,7 +247,7 @@ export class ScriptRuntime {
     const src = comp.src
     const base = { entityId: entity.id, entityName: entity.name, src }
     if (!isValidScriptSrc(src)) {
-      this.report({ ...base, phase: 'load', error: new Error(`Path script tidak valid: "${src}" (harus di dalam scripts/, .ts/.js)`) })
+      this.report({ ...base, phase: 'load', error: new Error(`Path script tidak valid: "${src}" (harus di dalam scripts/, .ts/.js/.gd/.cs/.rs)`) })
       return null
     }
 
@@ -398,6 +402,7 @@ export class ScriptRuntime {
         })
       },
       log,
+      i18n: this.options.i18n ?? globalI18n,
     }
   }
 
