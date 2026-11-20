@@ -47,7 +47,7 @@ describe('permission formatting', () => {
 })
 
 describe('permission queue', () => {
-  beforeEach(() => useAgentStore.setState({ permissionQueue: [] }))
+  beforeEach(() => useAgentStore.setState({ permissionQueue: [], autoApprove: false }))
   const emit = (event: any) => useAgentStore.getState().handleEvent(event)
   const ids = () => useAgentStore.getState().permissionQueue.map((r) => r.id)
 
@@ -73,5 +73,22 @@ describe('permission queue', () => {
     expect(ids()).toEqual(['p2', 'p3'])
     emit({ type: 'turn_ended', sessionId: 's1', turnId: 't', seq: 9, data: { phase: 'failed', endedAt: 0 } })
     expect(ids()).toEqual(['p3'])
+  })
+
+  it('does not queue permission requests when autoApprove is enabled', () => {
+    useAgentStore.setState({ autoApprove: true })
+    emit({ type: 'permission_requested', data: req('p1') })
+    emit({ type: 'permission_requested', data: req('p2') })
+    expect(ids()).toEqual([])
+  })
+
+  it('flushes permissionQueue when setAutoApprove is toggled to true', async () => {
+    emit({ type: 'permission_requested', data: req('p1') })
+    emit({ type: 'permission_requested', data: req('p2') })
+    expect(ids()).toEqual(['p1', 'p2'])
+
+    await useAgentStore.getState().setAutoApprove(true)
+    expect(useAgentStore.getState().autoApprove).toBe(true)
+    expect(ids()).toEqual([])
   })
 })

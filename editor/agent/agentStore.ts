@@ -25,6 +25,8 @@ interface AgentState {
   pendingDiffs: AgentDiffItem[]
   /** Permission prompts waiting for an answer, oldest first; the card shows the first */
   permissionQueue: AgentPermissionRequest[]
+  /** When true, agent actions and tool executions are automatically approved without user prompts */
+  autoApprove: boolean
   mode: AgentMode
   /** True while the last turn of the current session has not ended */
   isGenerating: boolean
@@ -49,6 +51,7 @@ interface AgentState {
   applyDiff: (diffId: string) => Promise<void>
   rejectDiff: (diffId: string) => Promise<void>
   replyPermission: (allow: boolean) => Promise<void>
+  setAutoApprove: (enabled: boolean) => Promise<void>
   setMode: (mode: AgentMode) => void
   loadTemplates: () => Promise<void>
 }
@@ -82,6 +85,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   turns: [],
   pendingDiffs: [],
   permissionQueue: [],
+  autoApprove: typeof localStorage !== 'undefined' ? localStorage.getItem('linden:agent:auto-approve') === 'true' : false,
   mode: 'build',
   isGenerating: false,
   error: null,
@@ -97,6 +101,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         set((s) => ({ pendingDiffs: [...s.pendingDiffs.filter((d) => d.id !== event.data.id), event.data] }))
         return
       case 'permission_requested':
+        if (get().autoApprove) {
+          const api = electronApi()
+          if (api?.agentReplyPermission) {
+            api.agentReplyPermission(event.data.id, true, event.sessionId).catch(() => {})
+          }
+          return
+        }
         set((s) => ({
           permissionQueue: s.permissionQueue.some((r) => r.id === event.data.id)
             ? s.permissionQueue
@@ -153,6 +164,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     await get().loadProviders()
     await get().loadSessions()
     await get().loadTemplates()
+
+    // Sync auto-approve setting to Electron main process / AgentHost
+    const api = electronApi()
+    if (api?.agentSetAutoApprove) {
+      await invokeIpc(() => api.agentSetAutoApprove!(get().autoApprove)).catch(() => {})
+    }
   },
 
   refreshStatus: async () => {
@@ -265,6 +282,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
     if (!sessionId) return
 
+    // Ensure backend autoApprove is in sync before prompt starts
+    if (api?.agentSetAutoApprove) {
+      api.agentSetAutoApprove(get().autoApprove).catch(() => {})
+    }
+
     // Placeholder until the server's turn_started replaces it
     const optimistic: AgentTurn = {
       id: `local_${Date.now()}`,
@@ -332,7 +354,30 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     // Drop it right away so the next request in the queue shows without waiting for IPC
     set((s) => ({ permissionQueue: s.permissionQueue.filter((r) => r.id !== head.id) }))
     if (api?.agentReplyPermission) {
-      await invokeIpc(() => api.agentReplyPermission!(head.id, allow))
+      await invokeIpc(() => api.agentReplyPermission!(head.id, allow, head.sessionId))
+    }
+  },
+
+  setAutoApprove: async (enabled: boolean) => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('linden:agent:auto-approve', enabled ? 'true' : 'false')
+      } catch {}
+    }
+    set({ autoApprove: enabled })
+    const api = electronApi()
+    if (api?.agentSetAutoApprove) {
+      await invokeIpc(() => api.agentSetAutoApprove!(enabled)).catch(() => {})
+    }
+    if (enabled) {
+      // Auto-approve and flush any pending requests currently in queue
+      const queue = [...get().permissionQueue]
+      set({ permissionQueue: [] })
+      if (api?.agentReplyPermission) {
+        for (const req of queue) {
+          await invokeIpc(() => api.agentReplyPermission!(req.id, true, req.sessionId)).catch(() => {})
+        }
+      }
     }
   },
 
