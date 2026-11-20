@@ -2,7 +2,7 @@ name: Security Vulnerability Scan
 
 on:
   push:
-    branches: [main, "feat/**", "spec/**", "fix/**"]
+    branches: [main, "feat/**", "spec/**", "fix/**", "release/**"]
   pull_request:
     branches: [main]
   schedule:
