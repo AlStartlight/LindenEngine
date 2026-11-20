@@ -71,8 +71,9 @@ export const EditorLayout: React.FC = () => {
     setActiveWindow,
   } = useEditorStore()
 
-  // Bottom panel tab: 'project' | 'console' | 'output' | 'all'
+  // Bottom panel tab: 'project' | 'assets' | 'console' | 'output' | 'all' | 'hidden'
   const [bottomTab, setBottomTab] = useState<'project' | 'assets' | 'console' | 'output' | 'all' | 'hidden'>('all')
+  const [bottomHeightPreset, setBottomHeightPreset] = useState<'compact' | 'normal' | 'expanded' | 'maximized'>('normal')
   const [rightTab, setRightTab] = useState<'inspector' | 'scene' | 'agent'>('inspector')
   const isAgentGenerating = useAgentStore((s) => s.isGenerating)
   const agentDiffs = useAgentStore((s) => s.pendingDiffs)
@@ -81,6 +82,63 @@ export const EditorLayout: React.FC = () => {
   const [consoleMessages, setConsoleMessages] = useState<Array<{ type: string; message: string; time: Date }>>([])
   const [outputLogs, setOutputLogs] = useState<string[]>([])
   const [viewportKey, setViewportKey] = useState(0)
+
+  // Live error and warning badges
+  const { errorCount, warnCount } = useMemo(() => {
+    let errors = 0
+    let warns = 0
+    for (const m of consoleMessages) {
+      if (m.type === 'error') errors++
+      else if (m.type === 'warn') warns++
+    }
+    return { errorCount: errors, warnCount: warns }
+  }, [consoleMessages])
+
+  const handleApplyWorkspaceLayout = useCallback((layout: 'default' | 'console-focus' | 'assets-focus' | 'split-all' | 'viewport-maximized') => {
+    switch (layout) {
+      case 'default':
+        setBottomTab('project')
+        setBottomHeightPreset('normal')
+        setActiveEditorPanel('viewport')
+        setRightTab('inspector')
+        break
+      case 'console-focus':
+        setBottomTab('console')
+        setBottomHeightPreset('expanded')
+        setActiveEditorPanel('viewport')
+        break
+      case 'assets-focus':
+        setBottomTab('assets')
+        setBottomHeightPreset('expanded')
+        setActiveEditorPanel('viewport')
+        break
+      case 'split-all':
+        setBottomTab('all')
+        setBottomHeightPreset('normal')
+        setActiveEditorPanel('viewport')
+        break
+      case 'viewport-maximized':
+        setBottomTab('hidden')
+        setActiveEditorPanel('viewport')
+        break
+    }
+  }, [setActiveEditorPanel])
+
+  const handleToggleBottomPanel = useCallback(() => {
+    setBottomTab((prev) => (prev === 'hidden' ? 'project' : 'hidden'))
+  }, [])
+
+  // Keyboard shortcut Ctrl/Cmd + ` to toggle bottom panel
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === '`') {
+        e.preventDefault()
+        handleToggleBottomPanel()
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [handleToggleBottomPanel])
 
   // Dialog states
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false)
@@ -734,6 +792,10 @@ export const EditorLayout: React.FC = () => {
         onOpenAgent={() => setRightTab('agent')}
         agentActivity={agentActivity ? phaseLabel(agentActivity) : undefined}
         onCreate3DObject={handleCreate3DObject}
+        activeBottomTab={bottomTab}
+        onSelectBottomTab={(tab) => setBottomTab(tab)}
+        onToggleBottomPanel={handleToggleBottomPanel}
+        onApplyWorkspaceLayout={handleApplyWorkspaceLayout}
       />
 
       {/* Main Workspace Area */}
@@ -811,69 +873,114 @@ export const EditorLayout: React.FC = () => {
             </div>
           </div>
 
-          {/* Bottom Panel - Project / Console / Output */}
+          {/* Bottom Panel - Project / Assets / Console / Output */}
           {bottomTab !== 'hidden' && (
-            <div className="h-56 border-t border-gray-700/50 bg-[#16213e] flex flex-col">
-              {/* Bottom Tabs */}
-              <div className="flex border-b border-gray-700/50 bg-[#0f3460]">
+            <div
+              className={`border-t border-gray-700/60 bg-[#16213e] flex flex-col transition-all duration-150 ${
+                bottomHeightPreset === 'compact'
+                  ? 'h-40'
+                  : bottomHeightPreset === 'expanded'
+                  ? 'h-96'
+                  : bottomHeightPreset === 'maximized'
+                  ? 'h-[72vh]'
+                  : 'h-64'
+              }`}
+            >
+              {/* Bottom Tabs Header */}
+              <div className="flex items-center border-b border-gray-700/60 bg-[#0f3460] px-1 select-none">
                 <button
                   onClick={() => setBottomTab('project')}
-                  className={`px-4 py-1.5 text-xs font-medium ${
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1.5 ${
                     bottomTab === 'project'
-                      ? 'bg-[#16213e] text-white border-t-2 border-blue-500'
-                      : 'text-gray-400 hover:text-white'
+                      ? 'bg-[#16213e] text-white border-t-2 border-blue-500 font-semibold'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  Project
+                  <Icons.Folder className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Project</span>
                 </button>
                 <button
                   onClick={() => setBottomTab('assets')}
-                  className={`px-4 py-1.5 text-xs font-medium ${
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1.5 ${
                     bottomTab === 'assets'
-                      ? 'bg-[#16213e] text-white border-t-2 border-blue-500'
-                      : 'text-gray-400 hover:text-white'
+                      ? 'bg-[#16213e] text-white border-t-2 border-amber-500 font-semibold'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  Assets
+                  <Icons.Box className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Assets</span>
                 </button>
                 <button
                   onClick={() => setBottomTab('console')}
-                  className={`px-4 py-1.5 text-xs font-medium ${
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1.5 ${
                     bottomTab === 'console'
-                      ? 'bg-[#16213e] text-white border-t-2 border-blue-500'
-                      : 'text-gray-400 hover:text-white'
+                      ? 'bg-[#16213e] text-white border-t-2 border-emerald-500 font-semibold'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  Console
+                  <Icons.Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Console</span>
+                  {errorCount > 0 && (
+                    <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-red-600 text-white animate-pulse">
+                      {errorCount}
+                    </span>
+                  )}
+                  {errorCount === 0 && warnCount > 0 && (
+                    <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-600 text-white">
+                      {warnCount}
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={() => setBottomTab('output')}
-                  className={`px-4 py-1.5 text-xs font-medium ${
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1.5 ${
                     bottomTab === 'output'
-                      ? 'bg-[#16213e] text-white border-t-2 border-blue-500'
-                      : 'text-gray-400 hover:text-white'
+                      ? 'bg-[#16213e] text-white border-t-2 border-indigo-500 font-semibold'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  Output
+                  <Icons.FileCode className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Output</span>
                 </button>
                 <button
                   onClick={() => setBottomTab('all')}
-                  className={`px-4 py-1.5 text-xs font-medium ${
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1.5 ${
                     bottomTab === 'all'
-                      ? 'bg-[#16213e] text-white border-t-2 border-blue-500'
-                      : 'text-gray-400 hover:text-white'
+                      ? 'bg-[#16213e] text-white border-t-2 border-cyan-500 font-semibold'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  All
+                  <Icons.Layers className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Split All</span>
                 </button>
+
                 <div className="flex-1" />
-                <button
-                  onClick={() => setBottomTab('hidden')}
-                  className="px-3 py-1.5 text-gray-400 hover:text-white text-xs"
-                  title="Hide bottom panel"
-                >
-                  ✕
-                </button>
+
+                {/* Drawer size and close controls */}
+                <div className="flex items-center gap-1 pr-1 text-gray-400">
+                  <button
+                    onClick={() =>
+                      setBottomHeightPreset((curr) =>
+                        curr === 'compact' ? 'normal' : curr === 'normal' ? 'expanded' : curr === 'expanded' ? 'maximized' : 'compact'
+                      )
+                    }
+                    className="p-1 hover:text-white hover:bg-white/10 rounded transition-colors text-[11px]"
+                    title={`Size: ${bottomHeightPreset}. Click to cycle size`}
+                  >
+                    {bottomHeightPreset === 'maximized' ? (
+                      <Icons.Minimize className="w-3.5 h-3.5" />
+                    ) : (
+                      <Icons.Maximize className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setBottomTab('hidden')}
+                    className="p-1 hover:text-white hover:bg-white/10 rounded transition-colors text-xs"
+                    title="Hide bottom panel (Ctrl+`)"
+                  >
+                    <Icons.Close className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               {/* Bottom Content Area */}
@@ -890,7 +997,10 @@ export const EditorLayout: React.FC = () => {
                 )}
                 {bottomTab === 'console' && (
                   <div className="flex-1 overflow-auto">
-                    <ConsolePanel messages={consoleMessages} />
+                    <ConsolePanel
+                      messages={consoleMessages}
+                      onClearMessages={() => setConsoleMessages([])}
+                    />
                   </div>
                 )}
                 {bottomTab === 'output' && (
@@ -904,7 +1014,10 @@ export const EditorLayout: React.FC = () => {
                       <ProjectPanel />
                     </div>
                     <div className="w-1/3 border-r border-gray-700/50 overflow-auto">
-                      <ConsolePanel messages={consoleMessages} />
+                      <ConsolePanel
+                        messages={consoleMessages}
+                        onClearMessages={() => setConsoleMessages([])}
+                      />
                     </div>
                     <div className="w-1/3 overflow-auto">
                       <OutputPanel logs={outputLogs} onClearLogs={() => setOutputLogs([])} />

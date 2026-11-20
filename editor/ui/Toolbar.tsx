@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { getSceneStatusSuffix } from './windowTitle'
+import { Icons } from './Icons'
 
 interface ToolbarProps {
   isPlaying: boolean
@@ -33,6 +34,10 @@ interface ToolbarProps {
   agentActivity?: string
   onCreate3DObject?: (type: 'Cube' | 'Sphere' | 'Capsule' | 'Cylinder' | 'Plane') => void
   onExit?: () => void
+  activeBottomTab?: 'project' | 'assets' | 'console' | 'output' | 'all' | 'hidden'
+  onSelectBottomTab?: (tab: 'project' | 'assets' | 'console' | 'output' | 'all' | 'hidden') => void
+  onToggleBottomPanel?: () => void
+  onApplyWorkspaceLayout?: (layout: 'default' | 'console-focus' | 'assets-focus' | 'split-all' | 'viewport-maximized') => void
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -66,40 +71,73 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   agentActivity,
   onCreate3DObject,
   onExit,
+  activeBottomTab,
+  onSelectBottomTab,
+  onToggleBottomPanel,
+  onApplyWorkspaceLayout,
 }) => {
-  const [showFileMenu, setShowFileMenu] = useState(false)
-  const [showEditMenu, setShowEditMenu] = useState(false)
-  const [showGameObjectMenu, setShowGameObjectMenu] = useState(false)
-  const [showWindowMenu, setShowWindowMenu] = useState(false)
+  const [activeMenu, setActiveMenu] = useState<'file' | 'edit' | 'gameobject' | 'window' | null>(null)
+  const menuBarRef = useRef<HTMLDivElement>(null)
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
   const mod = isMac ? 'Cmd' : 'Ctrl'
 
+  // Close menus on outside click or Escape
+  useEffect(() => {
+    if (!activeMenu) return
+    const handleDown = (e: MouseEvent) => {
+      if (menuBarRef.current && !menuBarRef.current.contains(e.target as Node)) {
+        setActiveMenu(null)
+      }
+    }
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveMenu(null)
+      }
+    }
+    window.addEventListener('mousedown', handleDown)
+    window.addEventListener('keydown', handleKey)
+    return () => {
+      window.removeEventListener('mousedown', handleDown)
+      window.removeEventListener('keydown', handleKey)
+    }
+  }, [activeMenu])
+
+  const toggleMenu = (menu: 'file' | 'edit' | 'gameobject' | 'window') => {
+    setActiveMenu((curr) => (curr === menu ? null : menu))
+  }
+
+  const handleMenuHover = (menu: 'file' | 'edit' | 'gameobject' | 'window') => {
+    if (activeMenu && activeMenu !== menu) {
+      setActiveMenu(menu)
+    }
+  }
+
+  const closeMenu = () => setActiveMenu(null)
+
   return (
     <div className="bg-[#0f3460] border-b border-gray-700/50 select-none">
       {/* Menu Bar */}
-      <div className="flex items-center h-8 px-2 text-sm border-b border-gray-700/30">
+      <div ref={menuBarRef} className="flex items-center h-8 px-2 text-sm border-b border-gray-700/30">
         {/* File Menu */}
         <div className="relative">
           <button
-            className="px-3 py-1 hover:bg-white/10 rounded"
-            onClick={() => {
-              setShowFileMenu(!showFileMenu)
-              setShowEditMenu(false)
-              setShowGameObjectMenu(false)
-              setShowWindowMenu(false)
-            }}
+            className={`px-3 py-1 rounded transition-colors text-xs font-medium ${
+              activeMenu === 'file' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-gray-200'
+            }`}
+            onClick={() => toggleMenu('file')}
+            onMouseEnter={() => handleMenuHover('file')}
           >
             File
           </button>
-          {showFileMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-56 py-1">
+          {activeMenu === 'file' && (
+            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/70 rounded-md shadow-2xl z-50 min-w-56 py-1 backdrop-blur-sm">
               <MenuItem
                 label="New Project…"
                 shortcut={`${mod}+Shift+N`}
                 onClick={() => {
                   onNewProject?.()
-                  setShowFileMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuItem
@@ -107,7 +145,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 shortcut={`${mod}+Shift+O`}
                 onClick={() => {
                   onOpenProject?.()
-                  setShowFileMenu(false)
+                  closeMenu()
                 }}
               />
               <SubMenu label="Open Recent">
@@ -119,7 +157,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         label={proj.name}
                         onClick={() => {
                           onOpenRecent?.(proj.path)
-                          setShowFileMenu(false)
+                          closeMenu()
                         }}
                       />
                     ))}
@@ -128,7 +166,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       label="Clear Recent"
                       onClick={() => {
                         onClearRecent?.()
-                        setShowFileMenu(false)
+                        closeMenu()
                       }}
                     />
                   </>
@@ -142,7 +180,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 shortcut={`${mod}+N`}
                 onClick={() => {
                   onNewScene?.()
-                  setShowFileMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuItem
@@ -150,7 +188,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 shortcut={`${mod}+O`}
                 onClick={() => {
                   onOpenScene?.()
-                  setShowFileMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuItem
@@ -158,7 +196,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 shortcut={`${mod}+S`}
                 onClick={() => {
                   onSaveScene?.()
-                  setShowFileMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuItem
@@ -166,7 +204,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 shortcut={`${mod}+Shift+S`}
                 onClick={() => {
                   onSaveSceneAs?.()
-                  setShowFileMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuDivider />
@@ -174,7 +212,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 label="Project Settings…"
                 onClick={() => {
                   onOpenProjectSettings?.()
-                  setShowFileMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuItem
@@ -182,14 +220,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 shortcut={`${mod}+Shift+E`}
                 onClick={() => {
                   onExport?.()
-                  setShowFileMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuItem
                 label="Close Project"
                 onClick={() => {
                   onCloseProject?.()
-                  setShowFileMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuDivider />
@@ -199,7 +237,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 onClick={() => {
                   if (onExit) onExit()
                   else if (typeof window !== 'undefined' && (window as any).close) (window as any).close()
-                  setShowFileMenu(false)
+                  closeMenu()
                 }}
               />
             </div>
@@ -209,24 +247,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         {/* Edit Menu */}
         <div className="relative">
           <button
-            className="px-3 py-1 hover:bg-white/10 rounded"
-            onClick={() => {
-              setShowEditMenu(!showEditMenu)
-              setShowFileMenu(false)
-              setShowGameObjectMenu(false)
-              setShowWindowMenu(false)
-            }}
+            className={`px-3 py-1 rounded transition-colors text-xs font-medium ${
+              activeMenu === 'edit' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-gray-200'
+            }`}
+            onClick={() => toggleMenu('edit')}
+            onMouseEnter={() => handleMenuHover('edit')}
           >
             Edit
           </button>
-          {showEditMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-44 py-1">
+          {activeMenu === 'edit' && (
+            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/70 rounded-md shadow-2xl z-50 min-w-44 py-1 backdrop-blur-sm">
               <MenuItem
                 label="Undo"
                 shortcut={`${mod}+Z`}
                 onClick={() => {
                   onUndo?.()
-                  setShowEditMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuItem
@@ -234,7 +270,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 shortcut={`${mod}+Y`}
                 onClick={() => {
                   onRedo?.()
-                  setShowEditMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuDivider />
@@ -242,7 +278,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 label="Project Settings"
                 onClick={() => {
                   onOpenProjectSettings?.()
-                  setShowEditMenu(false)
+                  closeMenu()
                 }}
               />
             </div>
@@ -252,52 +288,50 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         {/* GameObject Menu */}
         <div className="relative">
           <button
-            className="px-3 py-1 hover:bg-white/10 rounded"
-            onClick={() => {
-              setShowGameObjectMenu(!showGameObjectMenu)
-              setShowFileMenu(false)
-              setShowEditMenu(false)
-              setShowWindowMenu(false)
-            }}
+            className={`px-3 py-1 rounded transition-colors text-xs font-medium ${
+              activeMenu === 'gameobject' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-gray-200'
+            }`}
+            onClick={() => toggleMenu('gameobject')}
+            onMouseEnter={() => handleMenuHover('gameobject')}
           >
             GameObject
           </button>
-          {showGameObjectMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-44 py-1">
+          {activeMenu === 'gameobject' && (
+            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/70 rounded-md shadow-2xl z-50 min-w-44 py-1 backdrop-blur-sm">
               <SubMenu label="3D Object">
                 <MenuItem
                   label="Cube"
                   onClick={() => {
                     onCreate3DObject?.('Cube')
-                    setShowGameObjectMenu(false)
+                    closeMenu()
                   }}
                 />
                 <MenuItem
                   label="Sphere"
                   onClick={() => {
                     onCreate3DObject?.('Sphere')
-                    setShowGameObjectMenu(false)
+                    closeMenu()
                   }}
                 />
                 <MenuItem
                   label="Capsule"
                   onClick={() => {
                     onCreate3DObject?.('Capsule')
-                    setShowGameObjectMenu(false)
+                    closeMenu()
                   }}
                 />
                 <MenuItem
                   label="Cylinder"
                   onClick={() => {
                     onCreate3DObject?.('Cylinder')
-                    setShowGameObjectMenu(false)
+                    closeMenu()
                   }}
                 />
                 <MenuItem
                   label="Plane"
                   onClick={() => {
                     onCreate3DObject?.('Plane')
-                    setShowGameObjectMenu(false)
+                    closeMenu()
                   }}
                 />
               </SubMenu>
@@ -305,33 +339,121 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           )}
         </div>
 
-        {/* Window Menu */}
+        {/* Window / Workspace Menu */}
         <div className="relative">
           <button
-            className="px-3 py-1 hover:bg-white/10 rounded"
-            onClick={() => {
-              setShowWindowMenu(!showWindowMenu)
-              setShowFileMenu(false)
-              setShowEditMenu(false)
-              setShowGameObjectMenu(false)
-            }}
+            className={`px-3 py-1 rounded transition-colors text-xs font-medium ${
+              activeMenu === 'window' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-gray-200'
+            }`}
+            onClick={() => toggleMenu('window')}
+            onMouseEnter={() => handleMenuHover('window')}
           >
             Window
           </button>
-          {showWindowMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/50 rounded shadow-xl z-50 min-w-48 py-1">
+          {activeMenu === 'window' && (
+            <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/70 rounded-md shadow-2xl z-50 min-w-56 py-1 backdrop-blur-sm">
+              <SubMenu label="Workspace Layout">
+                <MenuItem
+                  label="Default Layout"
+                  onClick={() => {
+                    onApplyWorkspaceLayout?.('default')
+                    closeMenu()
+                  }}
+                />
+                <MenuItem
+                  label="Console Focus"
+                  onClick={() => {
+                    onApplyWorkspaceLayout?.('console-focus')
+                    closeMenu()
+                  }}
+                />
+                <MenuItem
+                  label="Assets Focus"
+                  onClick={() => {
+                    onApplyWorkspaceLayout?.('assets-focus')
+                    closeMenu()
+                  }}
+                />
+                <MenuItem
+                  label="Split All (3-Way)"
+                  onClick={() => {
+                    onApplyWorkspaceLayout?.('split-all')
+                    closeMenu()
+                  }}
+                />
+                <MenuItem
+                  label="Maximize Viewport"
+                  onClick={() => {
+                    onApplyWorkspaceLayout?.('viewport-maximized')
+                    closeMenu()
+                  }}
+                />
+              </SubMenu>
+
+              <SubMenu label="Panels & Views">
+                <MenuItem
+                  label="Project Panel"
+                  active={activeBottomTab === 'project'}
+                  icon={<Icons.Folder className="w-3.5 h-3.5 text-blue-400" />}
+                  onClick={() => {
+                    onSelectBottomTab?.('project')
+                    closeMenu()
+                  }}
+                />
+                <MenuItem
+                  label="Assets Browser"
+                  active={activeBottomTab === 'assets'}
+                  icon={<Icons.Box className="w-3.5 h-3.5 text-amber-400" />}
+                  onClick={() => {
+                    onSelectBottomTab?.('assets')
+                    closeMenu()
+                  }}
+                />
+                <MenuItem
+                  label="Console"
+                  active={activeBottomTab === 'console'}
+                  icon={<Icons.Terminal className="w-3.5 h-3.5 text-emerald-400" />}
+                  onClick={() => {
+                    onSelectBottomTab?.('console')
+                    closeMenu()
+                  }}
+                />
+                <MenuItem
+                  label="Output Log"
+                  active={activeBottomTab === 'output'}
+                  icon={<Icons.FileCode className="w-3.5 h-3.5 text-indigo-400" />}
+                  onClick={() => {
+                    onSelectBottomTab?.('output')
+                    closeMenu()
+                  }}
+                />
+                <MenuDivider />
+                <MenuItem
+                  label="Toggle Bottom Panel"
+                  shortcut={`${mod}+\``}
+                  onClick={() => {
+                    onToggleBottomPanel?.()
+                    closeMenu()
+                  }}
+                />
+              </SubMenu>
+
+              <MenuDivider />
+
               <MenuItem
                 label="Bridge"
+                icon={<Icons.Bridge className="w-3.5 h-3.5 text-indigo-400" />}
                 onClick={() => {
                   onOpenBridge?.()
-                  setShowWindowMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuItem
                 label="AI Agent Panel"
+                icon={<Icons.Sparkles className="w-3.5 h-3.5 text-purple-400" />}
                 onClick={() => {
                   onOpenAgent?.()
-                  setShowWindowMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuDivider />
@@ -339,14 +461,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 label="Input Actions"
                 onClick={() => {
                   onOpenInputActions?.()
-                  setShowWindowMenu(false)
+                  closeMenu()
                 }}
               />
               <MenuItem
                 label="Project Settings"
                 onClick={() => {
                   onOpenProjectSettings?.()
-                  setShowWindowMenu(false)
+                  closeMenu()
                 }}
               />
             </div>
@@ -433,17 +555,28 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   )
 }
 
-const MenuItem: React.FC<{ label: string; shortcut?: string; onClick?: () => void }> = ({
-  label,
-  shortcut,
-  onClick,
-}) => (
+const MenuItem: React.FC<{
+  label: string
+  shortcut?: string
+  icon?: React.ReactNode
+  active?: boolean
+  onClick?: () => void
+}> = ({ label, shortcut, icon, active, onClick }) => (
   <button
-    className="w-full px-3 py-1.5 text-left hover:bg-blue-600/50 flex items-center justify-between text-xs text-gray-200"
+    className={`w-full px-3 py-1.5 text-left hover:bg-blue-600/50 flex items-center justify-between text-xs transition-colors ${
+      active ? 'bg-blue-600/30 text-white font-medium' : 'text-gray-200'
+    }`}
     onClick={onClick}
   >
-    <span>{label}</span>
-    {shortcut && <span className="text-[10px] text-gray-400 font-mono ml-4">{shortcut}</span>}
+    <span className="flex items-center gap-2">
+      {icon && <span className="opacity-80 shrink-0">{icon}</span>}
+      <span>{label}</span>
+    </span>
+    {shortcut && (
+      <span className="text-[10px] text-gray-400 font-mono ml-4 px-1 py-0.5 rounded bg-black/30 border border-gray-700/50">
+        {shortcut}
+      </span>
+    )}
   </button>
 )
 
