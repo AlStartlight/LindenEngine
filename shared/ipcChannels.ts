@@ -62,6 +62,8 @@ export const IPC_INVOKE_CHANNELS = [
   'factory:preview',
   'agent:abort',
   'agent:permission:reply',
+  'agent:auto-approve:set',
+  'agent:auto-approve:get',
   'agent:diff:apply',
   'agent:diff:reject',
   'agent:templates',

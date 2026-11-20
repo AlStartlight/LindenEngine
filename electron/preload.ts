@@ -149,8 +149,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Model.factory output as GLB, built by the host in a sandboxed window (the editor never imports factory code) */
   factoryPreview: (req: { projectPath: string; factory: string; exportName?: string; options?: Record<string, unknown> }) => invoke('factory:preview', req),
   agentAbortPrompt: (sessionId: string) => invoke('agent:abort', sessionId),
-  agentReplyPermission: (requestId: string, allow: boolean) =>
-    invoke('agent:permission:reply', { requestId, allow }),
+  agentReplyPermission: (requestId: string, allow: boolean, sessionId?: string) =>
+    invoke('agent:permission:reply', { requestId, allow, sessionId }),
+  agentSetAutoApprove: (enabled: boolean) => invoke('agent:auto-approve:set', enabled),
+  agentGetAutoApprove: () => invoke('agent:auto-approve:get'),
   agentApplyDiff: (diffId: string) => invoke('agent:diff:apply', diffId),
   agentRejectDiff: (diffId: string) => invoke('agent:diff:reject', diffId),
   agentGetTemplates: () => invoke('agent:templates'),
@@ -299,7 +301,9 @@ declare global {
       blenderDetect?: () => Promise<import('../shared/blenderTypes').BlenderStatus>
       blenderSetPath?: (path: string) => Promise<import('../shared/blenderTypes').BlenderStatus>
       agentAbortPrompt?: (sessionId: string) => Promise<boolean>
-      agentReplyPermission?: (requestId: string, allow: boolean) => Promise<any>
+      agentReplyPermission?: (requestId: string, allow: boolean, sessionId?: string) => Promise<any>
+      agentSetAutoApprove?: (enabled: boolean) => Promise<any>
+      agentGetAutoApprove?: () => Promise<boolean>
       agentApplyDiff?: (diffId: string) => Promise<boolean>
       agentRejectDiff?: (diffId: string) => Promise<boolean>
       agentGetTemplates?: () => Promise<any[]>

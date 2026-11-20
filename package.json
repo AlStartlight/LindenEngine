@@ -6,10 +6,11 @@
   "homepage": "./",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/copy-decoders.mjs public/decoders",
+    "predev": "node scripts/copy-decoders.mjs public/decoders && node scripts/patch-minimatch.mjs",
+    "postinstall": "node scripts/patch-minimatch.mjs",
     "dev": "vite --host 127.0.0.1",
     "electron": "electron .",
-    "electron:watch": "nodemon --watch electron --watch shared --watch engine/godot --watch engine/transmuter --ext ts --delay 300ms --exec \"npm run build:electron && electron .\"",
+    "electron:watch": "node scripts/watch-electron.mjs",
     "electron-dev": "concurrently -k \"npm run dev\" \"wait-on http://127.0.0.1:5173 && npm run electron:watch\"",
     "build": "node scripts/copy-decoders.mjs public/decoders && tsc && vite build && npm run build:player",
     "build:player": "node scripts/build-player.mjs",
@@ -186,6 +187,9 @@
     "nixie-fx": {
       "three": "$three"
     },
-    "minimatch": "^11.0.9"
+    "minimatch": "^11.0.9",
+    "nodemon": {
+      "minimatch": "^3.1.2"
+    }
   }
 }
