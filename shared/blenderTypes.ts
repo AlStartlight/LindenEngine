@@ -14,6 +14,8 @@ export interface BlenderStatus {
   source?: BlenderSource
   /** Why no usable Blender was found (Indonesian, shown in the UI) */
   reason?: string
+  /** MCP integration mode: 'live' when port 9876 responds, 'headless' when background daemon */
+  mcpMode?: 'live' | 'headless'
 }
 
 /** Minimum supported Blender version (LTS with --offline-mode and the 4.x glTF exporter) */

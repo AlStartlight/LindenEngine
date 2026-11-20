@@ -42,6 +42,8 @@ describe('reference images', () => {
     expect(resolveAttachments(dir, ['references/a.png', 'references/../x.png', 'scenes/a.png', 'references/missing.png', 42])).toEqual(['references/a.png'])
     expect(attachmentNote(['references/a.png'])).toMatch(/references\/a\.png[\s\S]*bagian 7[\s\S]*linden_reference_view/)
     expect(attachmentNote(['references/a.png'])).not.toMatch(/img2threejs/)
+    expect(attachmentNote(['references/a.png'], true)).toMatch(/MODE BLENDER 3D AKTIF[\s\S]*Blender MCP[\s\S]*lingkungan \(environment\)/)
+    expect(attachmentNote(['references/a.png'], true)).not.toMatch(/bagian 7/)
     expect(attachmentNote([])).toBe('')
   })
 })
