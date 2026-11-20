@@ -182,6 +182,133 @@ describe('CharacterMovement', () => {
     expect(cm.isGrounded).toBe(true)
     expect(player.getTransform().position.y).toBeCloseTo(1, 1)
   })
+
+  it('auto-generates ground collider for uncollided MeshRenderer ground plane so character does not fall', async () => {
+    const world = new World()
+    const ground = world.createEntity('Ground')
+    ground.getTransform().position = { x: 0, y: 0, z: 0 }
+    ground.getTransform().scale = { x: 100, y: 1, z: 100 }
+    world.addComponent(ground.id, 'MeshRenderer', { primitive: 'plane', color: '#555555' })
+
+    const player = world.createEntity('Player')
+    player.getTransform().position = { x: 0, y: 2, z: 0 }
+    const cm = world.addComponent<CharacterMovement>(player.id, 'CharacterMovement')
+
+    const sim = new GameSimulation(world)
+    await sim.initPhysics()
+    run(sim, 1)
+
+    expect(cm.isGrounded).toBe(true)
+    expect(player.getTransform().position.y).toBeGreaterThan(0.9)
+    expect(player.getTransform().position.y).toBeLessThan(1.2)
+  })
+
+  it('provides world ground fallback when no colliders exist so character does not fall into void', async () => {
+    const world = new World()
+    const player = world.createEntity('Player')
+    player.getTransform().position = { x: 0, y: 2, z: 0 }
+    const cm = world.addComponent<CharacterMovement>(player.id, 'CharacterMovement')
+
+    const sim = new GameSimulation(world)
+    await sim.initPhysics()
+    run(sim, 1)
+
+    expect(cm.isGrounded).toBe(true)
+    expect(player.getTransform().position.y).toBeGreaterThan(0.9)
+    expect(player.getTransform().position.y).toBeLessThan(1.2)
+  })
+
+  it('recovers with void trap when character falls deep into void (y < -30)', async () => {
+    const world = new World()
+    const player = world.createEntity('Player')
+    player.getTransform().position = { x: 5, y: 1, z: 5 }
+    const cm = world.addComponent<CharacterMovement>(player.id, 'CharacterMovement')
+
+    const sim = new GameSimulation(world)
+    await sim.initPhysics()
+    run(sim, 0.1) // capture spawn position
+
+    // Simulate falling deep into the abyss
+    player.getTransform().position.y = -35
+    cm._velocity.y = -50
+    sim.frame(DT)
+
+    // Should be caught and respawned safely at initial position
+    expect(player.getTransform().position.y).toBeGreaterThan(0.5)
+    expect(cm.velocity.y).toBeLessThanOrEqual(0)
+    expect(cm.velocity.y).toBeGreaterThanOrEqual(-1.5)
+    expect(cm.isGrounded).toBe(true)
+  })
+
+  it('handles colliders with center and size provided as arrays without translation error', async () => {
+    const world = new World()
+    const ground = world.createEntity('Ground')
+    ground.getTransform().position = { x: 0, y: -0.5, z: 0 }
+    // Pass size and center as arrays (common in JSON from AI)
+    world.addComponent(ground.id, 'BoxCollider', { size: [200, 1, 200] as any, center: [0, 0, 0] as any })
+
+    const player = world.createEntity('Player')
+    player.getTransform().position = { x: 0, y: 2, z: 0 }
+    const cm = world.addComponent<CharacterMovement>(player.id, 'CharacterMovement')
+
+    const sim = new GameSimulation(world)
+    // Should initialize physics smoothly without "The translation components must be numbers"
+    await expect(sim.initPhysics()).resolves.not.toThrow()
+    run(sim, 1)
+
+    expect(cm.isGrounded).toBe(true)
+    expect(player.getTransform().position.y).toBeGreaterThan(0.9)
+    expect(player.getTransform().position.y).toBeLessThan(1.2)
+  })
+
+  it('handles deserialized scene with array transforms and colliders', async () => {
+    const { SceneSerializer } = await import('../../engine/scene/serializer')
+    const sceneJson = JSON.stringify({
+      format: 'linden-scene',
+      version: 2,
+      name: 'ArrayScene',
+      entities: [
+        {
+          id: 'ground',
+          name: 'Ground',
+          active: true,
+          static: true,
+          tags: ['Ground'],
+          layer: 0,
+          parentId: null,
+          components: [
+            { type: 'Transform', data: { position: [0, -0.5, 0], rotation: [0, 0, 0], scale: [100, 1, 100] } },
+            { type: 'BoxCollider', data: { size: [1, 1, 1], center: [0, 0, 0] } },
+          ],
+        },
+        {
+          id: 'player',
+          name: 'Player',
+          active: true,
+          static: false,
+          tags: ['Player'],
+          layer: 0,
+          parentId: null,
+          components: [
+            { type: 'Transform', data: { position: [0, 2, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } },
+            { type: 'CharacterMovement', data: {} },
+          ],
+        },
+      ],
+    })
+
+    const world = new World()
+    SceneSerializer.deserialize(sceneJson, world)
+    const sim = new GameSimulation(world)
+    await expect(sim.initPhysics()).resolves.not.toThrow()
+    run(sim, 1)
+
+    const player = world.getEntity('player')!
+    const cm = player.getComponent<CharacterMovement>('CharacterMovement')!
+    expect(cm.isGrounded).toBe(true)
+    expect(player.getTransform().position.y).toBeGreaterThan(0.9)
+    expect(player.getTransform().position.y).toBeLessThan(1.2)
+  })
 })
 
 describe('CharacterMovement and triggers', () => {

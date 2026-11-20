@@ -2,6 +2,7 @@ import { World } from '../ecs/World'
 import { Entity } from '../ecs/Entity'
 import { Component } from '../ecs/Component'
 import { ComponentRegistry } from '../ecs/ComponentRegistry'
+import { toVec3 } from '../physics/RapierBackend'
 import { normalizeSceneSettings, SceneSettings } from './SceneSettings'
 import { migrateSceneV1ToV2 } from './migrations'
 
@@ -170,17 +171,14 @@ export class SceneSerializer {
         if (compData.type === 'Transform') {
           const t = entity.getTransform()
           if (compData.data) {
-            if (compData.data.position) {
-              const p = compData.data.position
-              t.position = Array.isArray(p) ? { x: p[0], y: p[1], z: p[2] } : { ...p }
+            if (compData.data.position !== undefined) {
+              t.position = toVec3(compData.data.position, { x: 0, y: 0, z: 0 })
             }
-            if (compData.data.rotation) {
-              const r = compData.data.rotation
-              t.rotation = Array.isArray(r) ? { x: r[0], y: r[1], z: r[2] } : { ...r }
+            if (compData.data.rotation !== undefined) {
+              t.rotation = toVec3(compData.data.rotation, { x: 0, y: 0, z: 0 })
             }
-            if (compData.data.scale) {
-              const s = compData.data.scale
-              t.scale = Array.isArray(s) ? { x: s[0], y: s[1], z: s[2] } : { ...s }
+            if (compData.data.scale !== undefined) {
+              t.scale = toVec3(compData.data.scale, { x: 1, y: 1, z: 1 })
             }
           }
         } else {

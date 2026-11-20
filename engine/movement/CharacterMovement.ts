@@ -68,6 +68,8 @@ export class CharacterMovement extends Component {
   _lockValue: number | null = null
   /** Set by GameSimulation while the character's centre is below a Water surface */
   _inWater = false
+  /** Recorded spawn position for void trap respawn */
+  _spawnPos: Vec3 | null = null
 
   constructor() {
     super('CharacterMovement')
@@ -210,10 +212,26 @@ export class CharacterMovementSystem {
   private stepOne(entity: Entity, cm: CharacterMovement, dt: number, physics: RapierBackend | null): void {
     const t = entity.getTransform()
     if (cm._yaw === null) cm._yaw = t.rotation.y * DEG
+    if (!cm._spawnPos) cm._spawnPos = { ...t.position }
+
     const cc = entity.getComponent('CharacterController') as any
     const body = physics?.hasBody(entity.id) ? physics : null
     const kinematic = !!body && physics!.isKinematic(entity.id)
     const dynamic = !!body && !kinematic
+
+    // Void trap recovery: if character falls into void (y < -30), respawn at safe spawn position
+    if (t.position.y < -30) {
+      const respawn = cm._spawnPos ?? { x: 0, y: footOffset(entity) + 0.1, z: 0 }
+      t.position = { ...respawn }
+      cm._velocity.x = 0
+      cm._velocity.y = 0
+      cm._velocity.z = 0
+      cm._grounded = true
+      if (body) {
+        physics!.setTranslation(entity.id, t.position)
+        physics!.setLinearVelocity(entity.id, { x: 0, y: 0, z: 0 })
+      }
+    }
 
     if (cm._teleport) {
       t.position = { ...cm._teleport }
@@ -357,7 +375,7 @@ export class CharacterMovementSystem {
   private probeGround(entity: Entity, physics: RapierBackend | null, wantHeight = false): number | boolean {
     const t = entity.getTransform()
     const foot = footOffset(entity)
-    if (!physics) {
+    if (!physics || physics.colliderCount === 0) {
       return t.position.y - foot <= 0 ? (wantHeight ? 0 : true) : false
     }
     const hit = physics.raycast(t.position, { x: 0, y: -1, z: 0 }, foot + GROUND_PROBE, undefined, entity.id)

@@ -388,6 +388,24 @@ export class World {
           if (Array.isArray(value)) current.listeners = value.map((l: any) => ({ ...l }))
           continue
         }
+        // Vector property normalization: if target component property is { x, y, z } and value is array or partial object
+        if (current && typeof current === 'object' && !Array.isArray(current) && 'x' in current && 'y' in current && 'z' in current) {
+          if (Array.isArray(value)) {
+            ;(comp as any)[key] = {
+              x: Number.isFinite(Number(value[0])) ? Number(value[0]) : current.x,
+              y: Number.isFinite(Number(value[1])) ? Number(value[1]) : current.y,
+              z: Number.isFinite(Number(value[2])) ? Number(value[2]) : current.z,
+            }
+            continue
+          } else if (value && typeof value === 'object') {
+            ;(comp as any)[key] = {
+              x: Number.isFinite(Number((value as any).x)) ? Number((value as any).x) : current.x,
+              y: Number.isFinite(Number((value as any).y)) ? Number((value as any).y) : current.y,
+              z: Number.isFinite(Number((value as any).z)) ? Number((value as any).z) : current.z,
+            }
+            continue
+          }
+        }
         ;(comp as any)[key] = value
       }
     }

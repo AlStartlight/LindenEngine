@@ -1,6 +1,7 @@
 import type { World } from '../ecs/World'
+import { Transform } from '../ecs/Component'
 import { RapierBackend } from '../physics/RapierBackend'
-import { Physics, Rigidbody, type Joint } from '../physics/components'
+import { Physics, Rigidbody, BoxCollider, SphereCollider, type Joint } from '../physics/components'
 import { CharacterMovementSystem } from '../movement/CharacterMovement'
 import { Input } from '../input/InputActions'
 import { Tween } from '../time/Tween'
@@ -101,7 +102,57 @@ export class GameSimulation {
           ;(comp as any).moveCallback = (delta: any) => backend.moveCharacter(ent.id, delta)
         }
       }
+
+      // Auto collider for MeshRenderer or ground/floor entities lacking explicit colliders
+      const hasCollider = ent.getComponents().some((c) => COLLIDER_TYPES.includes(c.name))
+      const mr = ent.getComponent('MeshRenderer') as any
+      const nameOrTag = (ent.name + ' ' + (ent.tags || []).join(' ')).toLowerCase()
+      const isGroundLike = /ground|floor|terrain|land|map|arena|stage|environment|platform/i.test(nameOrTag)
+
+      if (!hasCollider && !model) {
+        if (mr) {
+          const prim = mr.primitive || 'box'
+          if (prim === 'plane' || isGroundLike) {
+            const bc = new BoxCollider()
+            bc.size = { x: 1, y: 1, z: 1 }
+            bc.center = { x: 0, y: -0.5, z: 0 }
+            backend.createCollider(ent.id, bc, transform, rb, ent.layer)
+          } else if (prim === 'box') {
+            const bc = new BoxCollider()
+            bc.size = { x: 1, y: 1, z: 1 }
+            backend.createCollider(ent.id, bc, transform, rb, ent.layer)
+          } else if (prim === 'sphere') {
+            const sc = new SphereCollider()
+            sc.radius = 0.5
+            backend.createCollider(ent.id, sc, transform, rb, ent.layer)
+          }
+        } else if (isGroundLike) {
+          const bc = new BoxCollider()
+          bc.size = { x: 1, y: 1, z: 1 }
+          bc.center = { x: 0, y: -0.5, z: 0 }
+          backend.createCollider(ent.id, bc, transform, rb, ent.layer)
+        }
+      }
     }
+
+    // Global fallback ground: if the world contains a character, but ZERO environment colliders exist anywhere
+    // (e.g. empty scene or missing environment colliders), generate an invisible safety baseline floor at y = 0
+    const hasCharacters = this.world.getEntities().some((e) => e.hasComponent('CharacterMovement') || e.hasComponent('CharacterController'))
+    const hasEnvironmentCollider = this.world.getEntities().some((e) => {
+      if (e.hasComponent('CharacterMovement') || e.hasComponent('CharacterController')) return false
+      return e.getComponents().some((c) => COLLIDER_TYPES.includes(c.name)) || e.hasComponent('Model')
+    })
+
+    if (hasCharacters && !hasEnvironmentCollider) {
+      const fallbackTransform = new Transform()
+      fallbackTransform.position = { x: 0, y: -0.5, z: 0 }
+      fallbackTransform.rotation = { x: 0, y: 0, z: 0 }
+      fallbackTransform.scale = { x: 1000, y: 1, z: 1000 }
+      const fallbackBox = new BoxCollider()
+      fallbackBox.size = { x: 1, y: 1, z: 1 }
+      backend.createCollider('__WorldGroundFallback', fallbackBox, fallbackTransform, undefined, 0)
+    }
+
     this.createJoints(backend)
   }
 
