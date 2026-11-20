@@ -30,6 +30,7 @@ import { openExistingProject, fetchRecentProjects, getStartupOpenLastSetting } f
 import { SceneSerializer } from '../engine/scene/serializer'
 import { useEditorStore } from './store/editorStore'
 import { Icons } from './ui/Icons'
+import { useI18n } from './i18n/translations'
 import {
   createEntityCommand,
   deleteEntityCommand,
@@ -37,6 +38,7 @@ import {
 } from './commands/entityCommands'
 
 export const EditorLayout: React.FC = () => {
+  const { t } = useI18n()
   const {
     world,
     commandStack,
@@ -661,6 +663,15 @@ export const EditorLayout: React.FC = () => {
         return
       }
 
+      // F: Focus on selected entity
+      if (!useEditorStore.getState().meshEdit && !cmdOrCtrl && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f' && !e.repeat) {
+        if (selectedEntityIds.length > 0) {
+          e.preventDefault()
+          useEditorStore.getState().focusOnEntity(selectedEntityIds[0])
+          return
+        }
+      }
+
       // Delete: Delete Entity
       if (!useEditorStore.getState().meshEdit && e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedEntityIds.length > 0) {
@@ -759,51 +770,66 @@ export const EditorLayout: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-[#1a1a2e] text-white overflow-hidden select-none">
       {/* Toolbar */}
-      <Toolbar
-        isPlaying={playState !== 'stopped'}
-        isPaused={playState === 'paused'}
-        onPlay={handlePlayToggle}
-        onStop={() => stopPlay()}
-        onPause={handlePauseToggle}
-        onStep={handleStep}
-        onNewProject={handleNewProject}
-        onOpenProject={() => handleOpenProject()}
-        onCloseProject={handleCloseProject}
-        onExport={() => setIsExportDialogOpen(true)}
-        onOpenBridge={() => setActiveEditorPanel('bridge')}
-        onNewScene={handleNewScene}
-        onOpenScene={handleOpenScene}
-        onSaveScene={() => handleSaveScene(false)}
-        onSaveSceneAs={() => handleSaveScene(true)}
-        onUndo={undo}
-        onRedo={redo}
-        projectName={projectName}
-        sceneName={sceneName}
-        isDirty={isDirty}
-        isSaved={currentScenePath !== null}
-        recentProjects={recentProjects}
-        onOpenRecent={(p) => handleOpenProject(p)}
-        onClearRecent={async () => {
-          await clearRecentProjects()
-          setRecentProjects([])
-        }}
-        onOpenInputActions={() => setActiveWindow('inputActions')}
-        onOpenProjectSettings={() => setActiveWindow('projectSettings')}
-        onOpenAgent={() => setRightTab('agent')}
-        agentActivity={agentActivity ? phaseLabel(agentActivity) : undefined}
-        onCreate3DObject={handleCreate3DObject}
-        activeBottomTab={bottomTab}
-        onSelectBottomTab={(tab) => setBottomTab(tab)}
-        onToggleBottomPanel={handleToggleBottomPanel}
-        onApplyWorkspaceLayout={handleApplyWorkspaceLayout}
-      />
+      <ErrorBoundary
+        onError={(error) => addConsoleMessage('error', `Toolbar error: ${error.message}`)}
+        fallback={(error, reset) => (
+          <div className="h-10 bg-[#0f3460] border-b border-gray-700/60 px-3 flex items-center justify-between text-xs text-red-300">
+            <span>Toolbar error: {error.message}</span>
+            <button
+              className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px]"
+              onClick={reset}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+      >
+        <Toolbar
+          isPlaying={playState !== 'stopped'}
+          isPaused={playState === 'paused'}
+          onPlay={handlePlayToggle}
+          onStop={() => stopPlay()}
+          onPause={handlePauseToggle}
+          onStep={handleStep}
+          onNewProject={handleNewProject}
+          onOpenProject={() => handleOpenProject()}
+          onCloseProject={handleCloseProject}
+          onExport={() => setIsExportDialogOpen(true)}
+          onOpenBridge={() => setActiveEditorPanel('bridge')}
+          onNewScene={handleNewScene}
+          onOpenScene={handleOpenScene}
+          onSaveScene={() => handleSaveScene(false)}
+          onSaveSceneAs={() => handleSaveScene(true)}
+          onUndo={undo}
+          onRedo={redo}
+          projectName={projectName}
+          sceneName={sceneName}
+          isDirty={isDirty}
+          isSaved={currentScenePath !== null}
+          recentProjects={recentProjects}
+          onOpenRecent={(p) => handleOpenProject(p)}
+          onClearRecent={async () => {
+            await clearRecentProjects()
+            setRecentProjects([])
+          }}
+          onOpenInputActions={() => setActiveWindow('inputActions')}
+          onOpenProjectSettings={() => setActiveWindow('projectSettings')}
+          onOpenAgent={() => setRightTab('agent')}
+          agentActivity={agentActivity ? phaseLabel(agentActivity) : undefined}
+          onCreate3DObject={handleCreate3DObject}
+          activeBottomTab={bottomTab}
+          onSelectBottomTab={(tab) => setBottomTab(tab)}
+          onToggleBottomPanel={handleToggleBottomPanel}
+          onApplyWorkspaceLayout={handleApplyWorkspaceLayout}
+        />
+      </ErrorBoundary>
 
       {/* Main Workspace Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel - Hierarchy */}
         <div className="w-64 border-r border-gray-700/50 bg-[#16213e] flex flex-col">
           <div className="p-2 border-b border-gray-700/50 bg-[#0f3460] flex items-center justify-between">
-            <h2 className="text-xs font-semibold text-gray-200">Hierarchy</h2>
+            <h2 className="text-xs font-semibold text-gray-200">{t('panel.hierarchy')}</h2>
           </div>
           <div className="flex-1 overflow-hidden">
             <HierarchyPanel />
@@ -825,7 +851,7 @@ export const EditorLayout: React.FC = () => {
                 }`}
               >
                 <Icons.Viewport className="w-3.5 h-3.5 mr-1.5" />
-                <span>Viewport</span>
+                <span>{t('panel.viewport')}</span>
               </button>
               <button
                 onClick={() => setActiveEditorPanel('bridge')}
@@ -836,7 +862,7 @@ export const EditorLayout: React.FC = () => {
                 }`}
               >
                 <Icons.Bridge className="w-3.5 h-3.5 mr-1.5 text-indigo-400" />
-                <span>Bridge</span>
+                <span>{t('panel.bridge')}</span>
               </button>
             </div>
 
@@ -897,7 +923,7 @@ export const EditorLayout: React.FC = () => {
                   }`}
                 >
                   <Icons.Folder className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Project</span>
+                  <span>{t('panel.project')}</span>
                 </button>
                 <button
                   onClick={() => setBottomTab('assets')}
@@ -908,7 +934,7 @@ export const EditorLayout: React.FC = () => {
                   }`}
                 >
                   <Icons.Box className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Assets</span>
+                  <span>{t('panel.assets')}</span>
                 </button>
                 <button
                   onClick={() => setBottomTab('console')}
@@ -919,7 +945,7 @@ export const EditorLayout: React.FC = () => {
                   }`}
                 >
                   <Icons.Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Console</span>
+                  <span>{t('panel.console')}</span>
                   {errorCount > 0 && (
                     <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-red-600 text-white animate-pulse">
                       {errorCount}
@@ -940,7 +966,7 @@ export const EditorLayout: React.FC = () => {
                   }`}
                 >
                   <Icons.FileCode className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Output</span>
+                  <span>{t('panel.output')}</span>
                 </button>
                 <button
                   onClick={() => setBottomTab('all')}
@@ -951,7 +977,7 @@ export const EditorLayout: React.FC = () => {
                   }`}
                 >
                   <Icons.Layers className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Split All</span>
+                  <span>{t('panel.split_all')}</span>
                 </button>
 
                 <div className="flex-1" />
@@ -1031,13 +1057,13 @@ export const EditorLayout: React.FC = () => {
           {/* Status Bar */}
           <div className="h-6 bg-[#0f3460] border-t border-gray-700/60 px-3 flex items-center justify-between text-[11px] text-gray-300 select-none">
             <div className="flex items-center space-x-4">
-              <span>Project: <strong className="text-white">{projectName}</strong></span>
-              <span>Scene: <strong className="text-white">{sceneName}{getSceneStatusSuffix({ isDirty, isSaved: currentScenePath !== null })}</strong></span>
+              <span>{t('status.project')} <strong className="text-white">{projectName}</strong></span>
+              <span>{t('status.scene')} <strong className="text-white">{sceneName}{getSceneStatusSuffix({ isDirty, isSaved: currentScenePath !== null })}</strong></span>
             </div>
             <div className="flex items-center space-x-4">
               <span className="flex items-center space-x-1.5">
                 <span className={`w-2 h-2 rounded-full ${isLiveSyncActive ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
-                <span>{isLiveSyncActive ? 'Bridge Sync Aktif' : 'Bridge Sync Offline'}</span>
+                <span>{isLiveSyncActive ? t('status.bridge_active') : t('status.bridge_offline')}</span>
               </span>
               <span>Build: <strong className="text-gray-200">{lastBuildStatus}</strong></span>
             </div>
@@ -1055,7 +1081,7 @@ export const EditorLayout: React.FC = () => {
                   : 'text-gray-400 hover:text-white hover:bg-white/5'
               }`}
             >
-              <span>Inspector</span>
+              <span>{t('panel.inspector')}</span>
             </button>
             <button
               onClick={() => setRightTab('scene')}
@@ -1066,7 +1092,7 @@ export const EditorLayout: React.FC = () => {
                   : 'text-gray-400 hover:text-white hover:bg-white/5'
               }`}
             >
-              <span>Scene</span>
+              <span>{t('panel.scene')}</span>
             </button>
             <button
               onClick={() => setRightTab('agent')}
@@ -1077,7 +1103,7 @@ export const EditorLayout: React.FC = () => {
               }`}
             >
               <Icons.Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              <span>AI Agent</span>
+              <span>{t('panel.agent')}</span>
               {isAgentGenerating && (
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping absolute top-1 right-2" />
               )}

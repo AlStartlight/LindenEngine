@@ -1,5 +1,6 @@
 /**
  * GDScript <-> TypeScript Transpiler (FR-07, TC-SC-01..03, TC-SC-07)
+ * Extended with Godot 4 Parity for Linden Polyglot Engine.
  */
 
 export interface TranspileResult {
@@ -34,7 +35,7 @@ export class GDScriptTranspiler {
       // extends ...
       if (trimmed.startsWith('extends ')) {
         const target = trimmed.replace('extends ', '').trim()
-        extendsClass = target === 'CharacterBody2D' ? 'CharacterBody2D' : (target === 'Node2D' ? 'Node2D' : (target === 'Node3D' ? 'Node3D' : 'Node'))
+        extendsClass = target === 'CharacterBody2D' ? 'CharacterBody2D' : (target === 'Node2D' ? 'Node2D' : (target === 'Node3D' ? 'Node3D' : (target === 'CharacterBody3D' ? 'CharacterBody3D' : 'Node')))
         continue
       }
 
@@ -46,13 +47,16 @@ export class GDScriptTranspiler {
       }
 
       // @export var speed: float = 200.0 or @export var speed = 200
-      if (trimmed.startsWith('@export') || trimmed.startsWith('var ')) {
-        const cleaned = trimmed.replace('@export', '').replace('var', '').trim()
+      if (trimmed.startsWith('@export') || trimmed.startsWith('var ') || trimmed.startsWith('@onready var ')) {
+        const cleaned = trimmed.replace('@export', '').replace('@onready', '').replace('var', '').trim()
         const [left, right] = cleaned.split('=').map((s) => s.trim())
         const [varName, varType] = left.split(':').map((s) => s.trim())
 
         let tsType = 'any'
         let defaultVal = right || 'null'
+        if (defaultVal.startsWith('$')) {
+          defaultVal = defaultVal.replace(/\$([a-zA-Z0-9_]+)/g, "this.getNode('$1')")
+        }
         if (varType === 'float' || varType === 'int') {
           tsType = 'number'
         } else if (varType === 'String' || varType === 'string') {
@@ -61,6 +65,10 @@ export class GDScriptTranspiler {
           tsType = 'boolean'
         } else if (right && !isNaN(Number(right))) {
           tsType = 'number'
+        } else if (right && (right.startsWith('"') || right.startsWith("'"))) {
+          tsType = 'string'
+        } else if (right === 'true' || right === 'false') {
+          tsType = 'boolean'
         }
 
         classProps.push(`  public ${varName}: ${tsType} = ${defaultVal}`)
@@ -70,6 +78,7 @@ export class GDScriptTranspiler {
       // func _ready(): or func _process(delta):
       if (trimmed.startsWith('func ')) {
         if (currentMethodLines) {
+          currentMethodLines.push(`  }`)
           classMethods.push(currentMethodLines.join('\n'))
         }
 
@@ -84,6 +93,10 @@ export class GDScriptTranspiler {
         } else if (funcHeader.startsWith('_physics_process(')) {
           const arg = funcHeader.includes('delta') ? 'delta: number' : ''
           currentMethodLines.push(`  onPhysicsUpdate(${arg}): void {`)
+        } else if (funcHeader.startsWith('_enter_tree(')) {
+          currentMethodLines.push(`  onEnable(): void {`)
+        } else if (funcHeader.startsWith('_exit_tree(')) {
+          currentMethodLines.push(`  onDisable(): void {`)
         } else {
           // Custom function
           currentMethodLines.push(`  ${funcHeader}: void {`)
@@ -114,6 +127,16 @@ export class GDScriptTranspiler {
           converted = converted.replace(/get_node\(([^)]+)\)/g, 'this.getNode($1)')
         }
 
+        // Map $NodeName shorthand
+        if (/\$([a-zA-Z0-9_]+)/.test(converted)) {
+          converted = converted.replace(/\$([a-zA-Z0-9_]+)/g, "this.getNode('$1')")
+        }
+
+        // Map print(...) to console.log(...)
+        if (converted.startsWith('print(')) {
+          converted = converted.replace(/^print\(/, 'console.log(')
+        }
+
         currentMethodLines.push(`    ${converted};`)
       }
     }
@@ -123,7 +146,20 @@ export class GDScriptTranspiler {
       classMethods.push(currentMethodLines.join('\n'))
     }
 
-    outputLines.push(`import { ${extendsClass}, Signal } from '../scene/index'`)
+    outputLines.push(`class Signal {
+  constructor(public name: string, public target: any = null) {}
+  emit(...args: any[]) {}
+}
+class Node {
+  getNode(name: string): any { return null }
+  getComponent(type: string): any { return null }
+  emitSignal(name: string, ...args: any[]): void {}
+  rotate(...args: any[]): void {}
+}
+class CharacterBody2D extends Node {}
+class CharacterBody3D extends Node {}
+class Node2D extends Node {}
+class Node3D extends Node {}`)
     outputLines.push('')
     outputLines.push(`export class ${className} extends ${extendsClass} {`)
     if (classProps.length > 0) {
@@ -132,8 +168,10 @@ export class GDScriptTranspiler {
     }
     if (classMethods.length > 0) {
       outputLines.push(classMethods.join('\n\n'))
+      outputLines.push('')
     }
     outputLines.push(`}`)
+    outputLines.push(`export default ${className}`)
 
     return {
       code: outputLines.join('\n'),
@@ -155,6 +193,8 @@ export class GDScriptTranspiler {
         gdLines.push('func _process(delta):')
       } else if (trimmed.startsWith('onInit(') || trimmed.startsWith('onInit (')) {
         gdLines.push('func _ready():')
+      } else if (trimmed.startsWith('onPhysicsUpdate(') || trimmed.startsWith('onFixedUpdate(')) {
+        gdLines.push('func _physics_process(delta):')
       } else if (trimmed.includes('rotateY(') || trimmed.includes('rotation.y +=')) {
         gdLines.push('\trotate_y(delta)')
       }

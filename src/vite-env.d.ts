@@ -85,7 +85,9 @@ interface Window {
     agentAttachImage?: (payload: { projectPath: string; name: string; data: Uint8Array }) => Promise<{ path: string; bytes: number; resized: boolean }>
     factoryPreview?: (req: { projectPath: string; factory: string; exportName?: string; options?: Record<string, unknown> }) => Promise<Uint8Array>
     agentAbortPrompt?: (sessionId: string) => Promise<boolean>
-    agentReplyPermission?: (requestId: string, allow: boolean) => Promise<any>
+    agentReplyPermission?: (requestId: string, allow: boolean, sessionId?: string) => Promise<any>
+    agentSetAutoApprove?: (enabled: boolean) => Promise<any>
+    agentGetAutoApprove?: () => Promise<boolean>
     agentApplyDiff?: (diffId: string) => Promise<boolean>
     agentRejectDiff?: (diffId: string) => Promise<boolean>
     agentGetTemplates?: () => Promise<any[]>

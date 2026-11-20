@@ -1,5 +1,6 @@
 /**
  * C# <-> TypeScript Transpiler (FR-07, TC-SC-04..06)
+ * Extended with Unity MonoBehaviour Parity for Linden Polyglot Engine.
  */
 
 export interface CSharpTranspileResult {
@@ -32,7 +33,7 @@ export class CSharpTranspiler {
       }
 
       // public class Player : MonoBehaviour
-      const classMatch = trimmed.match(/public\s+class\s+([a-zA-Z0-9_]+)\s*:\s*MonoBehaviour/)
+      const classMatch = trimmed.match(/public\s+class\s+([a-zA-Z0-9_]+)\s*:\s*(?:MonoBehaviour|LindenBehaviour)/)
       if (classMatch) {
         className = classMatch[1]
         continue
@@ -43,7 +44,7 @@ export class CSharpTranspiler {
         trimmed.includes('[SerializeField]') ||
         (/^public\s+(float|int|string|bool)\s+[a-zA-Z0-9_]+/.test(trimmed) && !trimmed.includes('('))
       ) {
-        const cleaned = trimmed.replace('[SerializeField]', '').replace(/public|private|protected/, '').trim()
+        const cleaned = trimmed.replace('[SerializeField]', '').replace(/\[Header\([^)]*\)\]/g, '').replace(/\[Range\([^)]*\)\]/g, '').replace(/public|private|protected/, '').trim()
         const [left, rightRaw] = cleaned.split('=').map((s) => s.trim())
         const [cType, vName] = left.split(/\s+/).map((s) => s.trim())
         const varName = vName ? vName.replace(';', '') : ''
@@ -73,7 +74,7 @@ export class CSharpTranspiler {
       }
 
       // void Start() or void Update()
-      const methodMatch = trimmed.match(/(?:void|public\s+void|private\s+void)\s+([a-zA-Z0-9_]+)\s*\((.*)\)/)
+      const methodMatch = trimmed.match(/(?:void|public\s+void|private\s+void|public\s+override\s+void|protected\s+void)\s+([a-zA-Z0-9_]+)\s*\((.*)\)/)
       if (methodMatch) {
         if (currentMethodLines) {
           classMethods.push(currentMethodLines.join('\n'))
@@ -81,12 +82,18 @@ export class CSharpTranspiler {
         const mName = methodMatch[1]
         currentMethodLines = []
 
-        if (mName === 'Start') {
+        if (mName === 'Start' || mName === 'Awake') {
           currentMethodLines.push(`  onInit(): void {`)
         } else if (mName === 'Update') {
           currentMethodLines.push(`  onUpdate(deltaTime: number): void {`)
         } else if (mName === 'FixedUpdate') {
           currentMethodLines.push(`  onFixedUpdate(fixedDelta: number): void {`)
+        } else if (mName === 'OnEnable') {
+          currentMethodLines.push(`  onEnable(): void {`)
+        } else if (mName === 'OnDisable') {
+          currentMethodLines.push(`  onDisable(): void {`)
+        } else if (mName === 'OnDestroy') {
+          currentMethodLines.push(`  onDestroy(): void {`)
         } else {
           currentMethodLines.push(`  ${mName}(): void {`)
         }
@@ -95,6 +102,9 @@ export class CSharpTranspiler {
 
       // Inside method
       if (currentMethodLines) {
+        if (trimmed === '{') {
+          continue
+        }
         if (trimmed === '}') {
           currentMethodLines.push(`  }`)
           classMethods.push(currentMethodLines.join('\n'))
@@ -124,6 +134,16 @@ export class CSharpTranspiler {
           converted = converted.replace(/GetComponent<([a-zA-Z0-9_]+)>\(\)/g, "this.getComponent('$1')")
         }
 
+        // Debug.Log(...) -> console.log(...)
+        if (converted.includes('Debug.Log(') || converted.includes('LindenLog.Info(')) {
+          converted = converted.replace(/(?:Debug\.Log|LindenLog\.Info)\(/g, 'console.log(')
+        }
+
+        // transform.position / transform.Rotate
+        if (converted.includes('transform.Rotate(') || converted.includes('Transform.Rotate(')) {
+          converted = converted.replace(/(?:transform|Transform)\.Rotate\(([^)]+)\)/g, 'this.rotate($1)')
+        }
+
         currentMethodLines.push(`    ${converted}`)
       }
     }
@@ -133,7 +153,12 @@ export class CSharpTranspiler {
       classMethods.push(currentMethodLines.join('\n'))
     }
 
-    outputLines.push(`import { Node } from '../scene/index'`)
+    outputLines.push(`class Node {
+  getNode(name: string): any { return null }
+  getComponent(type: string): any { return null }
+  emitSignal(name: string, ...args: any[]): void {}
+  rotate(...args: any[]): void {}
+}`)
     outputLines.push('')
     outputLines.push(`export class ${className} extends Node {`)
     if (classProps.length > 0) {
@@ -142,8 +167,10 @@ export class CSharpTranspiler {
     }
     if (classMethods.length > 0) {
       outputLines.push(classMethods.join('\n\n'))
+      outputLines.push('')
     }
     outputLines.push(`}`)
+    outputLines.push(`export default ${className}`)
 
     return {
       code: outputLines.join('\n'),
@@ -170,6 +197,8 @@ export class CSharpTranspiler {
         csLines.push('    void Start()\n    {\n    }')
       } else if (trimmed.startsWith('onUpdate(')) {
         csLines.push('    void Update()\n    {\n    }')
+      } else if (trimmed.startsWith('onFixedUpdate(') || trimmed.startsWith('onPhysicsUpdate(')) {
+        csLines.push('    void FixedUpdate()\n    {\n    }')
       }
     }
 

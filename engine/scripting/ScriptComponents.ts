@@ -1,11 +1,14 @@
 import { Component } from '../ecs/Component'
 
+export type ScriptLanguage = 'auto' | 'typescript' | 'gdscript' | 'csharp' | 'rust'
+
 /**
- * Links an entity to a gameplay script in scripts/ (TS or JS).
+ * Links an entity to a gameplay script in scripts/ (TS, GDScript, C#, or Rust).
  * The script runs in Play (viewport Game Frame), linden_play and the web build via ScriptRuntime.
  */
 export class Script extends Component {
   public src: string = ''
+  public language: ScriptLanguage = 'auto'
   /** Initial values for the script's public fields, applied before onInit */
   public props: Record<string, unknown> = {}
 
@@ -13,9 +16,18 @@ export class Script extends Component {
     super('Script')
   }
 
+  detectLanguage(): 'typescript' | 'gdscript' | 'csharp' | 'rust' {
+    if (this.language && this.language !== 'auto') return this.language
+    if (this.src.endsWith('.gd')) return 'gdscript'
+    if (this.src.endsWith('.cs')) return 'csharp'
+    if (this.src.endsWith('.rs') || this.src.endsWith('.wasm')) return 'rust'
+    return 'typescript'
+  }
+
   clone(): Script {
     const c = new Script()
     c.src = this.src
+    c.language = this.language
     c.props = JSON.parse(JSON.stringify(this.props ?? {}))
     c.isEnabled = this.isEnabled
     return c

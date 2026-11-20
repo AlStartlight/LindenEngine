@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useEditorStore } from '../store/editorStore'
+import { useI18n } from '../i18n/translations'
 import {
   createEntityCommand,
   deleteEntityCommand,
@@ -27,6 +28,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
   selectedObjectId: propSelectedId,
   onSelectObject: propOnSelect,
 }) => {
+  const { t } = useI18n()
   const {
     world,
     selectedEntityIds,
@@ -169,6 +171,11 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
           } ${isAncestorOnly ? 'opacity-40 italic' : ''}`}
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
           onClick={(e) => handleSelect(entity.id, e)}
+          onDoubleClick={(e) => {
+            e.stopPropagation()
+            handleSelect(entity.id, e)
+            useEditorStore.getState().focusOnEntity(entity.id)
+          }}
           onContextMenu={(e) => handleContextMenu(e, entity.id)}
           draggable
           onDragStart={(e) => {
@@ -250,7 +257,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
       <div className="p-2 border-b border-gray-700/50 bg-[#121b33]">
         <input
           type="text"
-          placeholder="Search by name or t:TagName..."
+          placeholder={t('hierarchy.search_placeholder')}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full bg-black/40 border border-gray-700 rounded px-2.5 py-1 text-white text-xs focus:outline-none focus:border-blue-500"
@@ -276,12 +283,12 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
               setContextMenu(null)
             }}
           >
-            <span>Create Empty</span>
+            <span>{t('hierarchy.create_empty')}</span>
           </button>
 
           <div className="relative group">
             <button className="w-full text-left px-3 py-1.5 hover:bg-blue-600/50 flex items-center justify-between">
-              <span>3D Object</span>
+              <span>{t('hierarchy.3d_object')}</span>
               <span>▶</span>
             </button>
             <div className="hidden group-hover:block absolute left-full top-0 bg-[#16213e] border border-gray-700/80 rounded shadow-2xl min-w-36 py-1">
@@ -289,31 +296,31 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
                 className="w-full text-left px-3 py-1 hover:bg-blue-600/50"
                 onClick={() => handleCreate3DObject('Cube')}
               >
-                Cube
+                {t('menu.cube')}
               </button>
               <button
                 className="w-full text-left px-3 py-1 hover:bg-blue-600/50"
                 onClick={() => handleCreate3DObject('Sphere')}
               >
-                Sphere
+                {t('menu.sphere')}
               </button>
               <button
                 className="w-full text-left px-3 py-1 hover:bg-blue-600/50"
                 onClick={() => handleCreate3DObject('Capsule')}
               >
-                Capsule
+                {t('menu.capsule')}
               </button>
               <button
                 className="w-full text-left px-3 py-1 hover:bg-blue-600/50"
                 onClick={() => handleCreate3DObject('Cylinder')}
               >
-                Cylinder
+                {t('menu.cylinder')}
               </button>
               <button
                 className="w-full text-left px-3 py-1 hover:bg-blue-600/50"
                 onClick={() => handleCreate3DObject('Plane')}
               >
-                Plane
+                {t('menu.plane')}
               </button>
             </div>
           </div>
@@ -323,13 +330,23 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
           {contextMenu.targetId && (
             <>
               <button
+                className="w-full text-left px-3 py-1.5 hover:bg-blue-600/50 flex items-center justify-between"
+                onClick={() => {
+                  useEditorStore.getState().focusOnEntity(contextMenu.targetId!)
+                  setContextMenu(null)
+                }}
+              >
+                <span>Focus Object</span>
+                <span className="text-[10px] text-gray-400 font-mono">F</span>
+              </button>
+              <button
                 className="w-full text-left px-3 py-1.5 hover:bg-blue-600/50"
                 onClick={() => {
                   executeCommand(duplicateEntityCommand(contextMenu.targetId!))
                   setContextMenu(null)
                 }}
               >
-                Duplicate (Ctrl+D)
+                {t('hierarchy.duplicate')} (Ctrl+D)
               </button>
               <button
                 className="w-full text-left px-3 py-1.5 hover:bg-red-600/50 text-red-300"
@@ -338,7 +355,7 @@ export const HierarchyPanel: React.FC<HierarchyPanelProps> = ({
                   setContextMenu(null)
                 }}
               >
-                Delete (Del)
+                {t('hierarchy.delete')} (Del)
               </button>
               {world.getEntity(contextMenu.targetId)?.prefab && (
                 <button

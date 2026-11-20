@@ -3,6 +3,9 @@ import path from 'node:path'
 import { COMPILED_SCRIPTS_DIR } from '../../shared/playProtocol'
 import { FACTORY_SOURCE_DIR, compiledFactoryPath, isValidFactorySrc } from '../../shared/modelFactory'
 import { resolveAppResource } from '../resourcePaths'
+import { GDScriptTranspiler } from '../../engine/transmuter/scripts/gdscript/GDScriptTranspiler'
+import { CSharpTranspiler } from '../../engine/transmuter/scripts/csharp/CSharpTranspiler'
+import { RustWasmBridge } from '../../engine/transmuter/scripts/rust/RustWasmBridge'
 
 /**
  * Compiles a project's scripts/ (TS/JS) into browser ESM for Play, linden_play and the web build.
@@ -38,7 +41,7 @@ export interface CompileOptions {
   sourcemap?: boolean
 }
 
-const SCRIPT_EXT = /\.(ts|mts|js|mjs)$/
+const SCRIPT_EXT = /\.(ts|mts|js|mjs|gd|cs|rs)$/
 const LINDEN_API_EXPORTS = ['Input', 'Physics', 'Tween', 'Easing']
 const VIRTUAL_THREE = '\0linden:three'
 const VIRTUAL_API = '\0linden:api'
@@ -152,6 +155,7 @@ function lindenImportPlugin({ root, rel, importErrors, threeNames, what }: Impor
         }
         return fail(importer, id, `Addon three mengimpor "${id}" yang tidak didukung di Linden`)
       }
+      if (id.endsWith('.gd.ts') || id.endsWith('.cs.ts') || id.endsWith('.rs.ts')) return id
       if (id.startsWith('\0') || !importer) return null
       if (id.startsWith('.') || path.isAbsolute(id)) {
         const target = path.resolve(path.dirname(importer), id)
@@ -179,6 +183,27 @@ function lindenImportPlugin({ root, rel, importErrors, threeNames, what }: Impor
         )
       }
       if (id.startsWith(ADDON_PREFIX)) return fs.readFileSync(id.slice(ADDON_PREFIX.length), 'utf-8')
+      if (id.endsWith('.gd.ts')) {
+        const file = id.slice(0, -3)
+        const raw = fs.readFileSync(file, 'utf-8')
+        const className = path.basename(file, '.gd')
+        const res = GDScriptTranspiler.gdscriptToTypeScript(raw, className)
+        return res.code
+      }
+      if (id.endsWith('.cs.ts')) {
+        const file = id.slice(0, -3)
+        const raw = fs.readFileSync(file, 'utf-8')
+        const className = path.basename(file, '.cs')
+        const res = CSharpTranspiler.csharpToTypeScript(raw, className)
+        return res.code
+      }
+      if (id.endsWith('.rs.ts')) {
+        const file = id.slice(0, -3)
+        const raw = fs.readFileSync(file, 'utf-8')
+        const className = path.basename(file, '.rs')
+        const res = RustWasmBridge.rustToTypeScript(raw, className)
+        return res.code
+      }
       return null
     },
   }
@@ -222,10 +247,13 @@ export async function compileScripts(
     return result
   }
 
-  const rel = (abs: string) => path.relative(root, abs).split(path.sep).join('/')
+  const rel = (abs: string) => path.relative(root, abs).replace(/\.(gd|cs|rs)\.ts$/, '.$1').split(path.sep).join('/')
   const input: Record<string, string> = {}
+  const POLYGLOT_EXT = /\.(gd|cs|rs)$/
   for (const src of sources) {
-    input[src.replace(/^scripts\//, '').replace(SCRIPT_EXT, '')] = path.join(root, src)
+    const entryName = src.replace(/^scripts\//, '').replace(SCRIPT_EXT, '')
+    const full = path.join(root, src)
+    input[entryName] = POLYGLOT_EXT.test(src) ? `${full}.ts` : full
   }
 
   const errors: CompileError[] = []
@@ -239,6 +267,11 @@ export async function compileScripts(
       input,
       platform: 'browser',
       logLevel: 'silent',
+      moduleTypes: {
+        '.gd': 'ts',
+        '.cs': 'ts',
+        '.rs': 'ts',
+      },
       plugins: [lindenImportPlugin({ root, rel, importErrors, threeNames, what: 'script' })],
       output: {
         dir: outDir,

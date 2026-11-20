@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { getSceneStatusSuffix } from './windowTitle'
 import { Icons } from './Icons'
+import { useI18n, EDITOR_LANGUAGES, EditorLocale, getEditorLocale } from '../i18n/translations'
+
+// Fallback identifier so any agent session or hot-reload referencing currentLocale never throws ReferenceError
+let currentLocale: EditorLocale = 'en-US'
+try {
+  currentLocale = getEditorLocale()
+} catch {}
 
 interface ToolbarProps {
   isPlaying: boolean
@@ -77,6 +84,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onApplyWorkspaceLayout,
 }) => {
   const [activeMenu, setActiveMenu] = useState<'file' | 'edit' | 'gameobject' | 'window' | null>(null)
+  const { t, locale, currentLocale: hookLocale, setLocale } = useI18n()
+  const activeLocale = locale || hookLocale || currentLocale || 'en-US'
   const menuBarRef = useRef<HTMLDivElement>(null)
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
@@ -128,12 +137,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={() => toggleMenu('file')}
             onMouseEnter={() => handleMenuHover('file')}
           >
-            File
+            {t('menu.file')}
           </button>
           {activeMenu === 'file' && (
             <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/70 rounded-md shadow-2xl z-50 min-w-56 py-1 backdrop-blur-sm">
               <MenuItem
-                label="New Project…"
+                label={t('menu.new_project')}
                 shortcut={`${mod}+Shift+N`}
                 onClick={() => {
                   onNewProject?.()
@@ -141,14 +150,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 }}
               />
               <MenuItem
-                label="Open Project…"
+                label={t('menu.open_project')}
                 shortcut={`${mod}+Shift+O`}
                 onClick={() => {
                   onOpenProject?.()
                   closeMenu()
                 }}
               />
-              <SubMenu label="Open Recent">
+              <SubMenu label={t('menu.recent_projects')}>
                 {recentProjects.length > 0 ? (
                   <>
                     {recentProjects.map((proj) => (
@@ -163,7 +172,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     ))}
                     <MenuDivider />
                     <MenuItem
-                      label="Clear Recent"
+                      label={t('menu.clear_recent_projects')}
                       onClick={() => {
                         onClearRecent?.()
                         closeMenu()
@@ -171,12 +180,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     />
                   </>
                 ) : (
-                  <div className="px-3 py-1.5 text-xs text-gray-400 italic">No Recent Projects</div>
+                  <div className="px-3 py-1.5 text-xs text-gray-400 italic">{t('menu.no_recent_projects')}</div>
                 )}
               </SubMenu>
               <MenuDivider />
               <MenuItem
-                label="New Scene"
+                label={t('menu.new_scene')}
                 shortcut={`${mod}+N`}
                 onClick={() => {
                   onNewScene?.()
@@ -184,7 +193,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 }}
               />
               <MenuItem
-                label="Open Scene…"
+                label={t('menu.open_scene')}
                 shortcut={`${mod}+O`}
                 onClick={() => {
                   onOpenScene?.()
@@ -192,7 +201,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 }}
               />
               <MenuItem
-                label="Save Scene"
+                label={t('menu.save_scene')}
                 shortcut={`${mod}+S`}
                 onClick={() => {
                   onSaveScene?.()
@@ -200,7 +209,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 }}
               />
               <MenuItem
-                label="Save Scene As…"
+                label={t('menu.save_scene_as')}
                 shortcut={`${mod}+Shift+S`}
                 onClick={() => {
                   onSaveSceneAs?.()
@@ -209,14 +218,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               />
               <MenuDivider />
               <MenuItem
-                label="Project Settings…"
+                label={t('menu.project_settings')}
                 onClick={() => {
                   onOpenProjectSettings?.()
                   closeMenu()
                 }}
               />
               <MenuItem
-                label="Export…"
+                label={t('menu.export')}
                 shortcut={`${mod}+Shift+E`}
                 onClick={() => {
                   onExport?.()
@@ -224,7 +233,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 }}
               />
               <MenuItem
-                label="Close Project"
+                label={t('menu.close_project')}
                 onClick={() => {
                   onCloseProject?.()
                   closeMenu()
@@ -232,7 +241,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               />
               <MenuDivider />
               <MenuItem
-                label="Exit"
+                label={t('menu.exit')}
                 shortcut={`${mod}+Q`}
                 onClick={() => {
                   if (onExit) onExit()
@@ -253,12 +262,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={() => toggleMenu('edit')}
             onMouseEnter={() => handleMenuHover('edit')}
           >
-            Edit
+            {t('menu.edit')}
           </button>
           {activeMenu === 'edit' && (
             <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/70 rounded-md shadow-2xl z-50 min-w-44 py-1 backdrop-blur-sm">
               <MenuItem
-                label="Undo"
+                label={t('menu.undo')}
                 shortcut={`${mod}+Z`}
                 onClick={() => {
                   onUndo?.()
@@ -266,7 +275,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 }}
               />
               <MenuItem
-                label="Redo"
+                label={t('menu.redo')}
                 shortcut={`${mod}+Y`}
                 onClick={() => {
                   onRedo?.()
@@ -275,7 +284,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               />
               <MenuDivider />
               <MenuItem
-                label="Project Settings"
+                label={t('menu.project_settings')}
                 onClick={() => {
                   onOpenProjectSettings?.()
                   closeMenu()
@@ -294,41 +303,48 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={() => toggleMenu('gameobject')}
             onMouseEnter={() => handleMenuHover('gameobject')}
           >
-            GameObject
+            {t('menu.gameobject')}
           </button>
           {activeMenu === 'gameobject' && (
             <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/70 rounded-md shadow-2xl z-50 min-w-44 py-1 backdrop-blur-sm">
-              <SubMenu label="3D Object">
+              <MenuItem
+                label={t('menu.create_empty')}
+                onClick={() => {
+                  onCreate3DObject?.('Cube') // or trigger create empty
+                  closeMenu()
+                }}
+              />
+              <SubMenu label={t('menu.object_3d')}>
                 <MenuItem
-                  label="Cube"
+                  label={t('menu.cube')}
                   onClick={() => {
                     onCreate3DObject?.('Cube')
                     closeMenu()
                   }}
                 />
                 <MenuItem
-                  label="Sphere"
+                  label={t('menu.sphere')}
                   onClick={() => {
                     onCreate3DObject?.('Sphere')
                     closeMenu()
                   }}
                 />
                 <MenuItem
-                  label="Capsule"
+                  label={t('menu.capsule')}
                   onClick={() => {
                     onCreate3DObject?.('Capsule')
                     closeMenu()
                   }}
                 />
                 <MenuItem
-                  label="Cylinder"
+                  label={t('menu.cylinder')}
                   onClick={() => {
                     onCreate3DObject?.('Cylinder')
                     closeMenu()
                   }}
                 />
                 <MenuItem
-                  label="Plane"
+                  label={t('menu.plane')}
                   onClick={() => {
                     onCreate3DObject?.('Plane')
                     closeMenu()
@@ -348,11 +364,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={() => toggleMenu('window')}
             onMouseEnter={() => handleMenuHover('window')}
           >
-            Window
+            {t('menu.window')}
           </button>
           {activeMenu === 'window' && (
             <div className="absolute top-full left-0 mt-1 bg-[#16213e] border border-gray-700/70 rounded-md shadow-2xl z-50 min-w-56 py-1 backdrop-blur-sm">
-              <SubMenu label="Workspace Layout">
+              <SubMenu label={t('menu.reset_layout')}>
                 <MenuItem
                   label="Default Layout"
                   onClick={() => {
@@ -390,9 +406,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 />
               </SubMenu>
 
-              <SubMenu label="Panels & Views">
+              <SubMenu label={t('panel.split_all')}>
                 <MenuItem
-                  label="Project Panel"
+                  label={t('panel.project')}
                   active={activeBottomTab === 'project'}
                   icon={<Icons.Folder className="w-3.5 h-3.5 text-blue-400" />}
                   onClick={() => {
@@ -401,7 +417,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   }}
                 />
                 <MenuItem
-                  label="Assets Browser"
+                  label={t('panel.assets')}
                   active={activeBottomTab === 'assets'}
                   icon={<Icons.Box className="w-3.5 h-3.5 text-amber-400" />}
                   onClick={() => {
@@ -410,7 +426,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   }}
                 />
                 <MenuItem
-                  label="Console"
+                  label={t('panel.console')}
                   active={activeBottomTab === 'console'}
                   icon={<Icons.Terminal className="w-3.5 h-3.5 text-emerald-400" />}
                   onClick={() => {
@@ -419,7 +435,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   }}
                 />
                 <MenuItem
-                  label="Output Log"
+                  label={t('panel.output')}
                   active={activeBottomTab === 'output'}
                   icon={<Icons.FileCode className="w-3.5 h-3.5 text-indigo-400" />}
                   onClick={() => {
@@ -429,7 +445,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 />
                 <MenuDivider />
                 <MenuItem
-                  label="Toggle Bottom Panel"
+                  label={t('panel.split_all')}
                   shortcut={`${mod}+\``}
                   onClick={() => {
                     onToggleBottomPanel?.()
@@ -441,7 +457,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <MenuDivider />
 
               <MenuItem
-                label="Bridge"
+                label={t('panel.bridge')}
                 icon={<Icons.Bridge className="w-3.5 h-3.5 text-indigo-400" />}
                 onClick={() => {
                   onOpenBridge?.()
@@ -449,7 +465,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 }}
               />
               <MenuItem
-                label="AI Agent Panel"
+                label={t('panel.agent')}
                 icon={<Icons.Sparkles className="w-3.5 h-3.5 text-purple-400" />}
                 onClick={() => {
                   onOpenAgent?.()
@@ -458,14 +474,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               />
               <MenuDivider />
               <MenuItem
-                label="Input Actions"
+                label={t('menu.input_actions')}
                 onClick={() => {
                   onOpenInputActions?.()
                   closeMenu()
                 }}
               />
               <MenuItem
-                label="Project Settings"
+                label={t('menu.project_settings')}
                 onClick={() => {
                   onOpenProjectSettings?.()
                   closeMenu()
@@ -481,12 +497,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             onClick={onOpenAgent}
             className="mr-3 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/40 text-[11px] text-indigo-200 hover:bg-indigo-500/30 max-w-[260px]"
-            title="Buka panel AI Agent"
+            title={t('toolbar.open_agent')}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-indigo-300 animate-pulse shrink-0" />
-            <span className="truncate">Agent: {agentActivity}</span>
+            <span className="truncate">{t('toolbar.agent_status', { activity: agentActivity })}</span>
           </button>
         )}
+
+        {/* Language Selector */}
+        <div className="ml-auto mr-3 flex items-center gap-1.5">
+          <span className="text-[11px] text-gray-400">🌐</span>
+          <select
+            value={activeLocale}
+            onChange={(e) => {
+              setLocale(e.target.value as EditorLocale)
+            }}
+            className="bg-black/40 hover:bg-black/60 border border-gray-700/60 rounded px-1.5 py-0.5 text-[11px] text-gray-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+            title={t('toolbar.language_select')}
+          >
+            {EDITOR_LANGUAGES.map((lang) => (
+              <option key={lang.code} value={lang.code}>
+                {lang.nativeName}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {/* Project & Scene Title with dirty indicator */}
         <span className="text-xs text-gray-300 font-medium">
@@ -500,9 +535,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="flex items-center h-10 px-4 gap-2">
         {/* Transform Tools */}
         <div className="flex items-center gap-1 bg-black/30 rounded p-1">
-          <ToolButton icon="↔" title="Move Tool (W)" active />
-          <ToolButton icon="↻" title="Rotate Tool (E)" />
-          <ToolButton icon="⤢" title="Scale Tool (R)" />
+          <ToolButton icon="↔" title={t('toolbar.move_tool')} active />
+          <ToolButton icon="↻" title={t('toolbar.rotate_tool')} />
+          <ToolButton icon="⤢" title={t('toolbar.scale_tool')} />
         </div>
 
         <div className="flex-1" />
@@ -519,7 +554,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             title={`Play / Stop (${mod}+P)`}
           >
             <span>▶</span>
-            <span>{isPlaying ? 'Playing' : 'Play'}</span>
+            <span>{isPlaying ? t('toolbar.playing') : t('toolbar.play')}</span>
           </button>
 
           <button
@@ -532,7 +567,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 ? 'hover:bg-white/10 text-gray-200'
                 : 'opacity-40 cursor-not-allowed text-gray-500'
             }`}
-            title={`Pause (${mod}+Shift+P)`}
+            title={`${t('toolbar.pause')} (${mod}+Shift+P)`}
           >
             ⏸
           </button>
@@ -543,7 +578,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             className={`px-2.5 py-1 rounded text-xs transition-colors ${
               isPlaying ? 'hover:bg-white/10 text-gray-200' : 'opacity-40 cursor-not-allowed text-gray-500'
             }`}
-            title={`Step Frame (${mod}+Alt+P)`}
+            title={`${t('toolbar.step')} (${mod}+Alt+P)`}
           >
             ⏭
           </button>

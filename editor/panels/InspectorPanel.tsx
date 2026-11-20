@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useEditorStore } from '../store/editorStore'
+import { useI18n } from '../i18n/translations'
 import { MaterialPropertyField } from './MaterialPropertyField'
 import { ComponentRegistry, PropertySchema } from '../../engine/ecs/ComponentRegistry'
 import {
@@ -18,6 +19,7 @@ import {
 } from '../commands/prefabAndEventCommands'
 
 export const InspectorPanel: React.FC = () => {
+  const { t } = useI18n()
   const {
     world,
     selectedEntityIds,
@@ -40,7 +42,7 @@ export const InspectorPanel: React.FC = () => {
   if (entities.length === 0) {
     return (
       <div className="p-8 text-center text-gray-500 text-sm">
-        Select a GameObject to inspect
+        {t('inspector.no_selection')}
       </div>
     )
   }
@@ -233,7 +235,7 @@ export const InspectorPanel: React.FC = () => {
 
         {/* Layer Row */}
         <div className="flex items-center gap-2">
-          <span className="w-12 text-gray-400">Layer</span>
+          <span className="w-12 text-gray-400">{t('inspector.layer')}</span>
           <select
             value={primaryEntity.layer}
             onChange={(e) => handleLayerChange(Number(e.target.value))}
@@ -355,14 +357,14 @@ export const InspectorPanel: React.FC = () => {
             className="w-full py-2 bg-blue-700 hover:bg-blue-600 text-white font-medium rounded transition-colors shadow"
             onClick={() => setShowAddComponent(!showAddComponent)}
           >
-            Add Component
+            {t('inspector.add_component')}
           </button>
 
           {showAddComponent && (
             <div className="absolute bottom-full left-0 right-0 mb-1 bg-[#16213e] border border-gray-700 rounded-lg shadow-2xl z-50 p-2 max-h-72 flex flex-col">
               <input
                 type="text"
-                placeholder="Search components..."
+                placeholder={t('inspector.search_components')}
                 value={addSearchQuery}
                 onChange={(e) => setAddSearchQuery(e.target.value)}
                 autoFocus
