@@ -53,6 +53,14 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   const gridRef = useRef<THREE.GridHelper | null>(null)
   const animationFrameRef = useRef<number>(0)
   const meshEditRef = useRef<MeshEditController | null>(null)
+  const cameraTransitionRef = useRef<{
+    startTime: number
+    duration: number
+    startCamPos: THREE.Vector3
+    targetCamPos: THREE.Vector3
+    startTarget: THREE.Vector3
+    targetTarget: THREE.Vector3
+  } | null>(null)
 
   const {
     world,
@@ -76,6 +84,8 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
   const [gameStats, setGameStats] = useState<GameFrameStats | null>(null)
   const showUiPreview = useEditorStore((s) => s.uiOverlayVisible)
   const toggleUiOverlay = useEditorStore((s) => s.toggleUiOverlay)
+  const focusEntityNonce = useEditorStore((s) => s.focusEntityNonce)
+  const focusEntityId = useEditorStore((s) => s.focusEntityId)
   // Particle emitters simulate only when selected, unless VFX preview is on (saves CPU on idle scenes)
   const [previewVfx, setPreviewVfx] = useState(false)
   const previewVfxRef = useRef(previewVfx)
@@ -87,6 +97,103 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
 
   // Transform controls attaching to selected entity
   const primarySelectedId = selectedEntityIds[0] || selectedObjectId || null
+
+  const focusSelectedObject = useCallback(
+    (targetEntityId?: string) => {
+      const camera = cameraRef.current
+      const orbitControls = orbitControlsRef.current
+      const container = containerRef.current
+      if (!camera || !orbitControls || !container) return
+
+      const editorState = useEditorStore.getState()
+      const targetId = targetEntityId || primarySelectedId || editorState.selectedEntityIds[0]
+      if (!targetId) return
+
+      const targetIds = targetEntityId ? [targetEntityId] : editorState.selectedEntityIds.length > 0 ? editorState.selectedEntityIds : [targetId]
+
+      const box = new THREE.Box3()
+      for (const id of targetIds) {
+        const obj = bridge.getObject(id)
+        if (obj) {
+          const objBox = new THREE.Box3().setFromObject(obj)
+          if (!objBox.isEmpty()) {
+            box.union(objBox)
+          } else {
+            const worldPos = new THREE.Vector3()
+            obj.getWorldPosition(worldPos)
+            box.expandByPoint(worldPos)
+          }
+        } else {
+          const ent = world.getEntity(id)
+          if (ent) {
+            const t = ent.getTransform()
+            box.expandByPoint(new THREE.Vector3(t.position.x, t.position.y, t.position.z))
+          }
+        }
+      }
+
+      if (box.isEmpty()) {
+        box.setFromCenterAndSize(new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 1, 1))
+      }
+
+      const center = new THREE.Vector3()
+      box.getCenter(center)
+      const size = new THREE.Vector3()
+      box.getSize(size)
+      const maxDim = Math.max(size.x, size.y, size.z, 0.5)
+
+      if (camera instanceof THREE.PerspectiveCamera) {
+        const fov = (camera.fov * Math.PI) / 180
+        let distance = (maxDim / 2) / Math.tan(fov / 2)
+        distance = Math.max(distance * 1.5, 2.0)
+
+        const dir = camera.position.clone().sub(orbitControls.target)
+        if (dir.lengthSq() < 0.001) {
+          dir.set(1, 0.8, 1)
+        }
+        dir.normalize()
+
+        const targetCamPos = center.clone().add(dir.multiplyScalar(distance))
+        const targetTarget = center.clone()
+
+        cameraTransitionRef.current = {
+          startTime: performance.now(),
+          duration: 250,
+          startCamPos: camera.position.clone(),
+          targetCamPos,
+          startTarget: orbitControls.target.clone(),
+          targetTarget,
+        }
+      } else if (camera instanceof THREE.OrthographicCamera) {
+        const targetCamPos = new THREE.Vector3(center.x, center.y, camera.position.z)
+        const targetTarget = new THREE.Vector3(center.x, center.y, 0)
+
+        const aspect = container.clientWidth / container.clientHeight
+        const frustumSize = Math.max(maxDim * 1.5, 5)
+        camera.left = (frustumSize * aspect) / -2
+        camera.right = (frustumSize * aspect) / 2
+        camera.top = frustumSize / 2
+        camera.bottom = frustumSize / -2
+        camera.updateProjectionMatrix()
+
+        cameraTransitionRef.current = {
+          startTime: performance.now(),
+          duration: 250,
+          startCamPos: camera.position.clone(),
+          targetCamPos,
+          startTarget: orbitControls.target.clone(),
+          targetTarget,
+        }
+      }
+    },
+    [bridge, world, primarySelectedId]
+  )
+
+  useEffect(() => {
+    if (focusEntityNonce > 0) {
+      focusSelectedObject(focusEntityId || undefined)
+    }
+  }, [focusEntityNonce, focusEntityId, focusSelectedObject])
 
   useEffect(() => {
     const transformControls = transformControlsRef.current
@@ -235,6 +342,9 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
     orbitControls.dampingFactor = 0.05
     orbitControls.screenSpacePanning = true
     orbitControlsRef.current = orbitControls
+    orbitControls.addEventListener('start', () => {
+      cameraTransitionRef.current = null
+    })
 
     const transformControls = new TransformControls(camera, canvas)
     transformControls.setMode(transformMode)
@@ -406,6 +516,12 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       if (e.key.toLowerCase() === 'w') setTransformMode('translate')
       else if (e.key.toLowerCase() === 'e') setTransformMode('rotate')
       else if (e.key.toLowerCase() === 'r') setTransformMode('scale')
+      else if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !e.repeat) {
+        if (!useEditorStore.getState().meshEdit) {
+          e.preventDefault()
+          focusSelectedObject()
+        }
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
 
@@ -427,6 +543,23 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
       // Legacy in-editor play: step the simulation here
       if (editorState.playState === 'playing') {
         stepPlay()
+      }
+
+      if (cameraTransitionRef.current) {
+        const tr = cameraTransitionRef.current
+        const elapsed = time - tr.startTime
+        const t = Math.min(Math.max(elapsed / tr.duration, 0), 1)
+        const ease = 1 - Math.pow(1 - t, 3)
+
+        if (cameraRef.current) {
+          cameraRef.current.position.lerpVectors(tr.startCamPos, tr.targetCamPos, ease)
+        }
+        orbitControls.target.lerpVectors(tr.startTarget, tr.targetTarget, ease)
+
+        if (t >= 1) {
+          orbitControls.target.copy(tr.targetTarget)
+          cameraTransitionRef.current = null
+        }
       }
 
       orbitControls.update()
@@ -550,6 +683,14 @@ export const SceneViewport: React.FC<SceneViewportProps> = ({
             {label} ({key})
           </button>
         ))}
+
+        <button
+          className="px-2 py-1 rounded text-xs text-gray-300 hover:bg-white/10 transition-colors"
+          onClick={() => focusSelectedObject()}
+          title="Fokus / Zoom ke objek terpilih (F)"
+        >
+          Focus (F)
+        </button>
 
         <div className="w-px h-4 bg-gray-700/60" />
 
