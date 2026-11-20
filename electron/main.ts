@@ -27,6 +27,7 @@ import { isFactoryModuleRequest, resolveFactoryModule, setFactoryCacheRoot } fro
 import { setImg2RuntimeRoot } from './agent/img2threejs'
 import { saveReferenceImage } from './agent/referenceImages'
 import { normalizeCursorSettings } from '../shared/cursorSettings'
+import { ProcessRegistry } from './utils/processRegistry'
 
 // Check if in development mode
 const isDev = !app.isPackaged
@@ -225,6 +226,7 @@ async function runCliExport(presetName: string, projectDir: string): Promise<voi
       console.log(`[Linden CLI] Invoking Godot headless build: ${execPath}`)
       const args = ['--headless', '--path', projectDir, '--export-release', preset.name, outPath]
       const child = spawn(execPath, args)
+      ProcessRegistry.getInstance().registerProcess(child, 'godot-cli-export')
       child.stdout.on('data', (d) => process.stdout.write(d))
       child.stderr.on('data', (d) => process.stderr.write(d))
       child.on('close', (code) => {
@@ -332,9 +334,7 @@ function createWindow(): BrowserWindow {
 
 app.on('window-all-closed', () => {
   stopAllPlaySessions()
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  app.quit()
 })
 
 app.on('activate', () => {
@@ -1031,6 +1031,7 @@ handle('export:run', async (_event, opts: { preset: any; projectPath: string }) 
     const args = ['--headless', '--path', projectPath, '--export-release', preset.name, fullOutputPath]
     return new Promise((resolve) => {
       const child = spawn(execPath, args)
+      const unregister = ProcessRegistry.getInstance().registerProcess(child, 'godot-headless-export')
       child.stdout.on('data', (d) => {
         const lines = d.toString().split('\n')
         for (const l of lines) if (l.trim()) logEmit(l)
@@ -1139,6 +1140,7 @@ handle(
 
     return new Promise((resolve) => {
       const child = spawn(execPath, args)
+      const unregister = ProcessRegistry.getInstance().registerProcess(child, 'godot-headless-build')
       child.stdout.on('data', (chunk: any) => {
         const lines = chunk.toString().split('\n')
         for (const line of lines) {
@@ -1215,6 +1217,7 @@ handle('export:web:run', async (_event, options: any) => {
 handle('export:web:serve', async (_event, { buildDir }: { buildDir: string }) => {
   const server = await WebBuildRunner.serveLocal(buildDir)
   activeWebServers.push(server)
+  ProcessRegistry.getInstance().registerServer(server, 'preview-web-server')
   await shell.openExternal(server.url)
   return server.url
 })
@@ -1325,9 +1328,18 @@ handle('agent:turn:snapshot', async (_event, sessionId: string) => {
   return AgentHost.getInstance().getTurnSnapshot(sessionId)
 })
 
-handle('agent:permission:reply', async (_event, { requestId, allow }: any) => {
-  await AgentHost.getInstance().replyPermission(requestId, allow)
+handle('agent:permission:reply', async (_event, { requestId, allow, sessionId }: any) => {
+  await AgentHost.getInstance().replyPermission(requestId, allow, sessionId)
   return { success: true }
+})
+
+handle('agent:auto-approve:set', async (_event, enabled: boolean) => {
+  await AgentHost.getInstance().setAutoApprove(Boolean(enabled))
+  return { success: true }
+})
+
+handle('agent:auto-approve:get', async () => {
+  return AgentHost.getInstance().getAutoApprove()
 })
 
 handle('agent:diff:apply', async (_event, diffId: string) => {
@@ -1342,13 +1354,40 @@ handle('agent:templates', async () => {
   return AgentHost.getInstance().getTemplates()
 })
 
-app.on('before-quit', async () => {
-  for (const s of activeWebServers) {
-    try {
-      s.close()
-    } catch (_) {}
+let isQuitting = false
+
+app.on('before-quit', async (event) => {
+  if (isQuitting) return
+  event.preventDefault()
+  isQuitting = true
+
+  try {
+    for (const s of activeWebServers) {
+      try {
+        s.close()
+      } catch (_) {}
+    }
+    await AgentHost.getInstance().stopServer().catch(() => {})
+    await ProcessRegistry.getInstance().terminateAll(1200)
+  } catch (err) {
+    console.warn('[App Shutdown] Error saat membersihkan background processes:', err)
+  } finally {
+    app.quit()
   }
-  await AgentHost.getInstance().stopServer()
+})
+
+app.on('will-quit', () => {
+  ProcessRegistry.getInstance().forceKillRemainingSync()
+})
+
+;['SIGINT', 'SIGTERM', 'SIGHUP'].forEach((signal) => {
+  process.on(signal as NodeJS.Signals, async () => {
+    try {
+      await ProcessRegistry.getInstance().terminateAll(800)
+    } finally {
+      process.exit(0)
+    }
+  })
 })
 
 // Development helpers

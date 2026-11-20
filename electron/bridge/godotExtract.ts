@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process'
 import { resolveGodotExecutable } from './godotExec'
 import { TscnParser, tscnDocumentToSceneIR } from '../../engine/godot/tscn/TscnParser'
 import type { GodotSceneIR, ImportProgressEvent } from '../../shared/godotBridgeTypes'
+import { ProcessRegistry } from '../utils/processRegistry'
 
 function getExtractScriptPath(): string {
   const devPath = path.join(process.cwd(), 'resources', 'bridge', 'linden_extract.gd')
@@ -59,6 +60,7 @@ function runProcessAsync(
       cwd,
       env: { ...process.env, GODOT_HEADLESS: '1' },
     })
+    const unregister = ProcessRegistry.getInstance().registerProcess(proc, 'godot-extract')
 
     const timer = setTimeout(() => {
       killed = true
@@ -87,6 +89,7 @@ function runProcessAsync(
     })
 
     proc.on('close', (code) => {
+      unregister()
       clearTimeout(timer)
       if (!killed) {
         resolve({ code: code ?? 0, stdout, stderr })
