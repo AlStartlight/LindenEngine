@@ -1,0 +1,293 @@
+{
+  "format": "linden-scene",
+  "version": 2,
+  "name": "Photoreal Studio",
+  "settings": {
+    "ambientColor": "#7d8798",
+    "ambientIntensity": 0.1,
+    "skybox": "#101216",
+    "environment": "room",
+    "environmentIntensity": 0.55,
+    "backgroundBlurriness": 0,
+    "toneMapping": "agx",
+    "exposure": 0.92,
+    "colorGrade": {
+      "enabled": true,
+      "contrast": 1.16,
+      "saturation": 1.1,
+      "temperature": 0.045,
+      "tint": 0.01,
+      "lift": 0,
+      "gamma": 1,
+      "gain": 1,
+      "vignette": 0.28
+    },
+    "fog": {
+      "enabled": false,
+      "color": "#c8d2dc",
+      "type": "exp2",
+      "near": 10,
+      "far": 120,
+      "density": 0.015
+    },
+    "shadowQuality": "high",
+    "sun": {
+      "enabled": true,
+      "color": "#fff2df",
+      "intensity": 3.2,
+      "direction": [
+        -0.55,
+        0.95,
+        -0.6
+      ]
+    },
+    "postFx": {
+      "enabled": true,
+      "ao": true,
+      "aoIntensity": 0.9,
+      "bloom": true,
+      "bloomStrength": 0.18,
+      "bloomThreshold": 1.4,
+      "bloomRadius": 0.35,
+      "antialias": "smaa"
+    }
+  },
+  "entities": [
+    {
+      "id": "studio_floor",
+      "name": "Studio Floor",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": true,
+      "tags": [],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "parts": [
+              {
+                "id": "floor",
+                "name": "Studio Sweep",
+                "shape": {
+                  "type": "plane",
+                  "size": [
+                    14,
+                    14
+                  ]
+                },
+                "material": {
+                  "color": "#34353b",
+                  "roughness": 0.52,
+                  "metalness": 0.05
+                }
+              }
+            ],
+            "placement": "floor",
+            "merge": true,
+            "collider": "none"
+          }
+        }
+      ]
+    },
+    {
+      "id": "photoreal_vase",
+      "name": "Photoreal Vase",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": true,
+      "tags": [
+        "hero",
+        "blender",
+        "photoreal"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "src": "assets/models/photoreal_vase.glb",
+            "parts": [],
+            "placement": "floor",
+            "merge": true,
+            "collider": "box",
+            "bounds": [
+              [
+                -0.1465,
+                0,
+                -0.1465
+              ],
+              [
+                0.1467,
+                0.3505,
+                0.1464
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0.82,
+              0.6,
+              1.28
+            ],
+            "rotation": [
+              -12,
+              33,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Camera",
+          "data": {
+            "fov": 38,
+            "near": 0.05,
+            "far": 100,
+            "isActive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "rim_light",
+      "name": "Rim Light",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              -0.95,
+              1.05,
+              -0.85
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Light",
+          "data": {
+            "type": "point",
+            "color": "#ffd9b0",
+            "intensity": 5,
+            "range": 3.5,
+            "castShadow": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "fill_light",
+      "name": "Fill Light",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              1.15,
+              0.75,
+              0.9
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Light",
+          "data": {
+            "type": "point",
+            "color": "#c3d6ff",
+            "intensity": 2.2,
+            "range": 3.5,
+            "castShadow": false
+          }
+        }
+      ]
+    }
+  ]
+}

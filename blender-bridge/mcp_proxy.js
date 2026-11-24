@@ -11,7 +11,8 @@ const path = require('path')
 
 const BLENDER_PORT = 9876
 const BLENDER_HOST = '127.0.0.1'
-const PROBE_TIMEOUT_MS = 400
+// Blender's MCP add-on can take a moment to accept the first connection
+const PROBE_TIMEOUT_MS = 1500
 
 const blenderBin = process.argv[2] || 'blender'
 const mcpServerScript = path.join(__dirname, 'mcp_server.py')
@@ -45,6 +46,7 @@ const timer = setTimeout(() => {
   }
 }, PROBE_TIMEOUT_MS)
 
+socket.setNoDelay(true)
 socket.connect(BLENDER_PORT, BLENDER_HOST, () => {
   connected = true
   clearTimeout(timer)

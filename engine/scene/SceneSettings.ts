@@ -23,6 +23,24 @@ export const PostFxSchema = z.object({
   antialias: z.enum(['none', 'fxaa', 'smaa']).default('smaa'),
 })
 
+/**
+ * Display-referred color grading applied after tone mapping (same math as the Blender preview
+ * grade in blender-bridge/runner.py, so an asset previewed in Blender looks the same in-engine).
+ */
+export const ColorGradeSchema = z.object({
+  enabled: z.boolean().default(false),
+  contrast: z.number().min(0).max(4).default(1),
+  saturation: z.number().min(0).max(4).default(1),
+  /** -1 cool .. +1 warm */
+  temperature: z.number().min(-1).max(1).default(0),
+  /** -1 green .. +1 magenta */
+  tint: z.number().min(-1).max(1).default(0),
+  lift: z.number().min(-0.5).max(0.5).default(0),
+  gamma: z.number().min(0.1).max(4).default(1),
+  gain: z.number().min(0).max(4).default(1),
+  vignette: z.number().min(0).max(1).default(0),
+})
+
 export const FogSchema = z.object({
   enabled: z.boolean().default(false),
   color: HexColor.default('#c8d2dc'),
@@ -49,6 +67,7 @@ export const SceneSettingsSchema = z
     backgroundBlurriness: z.number().min(0).max(1).default(0),
     toneMapping: ToneMappingKind.default('agx'),
     exposure: z.number().min(0.01).max(10).default(1),
+    colorGrade: ColorGradeSchema.default(ColorGradeSchema.parse({})),
     fog: FogSchema.default(FogSchema.parse({})),
     shadowQuality: ShadowQuality.default('medium'),
     /** Default sun used when the scene has no directional Light */
@@ -66,6 +85,7 @@ export const SceneSettingsSchema = z
   .passthrough()
 
 export type SceneSettings = z.infer<typeof SceneSettingsSchema>
+export type ColorGrade = z.infer<typeof ColorGradeSchema>
 export type ToneMappingKindType = z.infer<typeof ToneMappingKind>
 export type ShadowQualityType = z.infer<typeof ShadowQuality>
 export type QualityProfileType = z.infer<typeof QualityProfile>

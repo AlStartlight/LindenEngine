@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, protocol, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, shell } from 'electron'
 import type { IpcInvokeChannel } from '../shared/ipcChannels'
 import { basename, dirname, join, resolve as resolvePath } from 'path'
 import { stat, readFile, writeFile, mkdir } from 'fs/promises'
@@ -10,6 +10,8 @@ import { runGodotImportJob, cancelImportJob } from './bridge/importRunner'
 import { importSingleGodotScene } from './bridge/sceneImport'
 import { syncServerInstance } from './bridge/syncServer'
 import { AgentHost } from './agent/AgentHost'
+import { AgentBridgeService } from './agent/AgentBridgeService'
+import { LINDEN_AGENT_ROLES } from './agent/lindenRoles'
 import { detectBlender, getBlenderStatus, setBlenderPath } from './bridge/blenderDetect'
 import type { AgentPromptOptions } from '../shared/agentTypes'
 import { LINDEN_TOOLS, setPreviewRenderer, setFactoryProbe } from './agent/lindenTools'
@@ -298,6 +300,12 @@ if (exportArgIdx !== -1) {
     AgentHost.getInstance().setProjectsRoot(join(app.getPath('documents'), 'Linden Projects'))
     AgentHost.getInstance().setEventSender((ev) => {
       mainWindow?.webContents.send('agent:event', ev)
+    })
+    // Agent Bridge: the MCP server other runtimes (DeepSeek Harness, custom agents)
+    // attach to. Diffs and permission prompts still flow through the editor.
+    AgentBridgeService.getInstance().setHandlers({
+      onDiff: (diff, ctx) => AgentHost.getInstance().ingestExternalDiff(diff, ctx),
+      requestPermission: (req) => AgentHost.getInstance().requestToolPermission(req),
     })
   })
 }
@@ -713,6 +721,9 @@ handle('project:create', async (_event, opts: { name: string; location: string; 
     setupMenu()
 
     setAssetRoot(targetDir)
+    void AgentBridgeService.getInstance()
+      .start(targetDir)
+      .catch((e) => console.warn('[AgentBridge] Gagal memulai:', e?.message ?? e))
     return {
       status: 'ok',
       projectPath: targetDir,
@@ -805,6 +816,9 @@ handle('project:open', async (_event, opts?: { projectPath?: string }) => {
     setupMenu()
 
     setAssetRoot(dirPath)
+    void AgentBridgeService.getInstance()
+      .start(dirPath)
+      .catch((e) => console.warn('[AgentBridge] Gagal memulai:', e?.message ?? e))
     return {
       status: 'ok',
       projectPath: dirPath,
@@ -1247,6 +1261,72 @@ handle('play:readUiFragment', async (_event, opts: { projectPath: string; src: s
   }
 })
 
+// Agent Bridge: discovery + scoped MCP tokens other agent runtimes attach to
+function bridgePanelState() {
+  const service = AgentBridgeService.getInstance()
+  return {
+    status: service.getStatus(),
+    manifest: service.getManifestSummary(),
+    roles: LINDEN_AGENT_ROLES.map((role) => ({
+      id: role.id,
+      name: role.name,
+      order: role.order,
+      tools: role.tools.length,
+      writes: role.writes,
+    })),
+  }
+}
+
+handle('agent:bridge:status', async () => bridgePanelState())
+
+handle('agent:bridge:restart', async () => {
+  await AgentBridgeService.getInstance().restart()
+  return bridgePanelState()
+})
+
+handle('agent:bridge:copy-config', async (_event, opts?: { roleId?: string; format?: 'dsh' | 'json' }) => {
+  const service = AgentBridgeService.getInstance()
+  const manifest = service.getManifestSummary()
+  if (!manifest) return { ok: false, error: 'Agent Bridge belum berjalan: buka proyek Linden dulu.' }
+  const requestedRole = opts?.roleId
+  const roleId =
+    requestedRole && (requestedRole === 'director' || LINDEN_AGENT_ROLES.some((role) => role.id === requestedRole))
+      ? requestedRole
+      : LINDEN_AGENT_ROLES[0].id
+  const token = roleId === 'director' ? service.token : service.roleToken(roleId)
+  if (!token) return { ok: false, error: `Token untuk role ${roleId} tidak tersedia` }
+
+  const text =
+    opts?.format === 'json'
+      ? JSON.stringify(
+          {
+            mcpServers: {
+              [`linden-${roleId}`]: {
+                type: 'streamable-http',
+                url: manifest.endpoint,
+                headers: { Authorization: `Bearer ${token}` },
+              },
+            },
+          },
+          null,
+          2
+        )
+      : [
+          '- id: linden-mcp',
+          "  name: '@deepseek-ai/dsh-mcp-client'",
+          '  config:',
+          '    serverName: linden',
+          '    transport: streamable-http',
+          `    url: ${manifest.endpoint}`,
+          '    headers:',
+          `      Authorization: 'Bearer ${token}'`,
+        ].join('\n')
+
+  // The token never crosses IPC: it goes straight to the clipboard
+  clipboard.writeText(`${text}\n`)
+  return { ok: true, roleId, format: opts?.format ?? 'dsh' }
+})
+
 // OpenCode AI Agent Handlers
 handle('agent:status', async () => {
   return AgentHost.getInstance().getStatus()
@@ -1368,6 +1448,7 @@ app.on('before-quit', async (event) => {
       } catch (_) {}
     }
     await AgentHost.getInstance().stopServer().catch(() => {})
+    AgentBridgeService.getInstance().stop()
     await ProcessRegistry.getInstance().terminateAll(1200)
   } catch (err) {
     console.warn('[App Shutdown] Error saat membersihkan background processes:', err)

@@ -1,0 +1,27 @@
+{
+  "name": "@linden/dsh-linden-agents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Five Linden Engine specialist agents for DeepSeek Harness, connected to the engine through the linden MCP server.",
+  "license": "GPL-3.0-or-later",
+  "exports": {
+    "./bridge": "./bin/linden-agent-bridge.mjs",
+    "./catalog": "./agents.json",
+    "./patch": "./cordis.patch.yml"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "agents.json",
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

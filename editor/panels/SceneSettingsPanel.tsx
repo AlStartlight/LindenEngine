@@ -188,6 +188,43 @@ export const SceneSettingsPanel: React.FC = () => {
           </select>
         </Row>
       </Section>
+
+      <Section title="Color Grading">
+        <Row label="Enabled" title="Grade CDL setelah tone mapping; sama dengan grade preview Blender">
+          <input type="checkbox" checked={s.colorGrade.enabled} onChange={(e) => set({ colorGrade: { ...s.colorGrade, enabled: e.target.checked } })} />
+          <button
+            type="button"
+            className="ml-auto px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300"
+            onClick={() => set({ colorGrade: { ...s.colorGrade, contrast: 1, saturation: 1, temperature: 0, tint: 0, lift: 0, gamma: 1, gain: 1, vignette: 0 } })}
+          >
+            Reset
+          </button>
+        </Row>
+        <Row label="Contrast">
+          <Slider value={s.colorGrade.contrast} min={0} max={2} step={0.01} onChange={(v) => set({ colorGrade: { ...s.colorGrade, contrast: v } }, 'scene:gradeContrast')} />
+        </Row>
+        <Row label="Saturation">
+          <Slider value={s.colorGrade.saturation} min={0} max={2} step={0.01} onChange={(v) => set({ colorGrade: { ...s.colorGrade, saturation: v } }, 'scene:gradeSaturation')} />
+        </Row>
+        <Row label="Temperature" title="-1 dingin .. +1 hangat">
+          <Slider value={s.colorGrade.temperature} min={-1} max={1} step={0.01} onChange={(v) => set({ colorGrade: { ...s.colorGrade, temperature: v } }, 'scene:gradeTemperature')} />
+        </Row>
+        <Row label="Tint" title="-1 hijau .. +1 magenta">
+          <Slider value={s.colorGrade.tint} min={-1} max={1} step={0.01} onChange={(v) => set({ colorGrade: { ...s.colorGrade, tint: v } }, 'scene:gradeTint')} />
+        </Row>
+        <Row label="Lift">
+          <Slider value={s.colorGrade.lift} min={-0.25} max={0.25} step={0.005} onChange={(v) => set({ colorGrade: { ...s.colorGrade, lift: v } }, 'scene:gradeLift')} />
+        </Row>
+        <Row label="Gamma">
+          <Slider value={s.colorGrade.gamma} min={0.2} max={3} step={0.01} onChange={(v) => set({ colorGrade: { ...s.colorGrade, gamma: v } }, 'scene:gradeGamma')} />
+        </Row>
+        <Row label="Gain">
+          <Slider value={s.colorGrade.gain} min={0.2} max={3} step={0.01} onChange={(v) => set({ colorGrade: { ...s.colorGrade, gain: v } }, 'scene:gradeGain')} />
+        </Row>
+        <Row label="Vignette">
+          <Slider value={s.colorGrade.vignette} min={0} max={1} step={0.01} onChange={(v) => set({ colorGrade: { ...s.colorGrade, vignette: v } }, 'scene:gradeVignette')} />
+        </Row>
+      </Section>
     </div>
   )
 }

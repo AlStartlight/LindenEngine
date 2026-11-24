@@ -50,6 +50,32 @@ export type GameSpec = z.infer<typeof GameSpecSchema>
 
 export type AgentMode = 'plan' | 'build' | 'review'
 
+export interface AgentBridgeClient {
+  /** Bridge client id, e.g. "opencode" or a role id */
+  id: string
+  role: string
+  /** Bare MCP tool names; null = every tool */
+  scope: string[] | null
+}
+
+export interface AgentBridgeLock {
+  key: string
+  clientId: string
+  role: string
+  expiresAt: number
+}
+
+/** Agent Bridge state exposed to the editor (never contains tokens) */
+export interface AgentBridgeStatus {
+  running: boolean
+  projectPath: string | null
+  endpoint: string | null
+  manifestPath: string | null
+  protocolVersion: string
+  clients: AgentBridgeClient[]
+  locks: AgentBridgeLock[]
+}
+
 export interface AgentStatus {
   installed: boolean
   version: string | null
@@ -61,6 +87,8 @@ export interface AgentStatus {
   activeProvider: string | null
   error?: string | null
   autoApprove?: boolean
+  /** Local MCP endpoint other agent runtimes can attach to (Agent Bridge) */
+  bridge?: AgentBridgeStatus | null
 }
 
 export interface AgentProviderModel {
@@ -152,6 +180,10 @@ export interface AgentDiffItem {
   /** Tool call (AgentPart id) that produced this change, when known */
   toolPartId?: string
   turnId?: string
+  /** Agent Bridge attribution: which runtime/role/session wrote the file */
+  clientId?: string
+  role?: string
+  sessionId?: string
 }
 
 export interface AgentPermissionFile {

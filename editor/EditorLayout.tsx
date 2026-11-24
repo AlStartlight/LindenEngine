@@ -77,6 +77,34 @@ export const EditorLayout: React.FC = () => {
   const [bottomTab, setBottomTab] = useState<'project' | 'assets' | 'console' | 'output' | 'all' | 'hidden'>('all')
   const [bottomHeightPreset, setBottomHeightPreset] = useState<'compact' | 'normal' | 'expanded' | 'maximized'>('normal')
   const [rightTab, setRightTab] = useState<'inspector' | 'scene' | 'agent'>('inspector')
+  // Right sidebar width: user-resizable and persisted (IDE convention)
+  const RIGHT_PANEL_DEFAULT = 352
+  const [rightWidth, setRightWidth] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem('linden:rightPanelWidth'))
+      if (Number.isFinite(saved) && saved >= 300 && saved <= 640) return saved
+    } catch {}
+    return RIGHT_PANEL_DEFAULT
+  })
+  const rightWidthRef = useRef(rightWidth)
+  rightWidthRef.current = rightWidth
+  const startRightResize = useCallback((event: React.MouseEvent) => {
+    event.preventDefault()
+    const onMove = (e: MouseEvent) => setRightWidth(Math.max(300, Math.min(640, window.innerWidth - e.clientX)))
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.classList.remove('select-none')
+      try {
+        localStorage.setItem('linden:rightPanelWidth', String(rightWidthRef.current))
+      } catch {}
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.classList.add('select-none')
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
   const isAgentGenerating = useAgentStore((s) => s.isGenerating)
   const agentDiffs = useAgentStore((s) => s.pendingDiffs)
   const agentPendingDiffs = agentDiffs.filter((d) => d.status !== 'rejected')
@@ -816,6 +844,7 @@ export const EditorLayout: React.FC = () => {
           onOpenProjectSettings={() => setActiveWindow('projectSettings')}
           onOpenAgent={() => setRightTab('agent')}
           agentActivity={agentActivity ? phaseLabel(agentActivity) : undefined}
+          agentPendingDiffs={agentPendingDiffs.length}
           onCreate3DObject={handleCreate3DObject}
           activeBottomTab={bottomTab}
           onSelectBottomTab={(tab) => setBottomTab(tab)}
@@ -1071,7 +1100,24 @@ export const EditorLayout: React.FC = () => {
         </div>
 
         {/* Right Panel - Inspector / AI Agent */}
-        <div className="w-[22rem] shrink-0 min-w-0 border-l border-gray-700/50 bg-[#16213e] flex flex-col">
+        <div
+          style={{ width: rightWidth }}
+          className="relative shrink-0 min-w-0 border-l border-gray-700/50 bg-[#16213e] flex flex-col"
+        >
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('panel.resize_hint')}
+            title={t('panel.resize_hint')}
+            onMouseDown={startRightResize}
+            onDoubleClick={() => {
+              setRightWidth(RIGHT_PANEL_DEFAULT)
+              try {
+                localStorage.setItem('linden:rightPanelWidth', String(RIGHT_PANEL_DEFAULT))
+              } catch {}
+            }}
+            className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize transition-colors hover:bg-blue-500/30"
+          />
           <div className="flex border-b border-gray-700/50 bg-[#0f3460]">
             <button
               onClick={() => setRightTab('inspector')}

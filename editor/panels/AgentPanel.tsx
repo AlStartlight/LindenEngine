@@ -7,6 +7,7 @@ import { useEditorStore } from '../store/editorStore'
 import { Icons } from '../ui/Icons'
 import { useI18n } from '../i18n/translations'
 import { PromptTemplate } from '../../shared/agentTypes'
+import { BridgeModal } from '../agent/BridgeModal'
 import type { BlenderStatus } from '../../shared/blenderTypes'
 import { getStorage, setStorage } from '../project/projectIO'
 
@@ -64,6 +65,7 @@ export const AgentPanel: React.FC = () => {
     if (blenderKey) setStorage(blenderKey, on ? '1' : '0')
   }
   const [showTemplatesModal, setShowTemplatesModal] = useState(false)
+  const [showBridgeModal, setShowBridgeModal] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   // Follow new output only while the user is at the bottom; scrolling up pauses it
   const [stickToBottom, setStickToBottom] = useState(true)
@@ -393,12 +395,22 @@ export const AgentPanel: React.FC = () => {
           </div>
         )}
 
-        <button
-          onClick={() => setShowTemplatesModal(true)}
-          className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center space-x-1"
-        >
-          <span>Template</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowBridgeModal(true)}
+            className="flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
+            title={status?.bridge?.endpoint ?? t('agent.bridge.subtitle')}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${status?.bridge?.running ? 'bg-emerald-400' : 'bg-gray-500'}`} />
+            <span>{t('agent.bridge.button')}</span>
+          </button>
+          <button
+            onClick={() => setShowTemplatesModal(true)}
+            className="rounded-md px-2 py-1 text-[11px] text-blue-400 transition-colors hover:bg-blue-500/10 hover:text-blue-300"
+          >
+            Template
+          </button>
+        </div>
       </div>
 
       {/* Auto Approve Automation Bar */}
@@ -526,6 +538,8 @@ export const AgentPanel: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {showBridgeModal && <BridgeModal onClose={() => setShowBridgeModal(false)} />}
 
       {/* Prompt Templates Modal */}
       {showTemplatesModal && (
