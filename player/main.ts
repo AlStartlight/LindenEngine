@@ -72,6 +72,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     onStarted: embedded ? () => postToEditor({ type: 'linden:started' }) : undefined,
   })
 
+  // Automation hook: the Playwright harness sets window.__LINDEN_DEBUG__ before the frame starts.
+  // It exposes the live ECS world/SceneBridge so tests can assert animation and movement state.
+  if ((window as any).__LINDEN_DEBUG__) (window as any).__lindenPlayer = player
+
   if (embedded) {
     onEditorMessage((msg) => {
       if (msg.type === 'linden:pause') player.pause()
