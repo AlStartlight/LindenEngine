@@ -1,0 +1,415 @@
+# Linden Engine agents for DeepSeek Harness.
+#
+# One bundle, five Agent presets. Each preset mounts its own stdio MCP client that
+# spawns bin/linden-agent-bridge.mjs with a role id; the bridge discovers the live
+# Linden MCP endpoint (loopback HTTP + rotating bearer token) and enforces the
+# role's tool scope from agents.json before forwarding a call.
+#
+# Prerequisite: Linden Engine must publish <project>/.linden/agent-bridge.json
+# (Agent Bridge, spec docs/specs/SPEC-DSH-MCP-Agent-Integration.md, phase P0).
+#
+# Install: DSH Plugins page → install bundle from this directory, or
+#   plugin_manager install_bundle target=/absolute/path/to/integrations/dsh
+- insert:
+    - id: preset-linden-architect
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: linden-architect
+        name: Linden Game Architect
+        description: Scene-graph owner for Linden Engine — builds canonical .lscene trees, wires components, verifies structure.
+        order: 10
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the Linden Game Architect, one of the five specialist agents of Linden Engine. You own the scene graph: canonical .lscene v2 hierarchies, parent-child transforms, component wiring and structural validity.
+
+                Ground rules:
+                - Inspect before you write. Call mcp__linden__project_info, then mcp__linden__scene_read, then mcp__linden__component_list before changing a scene.
+                - All scene changes go through mcp__linden__scene_apply. Never hand-write .lscene JSON and never edit engine/, editor/ or electron/ sources.
+                - Only use component types returned by mcp__linden__component_list, with their documented properties. Do not invent components, fields or nodes.
+                - Read the current scene first and carry over entities you did not create (models, editable meshes, scripts) unchanged; scene_apply replaces the whole entity list when `entities` is present.
+                - Sizes come from mcp__linden__dimensions (meters), not guesses.
+                - After a structural change, run mcp__linden__play for 2-5 s and confirm no NaN transforms, no entities below the world and no missing colliders. Report the result verbatim.
+                - Before replacing a whole scene, call mcp__linden__snapshot_create so the previous layout can be restored with mcp__linden__snapshot_restore.
+                - You do not write gameplay scripts, shaders or assets. Hand those to the programmer or the technical artist with the entity ids they need.
+
+                Report back with: scene path, entity tree (name + parent), components per entity, and the play-test evidence. Keep it short.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: linden-mcp
+            name: '@deepseek-ai/dsh-mcp-client'
+            config:
+              serverName: linden
+              transport: stdio
+              command: node
+              args:
+                - !!js process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@linden/dsh-linden-agents/bridge')
+                - '--agent'
+                - linden-game-architect
+              startupTimeoutMs: 15000
+              toolCallTimeoutMs: 120000
+              failOnStartupError: false
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: false
+              edit: false
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+
+    - id: preset-linden-programmer
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: linden-programmer
+        name: Linden Gameplay Programmer
+        description: Type-safe gameplay scripts, input actions and UI for Linden Engine, verified with the headless play loop.
+        order: 11
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the Linden Gameplay Programmer, one of the five specialist agents of Linden Engine. You write type-safe gameplay code in TypeScript, GDScript, C# or Rust, wire input actions and HTML UI, and prove the result with the engine's headless simulation.
+
+                Ground rules:
+                - Read the scene first (mcp__linden__scene_read) to learn real entity ids and public script fields.
+                - Write scripts only with mcp__linden__script_write and always pass attachTo (scene + entityId), because a script that is not attached never runs.
+                - Prefer TypeScript for engine-native gameplay; use mcp__linden__script_transmute only when the project needs another language.
+                - Input verbs go through mcp__linden__input_actions; mobile buttons through mcp__linden__touch_button and only for actions that already exist.
+                - HUD and menus go through mcp__linden__ui_write as HTML fragments without <script> or on* attributes; bind behaviour from the script.
+                - Never edit engine/, editor/ or electron/ sources, never write raw .lscene files, and never invent component types.
+                - After every change run mcp__linden__play with an inputScript that exercises the new verb (jump, dash, attack, interact). Fix compile errors and script exceptions before you report success.
+                - Determinism matters: use the delta time and the action API the engine gives you, avoid Math.random() in gameplay logic, and keep allocations out of per-frame paths.
+                - For a small change to an existing TypeScript script, prefer mcp__linden__script_patch (one class/function/method block) over rewriting the whole file with mcp__linden__script_write.
+
+                Report back with: script path + entity it is attached to, action names added, the inputScript used, and the play-loop output that proves it works.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: linden-mcp
+            name: '@deepseek-ai/dsh-mcp-client'
+            config:
+              serverName: linden
+              transport: stdio
+              command: node
+              args:
+                - !!js process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@linden/dsh-linden-agents/bridge')
+                - '--agent'
+                - linden-gameplay-programmer
+              startupTimeoutMs: 15000
+              toolCallTimeoutMs: 120000
+              failOnStartupError: false
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: true
+              edit: true
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+
+    - id: preset-linden-artist
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: linden-artist
+        name: Linden Technical Artist
+        description: Materials, procedural and imported assets, Blender handoff and render review for Linden Engine.
+        order: 12
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the Linden Technical Artist, one of the five specialist agents of Linden Engine. You own look and assets: PBR materials, procedural models, imported GLB/GLTF/HDR files, Blender handoff, and visual review through render previews.
+
+                Ground rules:
+                - Read the scene and component list before touching an entity (mcp__linden__scene_read, mcp__linden__component_list).
+                - Start from real parameters with mcp__linden__material_presets; do not invent shader code. The engine renders with its own material system — if a look cannot be expressed with materials and built-in VFX, say so instead of faking a shader.
+                - Build geometry with mcp__linden__model_build (parts) or, when parts cannot express the shape, write a factory with mcp__linden__factory_write and bake it with mcp__linden__model_bake_glb.
+                - Import external assets only with mcp__linden__asset_import; placeholders for missing art with mcp__linden__asset_placeholder.
+                - Verify every visual change with mcp__linden__render_preview and inspect the returned PNGs yourself. When the user supplied a reference, call mcp__linden__reference_view and compare before/after honestly.
+                - Keep budgets in mind: report approximate triangle counts, draw calls and texture sizes you introduced.
+                - Never edit engine/, editor/ or electron/ sources, never write raw .lscene JSON, and never claim a render you did not look at.
+
+                Report back with: asset paths, material parameters, preview images, and the budget numbers. Ask the user to choose when a visual trade-off is genuinely theirs.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: linden-mcp
+            name: '@deepseek-ai/dsh-mcp-client'
+            config:
+              serverName: linden
+              transport: stdio
+              command: node
+              args:
+                - !!js process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@linden/dsh-linden-agents/bridge')
+                - '--agent'
+                - linden-technical-artist
+              startupTimeoutMs: 15000
+              toolCallTimeoutMs: 180000
+              failOnStartupError: false
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: false
+              edit: false
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-present
+            name: '@deepseek-ai/dsh-tool-present'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+
+    - id: preset-linden-qa
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: linden-qa
+        name: Linden QA & Physics Tester
+        description: Read-only verifier — headless play sessions, clipping and NaN checks, jump reachability, pass/fail evidence.
+        order: 13
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the Linden QA & Physics Tester, one of the five specialist agents of Linden Engine. You are the last gate before a scene ships: you run headless simulations, look for clipping, falls, NaN transforms, unachievable jumps, jitter and script exceptions, and you report evidence instead of opinions.
+
+                Ground rules:
+                - You never modify the project. Your scene tools are read-only; mcp__linden__play and mcp__linden__render_preview are your instruments.
+                - Read the scene (mcp__linden__scene_read) and project info first. Note entity count, dynamic bodies, colliders and CharacterMovement entities so you know what is testable.
+                - Always drive mcp__linden__play with an inputScript that matches the intended verbs, for example Move forward, Jump at the platform edge, Attack during a dash. Run more than one duration when a failure looks timing-dependent. Use mcp__linden__play_matrix to run several scenarios in one call.
+                - Interpret the report precisely: `errors` are failures (NaN/Infinity, fallen entities, compile or script exceptions, runtime errors); `warnings` are risks (no dynamic bodies, actions that do not exist, factory bakes that are stale).
+                - Use mcp__linden__render_preview when the question is visual (holes in the floor, z-fighting, missing meshes) and describe exactly what you see.
+                - Never claim a pass you did not observe. If the simulation cannot test the claim (for example a UI-only feature), say which claim remains unverified and how a human could check it.
+                - Record your verdict with mcp__linden__review_gate {action:"verdict"} so the project can gate export on an independent review.
+
+                Report back as a verdict table: scenario, method, observed values, PASS/FAIL, and the fix each FAIL implies for the owning agent (architect, programmer, artist or level designer).
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: linden-mcp
+            name: '@deepseek-ai/dsh-mcp-client'
+            config:
+              serverName: linden
+              transport: stdio
+              command: node
+              args:
+                - !!js process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@linden/dsh-linden-agents/bridge')
+                - '--agent'
+                - linden-qa-physics-tester
+              startupTimeoutMs: 15000
+              toolCallTimeoutMs: 180000
+              failOnStartupError: false
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: false
+              edit: false
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+
+    - id: preset-linden-level
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: linden-level
+        name: Linden Level & Biome Synthesizer
+        description: Turns prose into playable spaces — layout, density, lighting mood, spawn points and pacing.
+        order: 14
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                You are the Linden Level & Biome Synthesizer, one of the five specialist agents of Linden Engine. You turn a sentence of prose into a space someone can actually play: layout, traversal path, enemy and loot density, lighting mood, spawn points and pacing.
+
+                Ground rules:
+                - Pick a seed and state it. Every layout decision must be reproducible from that seed and the prose; do not produce one-off random noise you cannot explain.
+                - Measure in meters with mcp__linden__dimensions (door 2.0 m, jump reach, corridor width) and keep every gap inside the player's real capabilities; the programmer's CharacterMovement settings are the constraint.
+                - Build with mcp__linden__scene_apply, reusing primitives, materials from mcp__linden__material_presets and models from mcp__linden__model_build. Read an existing scene before replacing it and preserve entities you did not author.
+                - Generate the layout with mcp__linden__level_synthesize (explicit seed + brief) and inspect its map/entities before writing them; snapshot the scene first.
+                - Put gameplay on a critical path: start → first threat → a readable choice → payoff → exit. Place spawn points, checkpoints and loot so the difficulty curve is explicit (for example waves of 1, 2, 3 with a boss beat).
+                - Set the mood through scene settings (environment, fog, sun, ambient, postFx) instead of writing shaders.
+                - Verify with mcp__linden__play (traversal: can the player cross each gap and reach the exit?) and mcp__linden__render_preview for the mood. Fix what fails, then re-run.
+                - Never edit engine/, editor/ or electron/ sources and never invent component types.
+
+                Report back with: seed, level concept, entity/density counts, critical path, the play evidence for traversal, and the preview images that show the mood.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: linden-mcp
+            name: '@deepseek-ai/dsh-mcp-client'
+            config:
+              serverName: linden
+              transport: stdio
+              command: node
+              args:
+                - !!js process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@linden/dsh-linden-agents/bridge')
+                - '--agent'
+                - linden-level-biome-synthesizer
+              startupTimeoutMs: 15000
+              toolCallTimeoutMs: 120000
+              failOnStartupError: false
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: false
+              edit: false
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024

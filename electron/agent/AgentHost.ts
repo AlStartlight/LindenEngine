@@ -16,7 +16,9 @@ import {
   AgentTurn,
   AgentPromptOptions,
 } from '../../shared/agentTypes'
-import { LindenMcpServer } from './LindenMcpServer'
+import type { LindenMcpServer } from './LindenMcpServer'
+import { AgentBridgeService } from './AgentBridgeService'
+import type { LindenCallContext } from './lindenBridgeTypes'
 import { TurnTracker, turnsFromMessages } from './TurnTracker'
 import { resolveAppResource } from '../resourcePaths'
 import { PROMPT_TEMPLATES } from './promptTemplates'
@@ -376,21 +378,11 @@ export class AgentHost {
         headers: { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}` },
       })
 
-      this.mcp = new LindenMcpServer({
-        projectPath,
-        requestPermission: (req) => this.requestToolPermission(req),
-        onDiff: (diff) => {
-          // MCP calls carry no session id; they come from the session that is running
-          const sessionId = this.activeSessionId ?? undefined
-          if (sessionId) {
-            diff.toolPartId = this.tracker.runningToolPartId(sessionId)
-            diff.turnId = this.tracker.currentTurnId(sessionId)
-          }
-          this.proposedDiffs.set(diff.id, diff)
-          this.emitEvent({ type: 'diff_proposed', sessionId, data: diff })
-        },
-      })
-      await this.mcp.start()
+      // The Agent Bridge owns the MCP server (one per app, shared by OpenCode, DeepSeek
+      // Harness and custom agents). OpenCode is just its full-access client.
+      await AgentBridgeService.getInstance().start(projectPath)
+      this.mcp = AgentBridgeService.getInstance().mcpServer
+      if (!this.mcp) throw new Error('Agent Bridge gagal menyiapkan server MCP')
       // The Blender tools are listed only when Blender is found; give the detection a moment
       await Promise.race([blenderStatusReady(), new Promise((r) => setTimeout(r, BLENDER_DETECT_WAIT_MS))])
       await this.registerMcp()
@@ -515,7 +507,7 @@ export class AgentHost {
     if (this.client && this.activeSessionId) {
       await this.client.session.interrupt({ sessionID: this.activeSessionId }).catch(() => {})
     }
-    this.mcp?.close()
+    // The bridge outlives the OpenCode session: external agents keep their endpoint
     this.mcp = null
     this.tracker.dispose()
     this.tracker = new TurnTracker((ev) => this.emitEvent(ev))
@@ -549,6 +541,7 @@ export class AgentHost {
       activeProvider: this.activeProvider,
       autoApprove: this.autoApprove,
       error: this.lastError,
+      bridge: AgentBridgeService.getInstance().getStatus(),
     }
   }
 
@@ -790,6 +783,28 @@ export class AgentHost {
     } catch (_) {
       return false
     }
+  }
+
+  /**
+   * Route a diff produced by any Agent Bridge client. OpenCode calls without an
+   * explicit session and inherit the active one; external agents send their own
+   * `_meta.linden.sessionId` so the change is credited to the right role.
+   */
+  ingestExternalDiff(diff: AgentDiffItem, ctx?: LindenCallContext): void {
+    const sessionId = ctx?.sessionId ?? this.activeSessionId ?? undefined
+    if (sessionId) {
+      const toolPartId = this.tracker.runningToolPartId(sessionId)
+      const turnId = this.tracker.currentTurnId(sessionId)
+      if (toolPartId) diff.toolPartId = toolPartId
+      if (turnId) diff.turnId = turnId
+    }
+    if (ctx) {
+      diff.clientId = ctx.clientId
+      diff.role = ctx.role
+      diff.sessionId = ctx.sessionId
+    }
+    this.proposedDiffs.set(diff.id, diff)
+    this.emitEvent({ type: 'diff_proposed', sessionId, data: diff })
   }
 
   /**

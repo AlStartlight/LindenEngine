@@ -46,8 +46,9 @@ describe('LindenMcpServer', () => {
   })
 
   it('answers initialize and lists Linden tools without the linden_ prefix', async () => {
+    // The server negotiates down to a revision it implements instead of echoing any request
     const init = await (await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } })).json()
-    expect(init.result.protocolVersion).toBe('2025-11-25')
+    expect(init.result.protocolVersion).toBe('2025-06-18')
     expect(init.result.capabilities.tools).toBeDefined()
 
     const list = await (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json()
@@ -83,14 +84,15 @@ describe('LindenMcpServer', () => {
     expect(diffs[0].action).toBe('create')
   })
 
-  it('returns tool errors as isError content and unknown tools as JSON-RPC errors', async () => {
+  it('returns tool errors and unknown tools as isError content', async () => {
     const bad = await (
       await rpc({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'scene_read', arguments: { scenePath: '../outside.lscene' } } })
     ).json()
     expect(bad.result.isError).toBe(true)
 
     const unknown = await (await rpc({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'nope' } })).json()
-    expect(unknown.error.code).toBe(-32602)
+    expect(unknown.result.isError).toBe(true)
+    expect(unknown.result.content[0].text).toContain('LINDEN_E_UNKNOWN_TOOL')
   })
 })
 

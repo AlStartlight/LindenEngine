@@ -91,6 +91,9 @@ interface Window {
     agentApplyDiff?: (diffId: string) => Promise<boolean>
     agentRejectDiff?: (diffId: string) => Promise<boolean>
     agentGetTemplates?: () => Promise<any[]>
+    agentBridgeStatus?: () => Promise<any>
+    agentBridgeRestart?: () => Promise<any>
+    agentBridgeCopyConfig?: (opts?: { roleId?: string; format?: 'dsh' | 'json' }) => Promise<{ ok: boolean; roleId?: string; format?: string; error?: string }>
     agentGetSessionTurns?: (sessionId: string) => Promise<any[]>
     agentGetTurnSnapshot?: (sessionId: string) => Promise<any | null>
     onAgentEvent?: (callback: (event: any) => void) => () => void

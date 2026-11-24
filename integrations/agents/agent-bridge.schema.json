@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lindenengine.com/schemas/agent-bridge-v1.json",
+  "title": "Linden Agent Bridge manifest",
+  "description": "Endpoint + credential manifest written by Linden Engine so any MCP-capable agent can attach to the linden MCP server without manual copy/paste. Lives at <project>/.linden/agent-bridge.json (mode 0600, git-ignored); rewritten on every engine start and project switch.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "endpoint", "transport", "protocolVersion", "issuedAt", "tokens"],
+  "properties": {
+    "format": { "const": "linden-agent-bridge" },
+    "version": { "const": 1 },
+    "projectPath": { "type": "string", "description": "Absolute project directory the endpoint is serving." },
+    "projectName": { "type": "string" },
+    "endpoint": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^http://127\\.0\\.0\\.1:[0-9]+/mcp$",
+      "description": "Loopback Streamable-HTTP MCP endpoint. Never bind a public interface."
+    },
+    "transport": { "const": "streamable-http" },
+    "protocolVersion": {
+      "type": "string",
+      "description": "Newest MCP revision the server supports; clients may negotiate down to 2024-11-05."
+    },
+    "server": {
+      "type": "object",
+      "properties": {
+        "name": { "const": "linden" },
+        "version": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+    "tokens": {
+      "type": "object",
+      "description": "Bearer tokens keyed by client id. The master token sees every tool; role tokens are restricted to scopes[roleId].",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 24 }
+    },
+    "scopes": {
+      "type": "object",
+      "description": "Tool names (no linden_ prefix) each role token may list and call. A role without an entry falls back to the engine's built-in role catalog.",
+      "additionalProperties": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+    },
+    "bridge": {
+      "type": "object",
+      "description": "Optional ready-to-spawn stdio bridge for clients that cannot speak HTTP headers.",
+      "properties": {
+        "command": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "maxBodyBytes": { "type": "integer", "minimum": 1024 },
+        "toolTimeoutMs": { "type": "integer", "minimum": 1000 },
+        "lockTtlMs": { "type": "integer", "minimum": 1000 }
+      }
+    }
+  }
+}
