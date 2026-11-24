@@ -51,6 +51,9 @@ coverage/
 *.tmp
 *.temp
 
+# Engine/agent machine state (holds the agent-bridge bearer token, never commit it)
+.linden/
+
 # Generated test output (rebuilt by the test tooling)
 test-results/
 playwright-report/

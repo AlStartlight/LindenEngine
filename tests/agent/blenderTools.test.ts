@@ -86,6 +86,41 @@ describe('BlenderSpecSchema', () => {
     expect(BlenderSpecSchema.safeParse(mug).success).toBe(true)
   })
 
+  it('accepts a lathe with sculpt, baked PBR texture, grade and preview settings', () => {
+    const spec = {
+      objects: [
+        {
+          name: 'Vase',
+          primitive: 'lathe',
+          params: { segments: 64, profileSubdivisions: 3, profile: [[0, 0], [0.1, 0], [0.12, 0.2], [0.08, 0.3], [0, 0.04]] },
+          sculpt: { preset: 'clay', strength: 0.002, subdivide: 2, layers: [{ type: 'noise', strength: 0.6, scale: 4 }] },
+          material: {
+            baseColor: '#cbb49b',
+            roughness: 0.3,
+            texture: { pattern: 'stone', scale: 2, contrast: 0.6, colorA: '#d8c4a8', colorB: '#8a7358', bump: 0.6, normalStrength: 1.4, resolution: 512 },
+          },
+          smooth: true,
+        },
+      ],
+      grade: { viewTransform: 'AgX', look: 'AgX - Medium High Contrast', exposure: -0.2, colorGrade: { contrast: 1.1, vignette: 0.2 } },
+      preview: { engine: 'cycles', samples: 32, resolution: 512 },
+    }
+    const r = BlenderSpecSchema.safeParse(spec)
+    expect(r.success, r.success ? '' : r.error.issues.map((i) => i.message).join('; ')).toBe(true)
+  })
+
+  it('rejects a lathe without profile and a custom sculpt without layers', () => {
+    const bad = (spec: unknown) => {
+      const r = BlenderSpecSchema.safeParse(spec)
+      expect(r.success).toBe(false)
+      return r.success ? '' : r.error.issues.map((i) => i.message).join('; ')
+    }
+    expect(bad({ objects: [{ name: 'a', primitive: 'lathe' }] })).toMatch(/profile/)
+    expect(bad({ objects: [{ name: 'a', primitive: 'cube', sculpt: { preset: 'custom' } }] })).toMatch(/layers/)
+    bad({ objects: [{ name: 'a', primitive: 'cube', sculpt: { strength: 5 } }] })
+    bad({ objects: [{ name: 'a', primitive: 'cube', material: { baseColor: '#ffffff', texture: { pattern: 'lava' } } }] })
+  })
+
   it('rejects unknown primitives and keys, duplicate names, bad boolean targets and heavy stacks', () => {
     const bad = (spec: unknown) => {
       const r = BlenderSpecSchema.safeParse(spec)
@@ -382,7 +417,10 @@ describe('MCP tool list', () => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${server.token}` },
         body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'blender_status', arguments: {} } }),
       })
-      expect((await call.json()).error.message).toMatch(/Unknown tool/)
+      // Unknown/unavailable tools are tool-level failures (isError), not transport errors
+      const unknown = await call.json()
+      expect(unknown.result.isError).toBe(true)
+      expect(unknown.result.content[0].text).toContain('LINDEN_E_UNKNOWN_TOOL')
     } finally {
       server.close()
     }

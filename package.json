@@ -33,6 +33,8 @@
     "test:e2e:preview": "npm run build:electron && node tests/e2e/renderPreview.e2e.mjs",
     "test:e2e:img2threejs": "npm run build:player && npm run build:electron && node tests/e2e/img2threejsFactory.e2e.mjs",
     "test:e2e:reference-model": "npm run build:player && npm run build:electron && node tests/e2e/referenceModel.e2e.mjs",
+    "test:e2e:photoreal": "npm run build:electron && node tests/e2e/photorealPreview.e2e.mjs",
+    "test:e2e:cosmic": "npm run build:electron && node tests/e2e/cosmicRift.e2e.mjs",
     "test:e2e:move": "npm run build:electron && node tests/e2e/movement.e2e.mjs",
     "test:e2e:touch": "npm run build:electron && node tests/e2e/touchButtons.e2e.mjs",
     "test:e2e:physics-vfx": "node tests/e2e/physicsWaterVfx.e2e.mjs",

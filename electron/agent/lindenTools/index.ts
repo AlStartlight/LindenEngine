@@ -27,6 +27,11 @@ import { MaterialSpecSchema } from '../../../engine/materials/MaterialSpec'
 import { normalizeSceneSettings } from '../../../engine/scene/SceneSettings'
 import { parseSceneFile } from '../../../engine/scene/parseSceneFile'
 import { TransmuterCore, PolyglotLanguage } from '../../../engine/transmuter/core/TransmuterCore'
+import type { LindenBridgeStatus } from '../lindenBridgeTypes'
+import { SNAPSHOT_TOOLS } from './snapshotTools'
+import { LEVEL_TOOLS } from './levelTools'
+import { PATCH_TOOLS } from './patchTools'
+import { REVIEW_TOOLS, reviewBlocksExport } from './reviewTools'
 
 export { setPreviewRenderer } from './modelTools'
 export { setFactoryProbe } from './factoryTools'
@@ -59,6 +64,12 @@ export interface ToolExecuteOptions {
   onDiff?: (diff: AgentDiffItem) => void
   /** Resolves true when the user allows it; absent outside the editor (then the tool refuses) */
   requestPermission?: (req: ToolPermissionRequest) => Promise<boolean>
+  /** Aborted by the MCP `notifications/cancelled` handler; long simulations check it */
+  signal?: AbortSignal
+  /** Live bridge status for linden_agent_status (absent when tools run outside the server) */
+  status?: () => LindenBridgeStatus
+  /** Calling agent identity, for tools that care which role is acting (review gate) */
+  agent?: { clientId: string; role: string; sessionId?: string }
 }
 
 export interface ToolResult {
@@ -176,7 +187,7 @@ export function factoryBakeWarnings(world: World, projectPath: string): string[]
 export async function simulateScene(
   sceneJson: string,
   durationSeconds: number,
-  opts: { projectPath?: string; inputScript?: InputScriptStep[] } = {}
+  opts: { projectPath?: string; inputScript?: InputScriptStep[]; signal?: AbortSignal } = {}
 ) {
   const errors: string[] = []
   const warnings: string[] = []
@@ -275,7 +286,13 @@ export async function simulateScene(
 
   let framesRun = 0
   let nextStep = 0
+  let cancelled = false
   for (; framesRun < frames; framesRun++) {
+    if (opts.signal?.aborted) {
+      cancelled = true
+      errors.push('LINDEN_E_CANCELLED: simulasi dibatalkan')
+      break
+    }
     const now = framesRun / 60
     simTime = now
     while (nextStep < steps.length && steps[nextStep].at <= now) {
@@ -338,6 +355,7 @@ export async function simulateScene(
   if (dynamicIds.length === 0) warnings.push('Tidak ada Rigidbody dinamis; fisika tidak diuji')
 
   return {
+    cancelled,
     simulatedSeconds: framesRun / 60,
     entityCount: world.getEntities().length,
     dynamicBodies: dynamicIds.length,
@@ -511,7 +529,8 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
             'Setting render scene (digabung dengan yang ada): environment ("room", "none", atau assets/hdri/x.hdr), environmentIntensity, ' +
             'skybox (null, "#rrggbb", "environment"), toneMapping (agx|aces|neutral|...), exposure, ambientColor, ambientIntensity, ' +
             'fog {enabled,type,color,near,far,density}, shadowQuality (off|low|medium|high), sun {enabled,color,intensity,direction}, ' +
-            'postFx {enabled, ao, bloom, antialias: smaa|fxaa|none}',
+            'postFx {enabled, ao, bloom, antialias: smaa|fxaa|none}, ' +
+            'colorGrade {enabled, contrast, saturation, temperature (-1..1), tint (-1..1), lift, gamma, gain, vignette (0..1)} — grade CDL setelah tone mapping, sama dengan grade preview Blender',
         },
         entities: {
           type: 'array',
@@ -1156,7 +1175,11 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
         },
       },
     },
-    async execute(projectPath: string, args: { scenePath?: string; durationSeconds?: number; inputScript?: InputScriptStep[] }) {
+    async execute(
+      projectPath: string,
+      args: { scenePath?: string; durationSeconds?: number; inputScript?: InputScriptStep[] },
+      options
+    ) {
       try {
         const rel = args.scenePath || 'scenes/Main.lscene'
         const fullPath = resolveProjectSafePath(projectPath, rel)
@@ -1165,11 +1188,183 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
         }
 
         const raw = fs.readFileSync(fullPath, 'utf-8')
-        const report = await simulateScene(raw, args.durationSeconds ?? 2, { projectPath, inputScript: args.inputScript })
+        const report = await simulateScene(raw, args.durationSeconds ?? 2, {
+          projectPath,
+          inputScript: args.inputScript,
+          signal: options?.signal,
+        })
         return {
           success: report.errors.length === 0,
           data: { testedScene: rel, ...report },
           error: report.errors.length > 0 ? report.errors.join('; ') : undefined,
+        }
+      } catch (err: any) {
+        return { success: false, error: err.message }
+      }
+    },
+  },
+
+  linden_play_matrix: {
+    name: 'linden_play_matrix',
+    description:
+      'Menjalankan linden_play secara batch: daftar skenario eksplisit atau input acak deterministik dari seed, lalu meringkas pass/fail. ' +
+      'Cocok untuk stress-test fisika/kontrol (mis. 10 skenario x 3 dtk) dalam satu panggilan. Batas: 20 run dan 60 dtk simulasi per panggilan.',
+    parameters: {
+      type: 'object',
+      properties: {
+        scenePath: { type: 'string', description: 'Default scenes/Main.lscene' },
+        runs: {
+          type: 'array',
+          description: 'Skenario eksplisit (maks 20)',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string' },
+              durationSeconds: { type: 'number', description: 'Default 3, maks 10' },
+              inputScript: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    at: { type: 'number' },
+                    action: { type: 'string' },
+                    value: {},
+                    press: { type: 'boolean' },
+                  },
+                  required: ['at', 'action'],
+                },
+              },
+            },
+          },
+        },
+        generate: {
+          type: 'object',
+          description: 'Bila runs kosong: buat skenario acak deterministik',
+          properties: {
+            count: { type: 'number', description: 'Default 5, maks 20' },
+            seed: { type: 'number', description: 'Default 1' },
+            durationSeconds: { type: 'number', description: 'Default 3, maks 10' },
+            moveAction: { type: 'string', description: 'Default "Move"' },
+            buttonActions: { type: 'array', items: { type: 'string' }, description: 'Default ["Jump"]' },
+          },
+        },
+        maxRuns: { type: 'number', description: 'Default 5, maks 20' },
+        maxSimulatedSeconds: { type: 'number', description: 'Default 60, maks 120' },
+      },
+    },
+    async execute(
+      projectPath: string,
+      args: {
+        scenePath?: string
+        runs?: { label?: string; durationSeconds?: number; inputScript?: InputScriptStep[] }[]
+        generate?: { count?: number; seed?: number; durationSeconds?: number; moveAction?: string; buttonActions?: string[] }
+        maxRuns?: number
+        maxSimulatedSeconds?: number
+      },
+      options
+    ) {
+      try {
+        const rel = args.scenePath || 'scenes/Main.lscene'
+        const full = resolveProjectSafePath(projectPath, rel)
+        if (!fs.existsSync(full)) return { success: false, error: `Scene ${rel} tidak ditemukan` }
+        const raw = fs.readFileSync(full, 'utf-8')
+
+        const maxRuns = Math.max(1, Math.min(args.maxRuns ?? 5, 20))
+        const maxSeconds = Math.max(1, Math.min(args.maxSimulatedSeconds ?? 60, 120))
+        type Scenario = { label?: string; durationSeconds: number; inputScript?: InputScriptStep[] }
+
+        const clampDuration = (n: number | undefined, fallback: number) =>
+          Math.round(Math.max(0.1, Math.min(n ?? fallback, 10)) * 10) / 10
+        const round2 = (n: number) => Math.round(n * 100) / 100
+
+        let scenarios: Scenario[] = (args.runs ?? []).slice(0, maxRuns).map((run, index) => ({
+          label: run.label ?? `run-${index + 1}`,
+          durationSeconds: clampDuration(run.durationSeconds, 3),
+          inputScript: run.inputScript,
+        }))
+
+        if (scenarios.length === 0 && args.generate) {
+          const gen = args.generate
+          const count = Math.max(1, Math.min(gen.count ?? 5, maxRuns))
+          const duration = clampDuration(gen.durationSeconds, 3)
+          const moveAction = gen.moveAction || 'Move'
+          const buttons = gen.buttonActions && gen.buttonActions.length > 0 ? gen.buttonActions : ['Jump']
+          let seed = (gen.seed ?? 1) >>> 0
+          const rng = () => {
+            seed = (seed + 0x6d2b79f5) >>> 0
+            let t = seed
+            t = Math.imul(t ^ (t >>> 15), t | 1)
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+          }
+          scenarios = Array.from({ length: count }, (_, index) => {
+            const steps: InputScriptStep[] = []
+            for (let at = 0; at < duration; at = round2(at + 0.5)) {
+              steps.push({ at, action: moveAction, value: [round2(rng() * 2 - 1), round2(rng() * 2 - 1)] })
+              if (rng() < 0.4) {
+                const button = buttons[Math.floor(rng() * buttons.length)]
+                steps.push({ at: round2(at + 0.1), action: button, press: true })
+                steps.push({ at: round2(at + 0.25), action: button, press: false })
+              }
+            }
+            return { label: `seed-${gen.seed ?? 1}-run-${index + 1}`, durationSeconds: duration, inputScript: steps }
+          })
+        }
+
+        if (scenarios.length === 0) return { success: false, error: 'Isi "runs" atau "generate" untuk linden_play_matrix' }
+
+        const warnings: string[] = []
+        let total = 0
+        const capped: Scenario[] = []
+        for (const scenario of scenarios) {
+          if (total + scenario.durationSeconds > maxSeconds) {
+            warnings.push(`Skenario setelah ${capped.length} dilewati: batas ${maxSeconds} dtk simulasi per panggilan`)
+            break
+          }
+          total += scenario.durationSeconds
+          capped.push(scenario)
+        }
+
+        const results: any[] = []
+        for (let index = 0; index < capped.length; index++) {
+          if (options?.signal?.aborted) {
+            warnings.push('LINDEN_E_CANCELLED: matrix dihentikan sebelum selesai')
+            break
+          }
+          const report = await simulateScene(raw, capped[index].durationSeconds, {
+            projectPath,
+            inputScript: capped[index].inputScript,
+            signal: options?.signal,
+          })
+          const passed = report.errors.length === 0
+          results.push({
+            index,
+            label: capped[index].label,
+            simulatedSeconds: report.simulatedSeconds,
+            passed,
+            errors: report.errors,
+            warnings: report.warnings.slice(0, 5),
+            characters: report.characters,
+            msPerStep: report.msPerStep,
+          })
+        }
+
+        const failed = results.filter((r) => !r.passed)
+        const steps = results.map((r) => r.msPerStep).filter((n): n is number => typeof n === 'number')
+        return {
+          success: failed.length === 0 && !options?.signal?.aborted,
+          data: {
+            scenePath: rel,
+            runs: results.length,
+            passed: results.length - failed.length,
+            failed: failed.length,
+            failures: failed.map((f) => ({ index: f.index, label: f.label, errors: f.errors })),
+            averageMsPerStep: steps.length > 0 ? round2(steps.reduce((a, b) => a + b, 0) / steps.length) : null,
+            totalSimulatedSeconds: round2(results.reduce((sum, r) => sum + r.simulatedSeconds, 0)),
+            warnings,
+            results,
+          },
+          error: failed.length > 0 ? `${failed.length} dari ${results.length} skenario gagal` : undefined,
         }
       } catch (err: any) {
         return { success: false, error: err.message }
@@ -1297,6 +1492,9 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
     },
     async execute(projectPath: string, args: { presetName?: string; canvasMode?: 'fixed' | 'responsive' | 'fullscreen' }) {
       try {
+        // Optional review gate: project.linden.json {"agentReview":{"required":true}}
+        const blocked = reviewBlocksExport(projectPath)
+        if (blocked) return { success: false, error: blocked }
         const preset: ExportPreset = {
           id: 'web-auto-export',
           name: args.presetName || 'HTML5 Web',
@@ -1330,6 +1528,148 @@ export const LINDEN_TOOLS: Record<string, ToolDefinition> = {
     },
   },
 
+  linden_scene_validate: {
+    name: 'linden_scene_validate',
+    description:
+      'Memeriksa struktur scene (.lscene) TANPA menulis: id duplikat, parent hilang, siklus parent, komponen tidak dikenal, ' +
+      'transform tidak valid, dan file script yang tidak ada. Pakai sebelum linden_scene_apply atau sebagai audit cepat.',
+    parameters: {
+      type: 'object',
+      properties: {
+        scenePath: { type: 'string', description: 'Path scene, default scenes/Main.lscene' },
+      },
+    },
+    async execute(projectPath: string, args: { scenePath?: string }) {
+      try {
+        const rel = args.scenePath || 'scenes/Main.lscene'
+        const fullPath = resolveProjectSafePath(projectPath, rel)
+        if (!fs.existsSync(fullPath)) return { success: false, error: `Scene ${rel} tidak ditemukan` }
+
+        let scene: any
+        try {
+          scene = JSON.parse(fs.readFileSync(fullPath, 'utf-8'))
+        } catch (e: any) {
+          return { success: false, error: `Scene ${rel} bukan JSON valid: ${e.message}` }
+        }
+
+        const issues: { code: string; entityId?: string; message: string }[] = []
+        if (!Array.isArray(scene.entities)) {
+          return { success: false, error: `Scene ${rel} tidak punya array "entities"` }
+        }
+        const entities: any[] = scene.entities
+        const byId = new Map<string, any>()
+
+        for (const ent of entities) {
+          if (!ent || typeof ent.id !== 'string' || !ent.id) {
+            issues.push({ code: 'LINDEN_E_ENTITY_ID', message: `Entity "${ent?.name ?? '?'}" tidak punya id` })
+            continue
+          }
+          if (byId.has(ent.id)) issues.push({ code: 'LINDEN_E_DUPLICATE_ID', entityId: ent.id, message: `ID entity duplikat: ${ent.id}` })
+          byId.set(ent.id, ent)
+        }
+
+        for (const ent of entities) {
+          if (ent?.parentId && !byId.has(ent.parentId)) {
+            issues.push({ code: 'LINDEN_E_MISSING_PARENT', entityId: ent.id, message: `Parent "${ent.parentId}" tidak ada (entity ${ent.id})` })
+          }
+          for (const comp of ent?.components ?? []) {
+            if (comp?.type !== 'Script') continue
+            const src = String(comp.data?.src ?? '')
+            if (!isValidScriptSrc(src)) {
+              issues.push({ code: 'LINDEN_E_SCRIPT_SRC', entityId: ent.id, message: `Script.src tidak valid: ${src}` })
+              continue
+            }
+            try {
+              if (!fs.existsSync(resolveProjectSafePath(projectPath, src))) {
+                issues.push({ code: 'LINDEN_E_SCRIPT_MISSING', entityId: ent.id, message: `File script tidak ada: ${src}` })
+              }
+            } catch (e: any) {
+              issues.push({ code: 'LINDEN_E_SCRIPT_SRC', entityId: ent.id, message: e.message })
+            }
+          }
+        }
+
+        // Cycle detection over the parent graph (first declaration of an id wins)
+        const parentOf = new Map<string, string | null>()
+        for (const ent of entities) {
+          if (ent?.id && !parentOf.has(ent.id)) parentOf.set(ent.id, typeof ent.parentId === 'string' ? ent.parentId : null)
+        }
+        const state = new Map<string, 1 | 2>()
+        const reported = new Set<string>()
+        for (const start of parentOf.keys()) {
+          if (state.has(start)) continue
+          const pathIds: string[] = []
+          let cur: string | null = start
+          while (cur) {
+            const s = state.get(cur)
+            if (s === 1) {
+              if (!reported.has(cur)) {
+                reported.add(cur)
+                issues.push({ code: 'LINDEN_E_PARENT_CYCLE', entityId: cur, message: `Siklus parent pada entity ${cur}` })
+              }
+              break
+            }
+            if (s === 2) break
+            state.set(cur, 1)
+            pathIds.push(cur)
+            cur = parentOf.get(cur) ?? null
+          }
+          for (const id of pathIds) state.set(id, 2)
+        }
+
+        const schemaError = validateSceneEntities(entities as SerializedEntity[])
+        if (schemaError) issues.push({ code: 'LINDEN_E_COMPONENT', message: schemaError })
+
+        return {
+          success: issues.length === 0,
+          data: { scenePath: rel, entityCount: entities.length, ok: issues.length === 0, issues },
+          error: issues.length > 0 ? issues.map((i) => i.message).join('; ') : undefined,
+        }
+      } catch (err: any) {
+        return { success: false, error: err.message }
+      }
+    },
+  },
+
+  linden_agent_status: {
+    name: 'linden_agent_status',
+    description:
+      'Status Agent Bridge untuk proyek ini: endpoint lokal MCP, role dan scope yang terhubung, serta lock scene aktif. ' +
+      'Tidak pernah mengembalikan token. Pakai untuk memastikan agent lain sudah terhubung sebelum handoff.',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+    async execute(projectPath: string, _args: unknown, options?: ToolExecuteOptions) {
+      const status = options?.status?.()
+      if (!status) {
+        return {
+          success: true,
+          data: {
+            projectPath,
+            bridge: null,
+            note: 'Agent Bridge tidak berjalan di proses ini (tool dipanggil di luar server MCP).',
+          },
+        }
+      }
+      return {
+        success: true,
+        data: {
+          projectPath: status.projectPath ?? projectPath,
+          running: status.running,
+          endpoint: status.endpoint,
+          protocolVersion: status.protocolVersion,
+          clients: status.clients,
+          locks: status.locks,
+        },
+      }
+    },
+  },
+
+  ...SNAPSHOT_TOOLS,
+  ...LEVEL_TOOLS,
+  ...PATCH_TOOLS,
+  ...REVIEW_TOOLS,
   ...MODEL_TOOLS,
   ...FACTORY_TOOLS,
   ...REFERENCE_TOOLS,

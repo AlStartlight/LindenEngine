@@ -1,0 +1,194 @@
+{
+  "format": "linden-agent-catalog",
+  "version": 1,
+  "description": "Canonical Linden Engine agent roles. Each role is a least-privilege view over the tools exposed by the linden MCP server (electron/agent/LindenMcpServer.ts). The same catalog is consumed by the DeepSeek Harness preset bundle (cordis.patch.yml), by bin/linden-agent-bridge.mjs for scope enforcement, and by any custom MCP agent that wants to mirror the roster.",
+  "server": {
+    "name": "linden",
+    "toolPrefix": "mcp__linden__",
+    "transport": "streamable-http",
+    "note": "Tool ids below are the bare names returned by tools/list, i.e. linden_scene_apply is listed as scene_apply."
+  },
+  "agents": [
+    {
+      "id": "linden-game-architect",
+      "name": "Linden Game Architect",
+      "order": 10,
+      "siteRole": "Autonomous Game Architect",
+      "summary": "Owns the scene graph: canonical .lscene v2 hierarchies, parent-child transforms, component wiring and structural validity.",
+      "writes": [
+        "scenes/*.lscene",
+        "project.linden.json (settings only via scene_apply)"
+      ],
+      "tools": [
+        "project_info",
+        "scene_validate",
+        "scene_read",
+        "scene_apply",
+        "component_list",
+        "dimensions",
+        "play",
+        "snapshot_create",
+        "snapshot_list",
+        "snapshot_restore",
+        "review_gate"
+      ],
+      "handoff": {
+        "reports": [
+          "scene path",
+          "entity tree",
+          "component list per entity",
+          "structural play-test result"
+        ],
+        "blocksOn": "a missing component or size fact that linden_component_list / linden_dimensions cannot answer"
+      }
+    },
+    {
+      "id": "linden-gameplay-programmer",
+      "name": "Linden Gameplay Programmer",
+      "order": 11,
+      "siteRole": "Real-Time Programmer Agent",
+      "summary": "Writes type-safe gameplay scripts (TypeScript, GDScript, C#, Rust), wires input + UI, and verifies them through the headless play loop.",
+      "writes": [
+        "scripts/*",
+        "ui/*.html",
+        "web/*",
+        "project.linden.json (input actions only)"
+      ],
+      "tools": [
+        "project_info",
+        "scene_read",
+        "component_list",
+        "script_write",
+        "script_transmute",
+        "ui_write",
+        "web_write",
+        "input_actions",
+        "touch_button",
+        "play",
+        "export_web",
+        "script_patch",
+        "snapshot_create",
+        "snapshot_list",
+        "snapshot_restore",
+        "review_gate"
+      ],
+      "handoff": {
+        "reports": [
+          "script path",
+          "entity it is attached to",
+          "compile result",
+          "headless play assertions"
+        ],
+        "blocksOn": "a scene entity id that scene_read does not contain"
+      }
+    },
+    {
+      "id": "linden-technical-artist",
+      "name": "Linden Technical Artist",
+      "order": 12,
+      "siteRole": "Technical Artist Agent",
+      "summary": "Owns look and assets: PBR materials, procedural models, imported GLB/HDR assets, Blender handoff and offscreen render review.",
+      "writes": [
+        "assets/*",
+        "models/*",
+        "scenes/*.lscene (entity transients only via model_build)"
+      ],
+      "tools": [
+        "project_info",
+        "scene_read",
+        "component_list",
+        "material_presets",
+        "dimensions",
+        "model_build",
+        "model_bake_glb",
+        "factory_write",
+        "asset_placeholder",
+        "asset_import",
+        "render_preview",
+        "reference_view",
+        "blender_status",
+        "blender_build",
+        "blender_environment",
+        "blender_rig_character",
+        "blender_script"
+      ],
+      "handoff": {
+        "reports": [
+          "asset paths",
+          "material parameters",
+          "preview images",
+          "draw-call or triangle budget note"
+        ],
+        "blocksOn": "a visual decision that only the human can approve (render_preview + reference_view give them the evidence)"
+      }
+    },
+    {
+      "id": "linden-qa-physics-tester",
+      "name": "Linden QA & Physics Tester",
+      "order": 13,
+      "siteRole": "Automated QA & Physics Tester",
+      "summary": "Read-only verifier: runs headless play sessions with scripted input, checks clipping, falls, NaN transforms, unreachable jumps and frame budget.",
+      "writes": [],
+      "tools": [
+        "project_info",
+        "scene_validate",
+        "scene_read",
+        "component_list",
+        "play",
+        "render_preview",
+        "play_matrix",
+        "snapshot_list",
+        "review_gate"
+      ],
+      "handoff": {
+        "reports": [
+          "scene + duration + input script",
+          "per-entity final positions",
+          "errors and warnings verbatim",
+          "pass/fail verdict"
+        ],
+        "blocksOn": "never writes; failures are reported to the owning agent instead of being fixed in place"
+      }
+    },
+    {
+      "id": "linden-level-biome-synthesizer",
+      "name": "Linden Level & Biome Synthesizer",
+      "order": 14,
+      "siteRole": "Level & Biome Synthesizer",
+      "summary": "Turns prose into playable spaces: layout, enemy/ loot density, lighting mood, spawn points and pacing, built from engine primitives.",
+      "writes": [
+        "scenes/*.lscene",
+        "project.linden.json (input actions for new verbs)"
+      ],
+      "tools": [
+        "project_info",
+        "scene_validate",
+        "scene_read",
+        "scene_apply",
+        "component_list",
+        "dimensions",
+        "material_presets",
+        "model_build",
+        "asset_placeholder",
+        "render_preview",
+        "play",
+        "input_actions",
+        "play_matrix",
+        "level_synthesize",
+        "snapshot_create",
+        "snapshot_list",
+        "snapshot_restore",
+        "review_gate"
+      ],
+      "handoff": {
+        "reports": [
+          "seed / layout rationale",
+          "entity count and density",
+          "pacing check from linden_play",
+          "lighting settings applied"
+        ],
+        "blocksOn": "a layout intent that needs a new engine component (report it, do not invent component types)"
+      }
+    }
+  ]
+}

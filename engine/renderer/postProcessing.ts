@@ -1,10 +1,12 @@
 import * as THREE from 'three'
 import type { RendererBackend } from './createRenderer'
+import type { ColorGrade } from '../scene/SceneSettings'
 
 /**
- * Optional per-scene post-processing: ambient occlusion (GTAO), bloom and anti-aliasing (SMAA/FXAA).
- * WebGLRenderer uses EffectComposer passes; WebGPURenderer uses a TSL RenderPipeline. An effect that
- * cannot be created on a backend is skipped with a warning instead of failing the frame.
+ * Optional per-scene post-processing: ambient occlusion (GTAO), bloom, color grading and
+ * anti-aliasing (SMAA/FXAA). WebGLRenderer uses EffectComposer passes; WebGPURenderer uses a TSL
+ * RenderPipeline. An effect that cannot be created on a backend is skipped with a warning instead
+ * of failing the frame.
  */
 
 export interface PostFxOptions {
@@ -15,6 +17,64 @@ export interface PostFxOptions {
   bloomThreshold: number
   bloomRadius: number
   antialias: 'none' | 'fxaa' | 'smaa'
+  /** Display-referred grade applied after tone mapping (see sceneFactory.applySettings) */
+  grade: ColorGrade
+}
+
+function gradeShader(): { uniforms: Record<string, THREE.IUniform>; vertexShader: string; fragmentShader: string } {
+  return {
+    uniforms: {
+      tDiffuse: { value: null },
+      uContrast: { value: 1 },
+      uSaturation: { value: 1 },
+      uTemperature: { value: 0 },
+      uTint: { value: 0 },
+      uLift: { value: 0 },
+      uGamma: { value: 1 },
+      uGain: { value: 1 },
+      uVignette: { value: 0 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D tDiffuse;
+      uniform float uContrast;
+      uniform float uSaturation;
+      uniform float uTemperature;
+      uniform float uTint;
+      uniform float uLift;
+      uniform float uGamma;
+      uniform float uGain;
+      uniform float uVignette;
+      varying vec2 vUv;
+
+      void main() {
+        vec4 tex = texture2D(tDiffuse, vUv);
+        vec3 c = tex.rgb;
+        c.r *= 1.0 + 0.12 * uTemperature;
+        c.b *= 1.0 - 0.12 * uTemperature;
+        c.g *= 1.0 - 0.08 * uTint;
+        c.r *= 1.0 + 0.04 * uTint;
+        c.b *= 1.0 + 0.04 * uTint;
+        c += uLift;
+        c *= uGain;
+        c = pow(max(c, vec3(0.0)), vec3(1.0 / max(uGamma, 0.05)));
+        float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        c = mix(vec3(luma), c, uSaturation);
+        c = (c - 0.5) * uContrast + 0.5;
+        float d = length((vUv - 0.5) * 2.0) / 1.41421356;
+        float t = clamp((1.0 - d) / 0.55, 0.0, 1.0);
+        float mask = t * t * (3.0 - 2.0 * t);
+        c *= 1.0 + (mask - 1.0) * uVignette;
+        gl_FragColor = vec4(clamp(c, 0.0, 1.0), tex.a);
+      }
+    `,
+  }
 }
 
 export interface PostPipeline {
@@ -53,10 +113,11 @@ async function createComposerPipeline(
   size: { width: number; height: number },
   warn: (message: string) => void
 ): Promise<PostPipeline> {
-  const [{ EffectComposer }, { RenderPass }, { OutputPass }] = await Promise.all([
+  const [{ EffectComposer }, { RenderPass }, { OutputPass }, { ShaderPass }] = await Promise.all([
     import('three/examples/jsm/postprocessing/EffectComposer.js'),
     import('three/examples/jsm/postprocessing/RenderPass.js'),
     import('three/examples/jsm/postprocessing/OutputPass.js'),
+    import('three/examples/jsm/postprocessing/ShaderPass.js'),
   ])
   const composer = new EffectComposer(renderer)
   composer.setPixelRatio(renderer.getPixelRatio())
@@ -84,8 +145,22 @@ async function createComposerPipeline(
       warn(`Bloom tidak tersedia di WebGL: ${err?.message ?? err}`)
     }
   }
-  // Tone mapping + sRGB, then AA on display-referred color
+  // Tone mapping + sRGB, then color grade and AA on display-referred color
   composer.addPass(new OutputPass())
+  if (fx.grade.enabled) {
+    const gradePass = new ShaderPass(gradeShader())
+    const u = gradePass.material.uniforms
+    u.uContrast.value = fx.grade.contrast
+    u.uSaturation.value = fx.grade.saturation
+    u.uTemperature.value = fx.grade.temperature
+    u.uTint.value = fx.grade.tint
+    u.uLift.value = fx.grade.lift
+    u.uGamma.value = fx.grade.gamma
+    u.uGain.value = fx.grade.gain
+    u.uVignette.value = fx.grade.vignette
+    composer.addPass(gradePass)
+    active.push('grade')
+  }
   if (fx.antialias === 'smaa') {
     try {
       const { SMAAPass } = await import('three/examples/jsm/postprocessing/SMAAPass.js')
@@ -158,22 +233,60 @@ async function createTslPipeline(
       warn(`Bloom tidak tersedia di WebGPU: ${err?.message ?? err}`)
     }
   }
-  if (fx.antialias !== 'none') {
+  // Grading and AA both need display-referred color: tone map + sRGB first
+  let display: any = null
+  if (fx.antialias !== 'none' || fx.grade.enabled) {
     try {
-      // AA works on display-referred color: tone map + sRGB first, then AA
       pipeline.outputColorTransform = false
-      const display = tsl.renderOutput(color)
-      if (fx.antialias === 'smaa') {
+      display = tsl.renderOutput(color)
+      if (fx.grade.enabled) {
+        try {
+          const g = fx.grade
+          let c = display.rgb
+          c = tsl.mul(c, tsl.vec3(1.0 + 0.12 * g.temperature, 1.0 - 0.08 * g.tint, 1.0 - 0.12 * g.temperature))
+          c = tsl.mul(c, tsl.vec3(1.0 + 0.04 * g.tint, 1.0, 1.0 + 0.04 * g.tint))
+          c = tsl.add(c, tsl.vec3(g.lift))
+          c = tsl.mul(c, tsl.vec3(g.gain))
+          c = tsl.pow(tsl.max(c, tsl.vec3(0.0)), tsl.vec3(1.0 / Math.max(0.05, g.gamma)))
+          const luma = tsl.dot(c, tsl.vec3(0.2126, 0.7152, 0.0722))
+          c = tsl.mix(tsl.vec3(luma), c, tsl.float(g.saturation))
+          c = tsl.add(tsl.mul(tsl.sub(c, tsl.vec3(0.5)), tsl.vec3(g.contrast)), tsl.vec3(0.5))
+          if (g.vignette > 0) {
+            const d = tsl.div(tsl.length(tsl.mul(tsl.sub(tsl.screenUV, tsl.vec2(0.5)), tsl.vec2(2.0))), tsl.float(1.41421356))
+            const t = tsl.clamp(tsl.div(tsl.sub(tsl.float(1.0), d), tsl.float(0.55)), 0.0, 1.0)
+            const mask = tsl.smoothstep(tsl.float(0.0), tsl.float(1.0), t)
+            c = tsl.mul(c, tsl.add(tsl.float(1.0), tsl.mul(tsl.sub(mask, tsl.float(1.0)), tsl.float(g.vignette))))
+          }
+          display = tsl.vec4(tsl.clamp(c, 0.0, 1.0), display.a)
+          active.push('grade')
+        } catch (err: any) {
+          warn(`Color grading tidak tersedia di WebGPU: ${err?.message ?? err}`)
+        }
+      }
+    } catch (err: any) {
+      display = null
+      pipeline.outputColorTransform = true
+      warn(`Post-processing display pass gagal di WebGPU: ${err?.message ?? err}`)
+    }
+  }
+  if (display) {
+    color = display
+    if (fx.antialias === 'smaa') {
+      try {
         const { smaa } = await import('three/examples/jsm/tsl/display/SMAANode.js')
         color = smaa(display)
-      } else {
+        active.push('smaa')
+      } catch (err: any) {
+        warn(`SMAA tidak tersedia di WebGPU: ${err?.message ?? err}`)
+      }
+    } else if (fx.antialias === 'fxaa') {
+      try {
         const { fxaa } = await import('three/examples/jsm/tsl/display/FXAANode.js')
         color = fxaa(display)
+        active.push('fxaa')
+      } catch (err: any) {
+        warn(`FXAA tidak tersedia di WebGPU: ${err?.message ?? err}`)
       }
-      active.push(fx.antialias)
-    } catch (err: any) {
-      pipeline.outputColorTransform = true
-      warn(`${fx.antialias.toUpperCase()} tidak tersedia di WebGPU: ${err?.message ?? err}`)
     }
   }
   pipeline.outputNode = color

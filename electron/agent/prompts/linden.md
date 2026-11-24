@@ -40,6 +40,13 @@ These come from the `linden` MCP server. In OpenCode code mode they are called a
 7e. `linden_render_preview`: Render the scene or one entity offscreen from front, side, top and 3/4 and return the PNGs so you can SEE the result.
 7f. `linden_asset_import`: Import a .glb/.gltf/.obj model or .hdr/.exr environment into `assets/` and report its size, triangles, materials and animations.
 8. `linden_play`: Run the scene headless (ECS + Rapier physics + your compiled scripts at 60 Hz) and report compile errors, script exceptions (file and phase), bodies that fall out of the world, and final positions of dynamic bodies. With `inputScript` it simulates a player and reports, for every `CharacterMovement` entity, distance travelled, max jump height, jumps and grounded state.
+8b. `linden_scene_validate`: Audit a scene without writing it: duplicate ids, missing parents, parent cycles, unknown components, invalid transforms and missing script files. Run it before a big `linden_scene_apply` and after hand-edited scenes.
+8c. `linden_agent_status`: Current Agent Bridge state: local MCP endpoint, connected roles/scopes and active scene write leases (never tokens). Use it before handing work to another agent role.
+8d. `linden_play_matrix`: Run several `linden_play` scenarios in one call (explicit or seeded-random) and get an aggregate pass/fail report. Batches are capped at 20 runs / 60 simulated seconds.
+8e. `linden_level_synthesize`: Build a deterministic, seeded level layout (rooms + corridors + spawn/exit/hazard/loot/enemy markers) and return entities for `linden_scene_apply`. It never writes the scene itself.
+8f. `linden_snapshot_create` / `linden_snapshot_list` / `linden_snapshot_restore`: Time-travel snapshots of scenes, scripts, ui, web and project.linden.json under `.linden/snapshots`. Restore takes a "before restore" snapshot automatically.
+8g. `linden_script_patch`: Patch one class/function/method block of a TypeScript/JavaScript script instead of rewriting the file (`replace`, `delete`, `insert-before`, `insert-after`). GDScript/C#/Rust keep using `linden_script_write`.
+8h. `linden_review_gate`: Shared review record across agents (`request`, `verdict`, `status`). The requester cannot approve its own review. When `project.linden.json` sets `agentReview.required`, `linden_export_web` refuses until the review is approved.
 9. `linden_export_web`: Build the game into an HTML5 playable distribution.
 10. `linden_reference_view`: show the user's reference image (`references/<file>`) next to the latest `linden_render_preview` frames of an entity, to compare (section 7).
 10b. `linden_factory_write`: write your own three.js factory `models/<name>/create<Name>Model.ts` and compile-check it, for shapes the parts of `linden_model_build` cannot express (section 7).
@@ -104,6 +111,7 @@ Units: 1 unit = 1 meter, Y is up. Primitives are 1 m (box 1×1×1, sphere Ø1, c
 - `fog`: `{ enabled, type: 'exp2'|'linear', color, density, near, far }`.
 - `shadowQuality`: `off|low|medium|high` (shadow map 1024–4096, capped by the project's quality profile).
 - `postFx`: `{ enabled, ao, aoIntensity, bloom, bloomStrength, bloomThreshold, antialias: 'smaa'|'fxaa'|'none' }`. Off on the Low quality profile (mobile).
+- `colorGrade`: `{ enabled, contrast, saturation, temperature, tint, lift, gamma, gain, vignette }`, a CDL grade after tone mapping. Same math as the Blender preview grade, so pass a model's `blender.grade.colorGrade` here to make the engine match its Blender previews. `temperature`/`tint` are −1..1; neutral is contrast/saturation/gamma/gain 1, everything else 0. It activates post-processing even when `postFx.enabled` is false.
 
 ### Supported Components
 - `Transform`: `{ position: [x,y,z], rotation: [x,y,z], scale: [x,y,z] }`

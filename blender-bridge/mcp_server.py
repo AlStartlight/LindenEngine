@@ -234,6 +234,19 @@ def render_viewport(camera_pos=None, camera_target=None, fov=65, out_path=None, 
     bpy.context.scene.camera = cam
     cam.data.angle = math.radians(fov if fov else 65)
 
+    if camera_pos is None:
+        meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+        if meshes:
+            lo = Vector((min((o.matrix_world @ Vector(c)).x for o in meshes for c in o.bound_box),
+                         min((o.matrix_world @ Vector(c)).y for o in meshes for c in o.bound_box),
+                         min((o.matrix_world @ Vector(c)).z for o in meshes for c in o.bound_box)))
+            hi = Vector((max((o.matrix_world @ Vector(c)).x for o in meshes for c in o.bound_box),
+                         max((o.matrix_world @ Vector(c)).y for o in meshes for c in o.bound_box),
+                         max((o.matrix_world @ Vector(c)).z for o in meshes for c in o.bound_box)))
+            center = (lo + hi) * 0.5
+            span = max((hi - lo).x, (hi - lo).y, (hi - lo).z, 0.2)
+            camera_pos = center + Vector((1.0, -1.35, 0.8)).normalized() * (span * 2.7 + 0.9)
+            camera_target = [center.x, center.y, center.z]
     pos = Vector(camera_pos if camera_pos else [3.0, -4.0, 2.5])
     target = Vector(camera_target if camera_target else [0.0, 0.0, 0.5])
     direction = target - pos
@@ -256,11 +269,13 @@ def render_viewport(camera_pos=None, camera_target=None, fov=65, out_path=None, 
     bpy.context.scene.render.filepath = out_path
     bpy.context.scene.render.image_settings.file_format = 'PNG'
 
-    # Fast render with workbench or eevee
-    try:
-        bpy.context.scene.render.engine = 'BLENDER_EEVEE'
-    except Exception:
-        bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'
+    # EEVEE renamed in 4.2; try newest first, then workbench as a last resort
+    for engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "BLENDER_WORKBENCH"):
+        try:
+            bpy.context.scene.render.engine = engine
+            break
+        except Exception:
+            continue
 
     bpy.ops.render.render(write_still=True)
 
@@ -269,12 +284,16 @@ def render_viewport(camera_pos=None, camera_target=None, fov=65, out_path=None, 
         with open(out_path, "rb") as f:
             b64_data = base64.b64encode(f.read()).decode("ascii")
 
-    return {
+    out = {
         "success": True,
         "out_path": out_path,
-        "bytes": len(b64_data),
-        "base64_preview": b64_data[:120] + "..." if b64_data else None
+        "bytes": os.path.getsize(out_path) if os.path.exists(out_path) else 0,
+        "note": "Preview attached as an image block; compare it with the reference before the next iteration."
     }
+    if b64_data:
+        # The MCP host turns this into a real image content block (see tools/call).
+        out["images"] = [{"mimeType": "image/png", "data": b64_data}]
+    return out
 
 
 def build_environment(config):
@@ -486,9 +505,15 @@ def main():
             tool_args = params.get("arguments", {})
             try:
                 out = handle_tool_call(tool_name, tool_args)
-                send_response(req_id, result={
-                    "content": [{"type": "text", "text": json.dumps(out, indent=2)}]
-                })
+                images = out.pop("images", None) if isinstance(out, dict) else None
+                content = [{"type": "text", "text": json.dumps(out, indent=2)}]
+                for image in images or []:
+                    content.append({
+                        "type": "image",
+                        "data": image.get("data", ""),
+                        "mimeType": image.get("mimeType", "image/png"),
+                    })
+                send_response(req_id, result={"content": content})
             except Exception as e:
                 send_response(req_id, result={
                     "content": [{"type": "text", "text": f"Error: {str(e)}"}],

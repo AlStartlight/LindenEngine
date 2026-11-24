@@ -39,6 +39,8 @@ interface ToolbarProps {
   onOpenAgent?: () => void
   /** Phase of the agent's running turn; shows a status chip while set */
   agentActivity?: string
+  /** Pending agent diffs, shown as a badge on the right-side Agent entry */
+  agentPendingDiffs?: number
   onCreate3DObject?: (type: 'Cube' | 'Sphere' | 'Capsule' | 'Cylinder' | 'Plane') => void
   onExit?: () => void
   activeBottomTab?: 'project' | 'assets' | 'console' | 'output' | 'all' | 'hidden'
@@ -76,6 +78,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenProjectSettings,
   onOpenAgent,
   agentActivity,
+  agentPendingDiffs = 0,
   onCreate3DObject,
   onExit,
   activeBottomTab,
@@ -464,14 +467,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   closeMenu()
                 }}
               />
-              <MenuItem
-                label={t('panel.agent')}
-                icon={<Icons.Sparkles className="w-3.5 h-3.5 text-purple-400" />}
-                onClick={() => {
-                  onOpenAgent?.()
-                  closeMenu()
-                }}
-              />
               <MenuDivider />
               <MenuItem
                 label={t('menu.input_actions')}
@@ -504,8 +499,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </button>
         )}
 
+        {/* Right-side primary entry: the Agent panel is a first-class surface, not a menu item */}
+        <button
+          onClick={onOpenAgent}
+          className="mr-2 flex items-center gap-1.5 rounded-md border border-indigo-400/40 bg-indigo-500/15 px-2.5 py-1 text-[11px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/25"
+          title={t('toolbar.open_agent')}
+        >
+          <Icons.Sparkles className="h-3.5 w-3.5 text-indigo-300" />
+          <span>{t('panel.agent')}</span>
+          {agentPendingDiffs > 0 && (
+            <span className="ml-0.5 rounded-full bg-amber-500 px-1.5 text-[9px] font-bold leading-4 text-black">
+              {agentPendingDiffs}
+            </span>
+          )}
+        </button>
+
         {/* Language Selector */}
-        <div className="ml-auto mr-3 flex items-center gap-1.5">
+        <div className="mr-3 flex items-center gap-1.5">
           <span className="text-[11px] text-gray-400">🌐</span>
           <select
             value={activeLocale}

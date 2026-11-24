@@ -1,0 +1,1230 @@
+{
+  "format": "linden-scene",
+  "version": 2,
+  "name": "Cosmic Rift",
+  "settings": {
+    "ambientColor": "#5566aa",
+    "ambientIntensity": 0.2,
+    "skybox": "assets/sky/cosmic_sky.png",
+    "environment": "assets/hdri/cosmic_rift.hdr",
+    "environmentIntensity": 0.75,
+    "backgroundBlurriness": 0.0,
+    "toneMapping": "agx",
+    "exposure": 1.0,
+    "colorGrade": {
+      "enabled": true,
+      "contrast": 1.18,
+      "saturation": 1.16,
+      "temperature": -0.05,
+      "tint": 0.02,
+      "lift": 0.0,
+      "gamma": 1.0,
+      "gain": 1.0,
+      "vignette": 0.32
+    },
+    "fog": {
+      "enabled": true,
+      "color": "#151a3d",
+      "type": "exp2",
+      "near": 12,
+      "far": 140,
+      "density": 0.0016
+    },
+    "shadowQuality": "high",
+    "sun": {
+      "enabled": true,
+      "color": "#9db4ff",
+      "intensity": 1.5,
+      "direction": [
+        0.4,
+        0.85,
+        0.35
+      ]
+    },
+    "postFx": {
+      "enabled": true,
+      "ao": true,
+      "aoIntensity": 0.8,
+      "bloom": false,
+      "bloomStrength": 0.22,
+      "bloomThreshold": 1.6,
+      "bloomRadius": 0.35,
+      "antialias": "smaa"
+    }
+  },
+  "entities": [
+    {
+      "id": "ground",
+      "name": "Rift Ground",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0,
+              -0.3,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              70,
+              0.6,
+              70
+            ]
+          }
+        },
+        {
+          "type": "MeshRenderer",
+          "data": {
+            "primitive": "box",
+            "material": {
+              "color": "#2a2d42",
+              "roughness": 0.92,
+              "metalness": 0.06,
+              "procedural": {
+                "kind": "stone",
+                "contrast": 0.45,
+                "bump": 0.7,
+                "tileSize": 5,
+                "seed": 9
+              }
+            }
+          }
+        },
+        {
+          "type": "BoxCollider",
+          "data": {
+            "size": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "ruin_gate",
+      "name": "Rift Gate",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              -6.2
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "src": "assets/models/ruin_gate.glb",
+            "parts": [],
+            "placement": "floor",
+            "merge": true,
+            "collider": "none",
+            "castShadow": true,
+            "receiveShadow": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "portal_glow",
+      "name": "Portal Energy",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0,
+              2.35,
+              -6.05
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              2.5,
+              3.2,
+              0.08
+            ]
+          }
+        },
+        {
+          "type": "MeshRenderer",
+          "data": {
+            "primitive": "box",
+            "material": {
+              "color": "#ffffff",
+              "roughness": 0.4,
+              "metalness": 0.0,
+              "emissive": "#ffffff",
+              "emissiveIntensity": 1.6,
+              "opacity": 0.85,
+              "doubleSided": true,
+              "textures": {
+                "map": "assets/sky/portal_swirl.png",
+                "emissiveMap": "assets/sky/portal_swirl.png"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "portal_particles",
+      "name": "Portal Motes",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0,
+              2.3,
+              -5.9
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "ParticleEmitter",
+          "data": {
+            "preset": "magic",
+            "shape": "box",
+            "shapeSize": {
+              "x": 1.3,
+              "y": 1.7,
+              "z": 0.25
+            },
+            "rate": 45,
+            "maxParticles": 240,
+            "lifetime": {
+              "min": 1.0,
+              "max": 2.6
+            },
+            "speed": {
+              "min": 0.05,
+              "max": 0.45
+            },
+            "gravity": -0.02,
+            "drag": 0.1,
+            "size": [
+              {
+                "t": 0,
+                "v": 0.09
+              },
+              {
+                "t": 1,
+                "v": 0.015
+              }
+            ],
+            "color": [
+              {
+                "t": 0,
+                "color": "#cfe4ff",
+                "alpha": 1
+              },
+              {
+                "t": 0.4,
+                "color": "#4f9dff",
+                "alpha": 0.85
+              },
+              {
+                "t": 1,
+                "color": "#123a9a",
+                "alpha": 0
+              }
+            ],
+            "blending": "additive",
+            "texture": "spark",
+            "space": "world",
+            "light": {
+              "enabled": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "planet",
+      "name": "Ringed Planet",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              10,
+              10.5,
+              -26
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "collider": "none",
+            "merge": true,
+            "placement": "free",
+            "parts": [
+              {
+                "id": "sphere",
+                "name": "Planet",
+                "shape": {
+                  "type": "sphere",
+                  "radius": 4.6,
+                  "widthSegments": 64,
+                  "heightSegments": 40
+                },
+                "material": {
+                  "color": "#1e4b8f",
+                  "roughness": 0.5,
+                  "metalness": 0.15,
+                  "emissive": "#0a2a6a",
+                  "emissiveIntensity": 0.35
+                }
+              },
+              {
+                "id": "ring",
+                "name": "Ring",
+                "shape": {
+                  "type": "torus",
+                  "radius": 7.5,
+                  "tube": 0.24,
+                  "radialSegments": 16,
+                  "tubularSegments": 160
+                },
+                "rotation": [
+                  72,
+                  0,
+                  18
+                ],
+                "material": {
+                  "color": "#9fc2ff",
+                  "roughness": 0.35,
+                  "metalness": 0.7,
+                  "emissive": "#2b5ddd",
+                  "emissiveIntensity": 1.2
+                }
+              },
+              {
+                "id": "ring2",
+                "name": "Ring Dust",
+                "shape": {
+                  "type": "torus",
+                  "radius": 6.7,
+                  "tube": 0.4,
+                  "radialSegments": 12,
+                  "tubularSegments": 140
+                },
+                "rotation": [
+                  72,
+                  0,
+                  18
+                ],
+                "material": {
+                  "color": "#4f7fd9",
+                  "roughness": 0.6,
+                  "metalness": 0.4,
+                  "emissive": "#1b3f9c",
+                  "emissiveIntensity": 0.5,
+                  "opacity": 0.55
+                }
+              },
+              {
+                "id": "moon1",
+                "name": "Moon",
+                "shape": {
+                  "type": "sphere",
+                  "radius": 1.1,
+                  "widthSegments": 24,
+                  "heightSegments": 16
+                },
+                "position": [
+                  5.2,
+                  1.6,
+                  2.0
+                ],
+                "material": {
+                  "color": "#8a8fa8",
+                  "roughness": 0.9,
+                  "metalness": 0.0
+                }
+              },
+              {
+                "id": "moon2",
+                "name": "Moon 2",
+                "shape": {
+                  "type": "sphere",
+                  "radius": 0.55,
+                  "widthSegments": 20,
+                  "heightSegments": 12
+                },
+                "position": [
+                  -5.8,
+                  -1.2,
+                  3.2
+                ],
+                "material": {
+                  "color": "#8a8fa8",
+                  "roughness": 0.9,
+                  "metalness": 0.0
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "rock_a",
+      "name": "Floating Rock A",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              -7.5,
+              2.6,
+              -4.5
+            ],
+            "rotation": [
+              12,
+              28,
+              6
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "collider": "none",
+            "merge": true,
+            "placement": "free",
+            "parts": [
+              {
+                "id": "body",
+                "shape": {
+                  "type": "sphere",
+                  "radius": 1.0,
+                  "widthSegments": 16,
+                  "heightSegments": 12
+                },
+                "scale": [
+                  1.7,
+                  0.75,
+                  1.15
+                ],
+                "material": {
+                  "color": "#343850",
+                  "roughness": 0.85,
+                  "metalness": 0.05,
+                  "flatShading": true,
+                  "procedural": {
+                    "kind": "stone",
+                    "contrast": 0.5,
+                    "bump": 0.9,
+                    "tileSize": 2,
+                    "seed": 13
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "rock_b",
+      "name": "Floating Rock B",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              8.5,
+              3.6,
+              -7.5
+            ],
+            "rotation": [
+              -8,
+              -20,
+              14
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "collider": "none",
+            "merge": true,
+            "placement": "free",
+            "parts": [
+              {
+                "id": "body",
+                "shape": {
+                  "type": "sphere",
+                  "radius": 0.8,
+                  "widthSegments": 14,
+                  "heightSegments": 10
+                },
+                "scale": [
+                  1.25,
+                  0.7,
+                  0.9
+                ],
+                "material": {
+                  "color": "#343850",
+                  "roughness": 0.85,
+                  "metalness": 0.05,
+                  "flatShading": true,
+                  "procedural": {
+                    "kind": "stone",
+                    "contrast": 0.5,
+                    "bump": 0.9,
+                    "tileSize": 2,
+                    "seed": 13
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "crystal_a",
+      "name": "Crystal Spire A",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              -4.6,
+              0,
+              -2.6
+            ],
+            "rotation": [
+              0,
+              0,
+              -12
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "collider": "none",
+            "merge": true,
+            "placement": "floor",
+            "parts": [
+              {
+                "id": "spire",
+                "shape": {
+                  "type": "cone",
+                  "radius": 0.42,
+                  "height": 2.6,
+                  "radialSegments": 6
+                },
+                "material": {
+                  "color": "#12356f",
+                  "roughness": 0.2,
+                  "metalness": 0.4,
+                  "emissive": "#2f7bff",
+                  "emissiveIntensity": 2.4
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "crystal_b",
+      "name": "Crystal Spire B",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              5.2,
+              0,
+              -1.4
+            ],
+            "rotation": [
+              0,
+              0,
+              8
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "collider": "none",
+            "merge": true,
+            "placement": "floor",
+            "parts": [
+              {
+                "id": "spire",
+                "shape": {
+                  "type": "cone",
+                  "radius": 0.3,
+                  "height": 1.9,
+                  "radialSegments": 6
+                },
+                "material": {
+                  "color": "#12356f",
+                  "roughness": 0.2,
+                  "metalness": 0.4,
+                  "emissive": "#2f7bff",
+                  "emissiveIntensity": 2.4
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "portal_light",
+      "name": "Portal Light",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0,
+              2.6,
+              -4.6
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Light",
+          "data": {
+            "type": "point",
+            "color": "#3f7dff",
+            "intensity": 8,
+            "range": 12,
+            "castShadow": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "fill_light",
+      "name": "Nebula Fill",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              -6,
+              5,
+              2
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Light",
+          "data": {
+            "type": "point",
+            "color": "#7a54ff",
+            "intensity": 20,
+            "range": 18,
+            "castShadow": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "key_light",
+      "name": "Moon Key",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              5,
+              6,
+              4
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Light",
+          "data": {
+            "type": "point",
+            "color": "#cfe0ff",
+            "intensity": 14,
+            "range": 20,
+            "castShadow": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "camera",
+      "name": "Rift Camera",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0.7,
+              2.7,
+              6.4
+            ],
+            "rotation": [
+              -8,
+              2,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Camera",
+          "data": {
+            "fov": 48,
+            "near": 0.1,
+            "far": 400,
+            "isActive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "warden",
+      "name": "Astral Warden",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Player",
+        "Character"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0.5
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "src": "assets/models/astral_warden.glb",
+            "parts": [],
+            "placement": "free",
+            "merge": true,
+            "collider": "none",
+            "animation": "Idle",
+            "castShadow": true,
+            "receiveShadow": true
+          }
+        },
+        {
+          "type": "CapsuleCollider",
+          "data": {
+            "radius": 0.34,
+            "height": 2.0,
+            "center": {
+              "x": 0,
+              "y": 1.0,
+              "z": 0
+            }
+          }
+        },
+        {
+          "type": "CharacterController",
+          "data": {
+            "radius": 0.34,
+            "height": 2.0,
+            "stepOffset": 0.3
+          }
+        },
+        {
+          "type": "CharacterMovement",
+          "data": {
+            "walkSpeed": 4,
+            "sprintSpeed": 7,
+            "jumpHeight": 1.2,
+            "orientToMovement": true,
+            "cameraRelative": true
+          }
+        },
+        {
+          "type": "CharacterAnimator",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "rune_circle",
+      "name": "Rune Circle",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              0,
+              0.03,
+              0.5
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "collider": "none",
+            "merge": true,
+            "placement": "free",
+            "parts": [
+              {
+                "id": "rune_a",
+                "shape": {
+                  "type": "torus",
+                  "radius": 2.15,
+                  "tube": 0.045,
+                  "radialSegments": 10,
+                  "tubularSegments": 120
+                },
+                "rotation": [
+                  90,
+                  0,
+                  0
+                ],
+                "material": {
+                  "color": "#0b2b66",
+                  "roughness": 0.3,
+                  "metalness": 0.6,
+                  "emissive": "#2f7bff",
+                  "emissiveIntensity": 2.0
+                }
+              },
+              {
+                "id": "rune_b",
+                "shape": {
+                  "type": "torus",
+                  "radius": 2.55,
+                  "tube": 0.02,
+                  "radialSegments": 8,
+                  "tubularSegments": 120
+                },
+                "rotation": [
+                  90,
+                  0,
+                  0
+                ],
+                "material": {
+                  "color": "#5d4420",
+                  "roughness": 0.35,
+                  "metalness": 0.9,
+                  "emissive": "#b08a4e",
+                  "emissiveIntensity": 0.6
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "rock_fg_l",
+      "name": "Foreground Rock L",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              -2.9,
+              0,
+              2.2
+            ],
+            "rotation": [
+              0,
+              35,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "collider": "none",
+            "merge": true,
+            "placement": "floor",
+            "parts": [
+              {
+                "id": "body",
+                "shape": {
+                  "type": "sphere",
+                  "radius": 0.9,
+                  "widthSegments": 14,
+                  "heightSegments": 10
+                },
+                "scale": [
+                  1.4,
+                  0.65,
+                  1.0
+                ],
+                "material": {
+                  "color": "#343850",
+                  "roughness": 0.85,
+                  "metalness": 0.05,
+                  "flatShading": true,
+                  "procedural": {
+                    "kind": "stone",
+                    "contrast": 0.5,
+                    "bump": 0.9,
+                    "tileSize": 2,
+                    "seed": 13
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "rock_fg_r",
+      "name": "Foreground Rock R",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              3.1,
+              0,
+              1.7
+            ],
+            "rotation": [
+              0,
+              -25,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Model",
+          "data": {
+            "collider": "none",
+            "merge": true,
+            "placement": "floor",
+            "parts": [
+              {
+                "id": "body",
+                "shape": {
+                  "type": "sphere",
+                  "radius": 0.9,
+                  "widthSegments": 14,
+                  "heightSegments": 10
+                },
+                "scale": [
+                  1.4,
+                  0.65,
+                  1.0
+                ],
+                "material": {
+                  "color": "#343850",
+                  "roughness": 0.85,
+                  "metalness": 0.05,
+                  "flatShading": true,
+                  "procedural": {
+                    "kind": "stone",
+                    "contrast": 0.5,
+                    "bump": 0.9,
+                    "tileSize": 2,
+                    "seed": 13
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "rim_light",
+      "name": "Gate Rim",
+      "parentId": null,
+      "active": true,
+      "layer": 0,
+      "static": false,
+      "tags": [
+        "Environment"
+      ],
+      "components": [
+        {
+          "type": "Transform",
+          "data": {
+            "position": [
+              4.2,
+              4.0,
+              -3.2
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "Light",
+          "data": {
+            "type": "point",
+            "color": "#ffb066",
+            "intensity": 14,
+            "range": 16,
+            "castShadow": false
+          }
+        }
+      ]
+    }
+  ]
+}

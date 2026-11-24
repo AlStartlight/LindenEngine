@@ -2,7 +2,7 @@ name: Build Electron App
 
 on:
   push:
-    branches: [main, "feat/**", "fix/**"]
+    branches: [main, "feat/**", "fix/**", "release/**"]
     tags: ["v*"]
   pull_request:
     branches: [main]

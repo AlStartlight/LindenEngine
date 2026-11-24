@@ -156,6 +156,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentApplyDiff: (diffId: string) => invoke('agent:diff:apply', diffId),
   agentRejectDiff: (diffId: string) => invoke('agent:diff:reject', diffId),
   agentGetTemplates: () => invoke('agent:templates'),
+  agentBridgeStatus: () => invoke('agent:bridge:status'),
+  agentBridgeRestart: () => invoke('agent:bridge:restart'),
+  agentBridgeCopyConfig: (opts?: { roleId?: string; format?: 'dsh' | 'json' }) => invoke('agent:bridge:copy-config', opts),
   agentGetSessionTurns: (sessionId: string) => invoke('agent:session:turns', sessionId),
   agentGetTurnSnapshot: (sessionId: string) => invoke('agent:turn:snapshot', sessionId),
   onAgentEvent: (callback: (event: any) => void) => {
@@ -307,6 +310,9 @@ declare global {
       agentApplyDiff?: (diffId: string) => Promise<boolean>
       agentRejectDiff?: (diffId: string) => Promise<boolean>
       agentGetTemplates?: () => Promise<any[]>
+      agentBridgeStatus?: () => Promise<any>
+      agentBridgeRestart?: () => Promise<any>
+      agentBridgeCopyConfig?: (opts?: { roleId?: string; format?: 'dsh' | 'json' }) => Promise<{ ok: boolean; roleId?: string; format?: string; error?: string }>
       agentGetSessionTurns?: (sessionId: string) => Promise<any[]>
       agentGetTurnSnapshot?: (sessionId: string) => Promise<any | null>
       onAgentEvent?: (callback: (event: any) => void) => () => void
