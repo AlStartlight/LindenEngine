@@ -376,14 +376,23 @@ export class ScenePipeline {
     const token = ++this.envToken
     const env = this.settings.environment
     const sky = this.settings.skybox
+    // A sky is viewed at a huge screen-space footprint; mipmapped equirect sampling turns stars
+    // into blurred blobs. Backgrounds use a sharp bilinear sample (IBL still uses its own PMREM).
+    const skyTexture = (t: THREE.Texture) => {
+      t.minFilter = THREE.LinearFilter
+      t.magFilter = THREE.LinearFilter
+      t.generateMipmaps = false
+      t.needsUpdate = true
+      return t
+    }
     const setBackground = (envTex: THREE.Texture | null) => {
       if (token !== this.envToken || this.disposed) return
       if (typeof sky === 'string' && /^#[0-9a-f]{6}$/i.test(sky)) this.scene.background = new THREE.Color(sky)
-      else if (sky === 'environment' && envTex) this.scene.background = envTex
-      else if (sky === null && envTex && env !== 'room' && env !== 'none') this.scene.background = envTex
+      else if (sky === 'environment' && envTex) this.scene.background = skyTexture(envTex)
+      else if (sky === null && envTex && env !== 'room' && env !== 'none') this.scene.background = skyTexture(envTex)
       else if (typeof sky === 'string' && sky.startsWith('assets/') && this.opts.assets) {
         this.opts.assets.loadEnvironment(sky).then(
-          (t) => token === this.envToken && (this.scene.background = t),
+          (t) => token === this.envToken && (this.scene.background = skyTexture(t)),
           (err) => this.warn(err.message)
         )
       } else this.scene.background = new THREE.Color(DEFAULT_BACKGROUND)
@@ -498,13 +507,13 @@ export class ScenePipeline {
   }
 
   private postFxWanted(): boolean {
-    return this.settings.postFx.enabled && this.caps.postFx
+    return (this.settings.postFx.enabled || this.settings.colorGrade.enabled) && this.caps.postFx
   }
 
   private ensurePost(): void {
     if (!this.camera) return
     const wanted = this.postFxWanted()
-    const key = wanted ? JSON.stringify(this.settings.postFx) : ''
+    const key = wanted ? JSON.stringify({ postFx: this.settings.postFx, grade: this.settings.colorGrade }) : ''
     if (key === this.postKey || this.postBuilding) return
     this.post?.dispose()
     this.post = null
@@ -512,7 +521,16 @@ export class ScenePipeline {
     if (!wanted) return
     this.postBuilding = true
     const camera = this.camera
-    this.postReady = createPostPipeline(this.renderer, this.opts.backend, this.isWebGPURenderer, this.scene, camera, this.settings.postFx, this.size, (m) => this.warn(m))
+    this.postReady = createPostPipeline(
+      this.renderer,
+      this.opts.backend,
+      this.isWebGPURenderer,
+      this.scene,
+      camera,
+      { ...this.settings.postFx, grade: this.settings.colorGrade },
+      this.size,
+      (m) => this.warn(m)
+    )
       .then((p) => {
         if (this.disposed || this.postKey !== key || this.camera !== camera) p?.dispose()
         else this.post = p
