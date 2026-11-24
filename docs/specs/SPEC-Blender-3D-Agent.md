@@ -2,6 +2,8 @@
 
 Status: **implemented** di `feat/blender-3d-agent` (2026-11-10), M0–M5 selesai. Diverifikasi dengan Blender 5.2.3 (`/Applications/Blender.app`) dan OpenCode 2.1.4. Hasil M0 dan perbedaan dari draft dicatat di bawah.
 
+> **Diperluas (2026-11-24):** sculpting prosedural, tekstur PBR yang di-bake ke GLB, primitive `lathe`, dan color grading dua sisi ada di [`SPEC-Photoreal-Blender-Pipeline.md`](SPEC-Photoreal-Blender-Pipeline.md). Non-goal tekstur/baking di bawah hanya berlaku untuk v1 awal.
+
 ## M0 answers
 
 | # | Pertanyaan | Jawaban |
@@ -29,7 +31,7 @@ Kalau checkbox tidak dicentang atau Blender tidak terinstal, perilaku agent dan 
 - Bundle, link, atau `import bpy` di proses Electron. Begitu juga dependency npm/pip yang terkait Blender.
 - Addon user, autoexec, akses jaringan Blender (`--offline-mode`), dan file `.blend` milik user.
 - Blender versi < 4.2, Blender dari Microsoft Store, dan Steam.
-- Tekstur gambar atau baking di sisi Blender. v1 hanya membuat material PBR polos.
+- ~~Tekstur gambar atau baking di sisi Blender. v1 hanya membuat material PBR polos.~~ **Digantikan** oleh SPEC Photoreal: tekstur PBR prosedural sekarang di-bake dan ditanam di GLB.
 - Animasi atau rig dari Blender.
 
 ## Fakta dari kode yang ada
@@ -185,7 +187,8 @@ Urutan kerja:
    ```
 
    Hanya objek mesh yang terlihat yang diekspor.
-7. Cetak satu baris `LINDEN_RESULT:{"objects":n,"triangles":n,"bounds":{"min":[…],"max":[…]},"materials":[…],"warnings":[…]}`. Bounds dalam koordinat Blender.
+7. (Opsional `--previews <dir>`) render 3 sudut review (3/4, depan, samping) dengan studio light, setelah ekspor sehingga kamera/lampu tidak masuk GLB.
+8. Cetak satu baris `LINDEN_RESULT:{"objects":n,"triangles":n,"bounds":{"min":[…],"max":[…]},"materials":[…],"warnings":[…],"previews":[…]}`. Bounds dalam koordinat Blender.
 8. Kalau ada error, cetak `LINDEN_ERROR:<pesan>` ke stderr lalu `sys.exit(1)`. `--python-exit-code 1` menangkap exception yang lolos.
 
 `blender-bridge/README.md` menjelaskan lisensi, cara Linden memanggilnya, dan bahwa folder ini tidak pernah di-import oleh kode MIT.
@@ -231,7 +234,7 @@ Tool:
 | Tool | Input | Alur |
 |---|---|---|
 | `linden_blender_status` | – | `{found, version, path, active: blenderTurnActive()}`. Tidak diblokir flag karena berguna untuk diagnosis. |
-| `linden_blender_build` | `{name, spec, target?}` | Cek flag → zod → buat job dir → tulis `spec.json` → `runBlender()` → parse `LINDEN_RESULT` → `importAssetFile(projectPath, out.glb, target ?? assets/models/<slug(name)>.glb)` → `{path, blender: result, ...inspeksi, next: 'linden_model_build {model:{src: path}} lalu linden_render_preview'}`. |
+| `linden_blender_build` | `{name, spec, target?}` | Cek flag → zod → buat job dir → tulis `spec.json` → `runBlender()` dengan `--previews` → parse `LINDEN_RESULT` → baca 3 PNG preview sebagai `images` → `importAssetFile(projectPath, out.glb, target ?? assets/models/<slug(name)>.glb)` → `{path, blender: result, previewCount, warnings, next, images}`. |
 | `linden_blender_script` | `{name, code, target?}` | Cek flag → batasi `code` (≤ 64 KB) → `requestPermission({action:'blender_script', message:'Agent ingin menjalankan Python di Blender', code})` → kalau ditolak: `{success:false, error:'Script Blender ditolak user.'}` → kalau diizinkan: tulis `script.py` → `runBlender()` → import seperti di atas. |
 
 - Saat flag mati, ketiga tool build/script mengembalikan:

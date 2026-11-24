@@ -136,13 +136,26 @@ async function buildJob(projectPath: string, name: string, target: string | unde
   const jobId = `${slug(name)}-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`
   const jobDir = path.join(projectPath, JOBS_DIR, jobId)
   fs.mkdirSync(jobDir, { recursive: true })
-  const modeArgs = write(jobDir)
+  const previewDir = path.join(jobDir, 'previews')
+  const modeArgs = [...write(jobDir), '--previews', previewDir]
   const run = await runBlender(status.path, jobDir, modeArgs)
   const out = path.join(jobDir, 'out.glb')
   if (!run.ok || !run.result || !fs.existsSync(out)) {
     pruneFailedJobs(projectPath)
     return { success: false, error: `${run.error ?? 'Blender tidak menghasilkan out.glb'}\n(log: ${path.relative(projectPath, path.join(jobDir, 'log.txt')).split(path.sep).join('/')})` }
   }
+  // Blender renders three review angles inside the same job; the agent must see them
+  const previews: { mimeType: string; data: string; label: string }[] = []
+  for (const [file, label] of [
+    ['three_quarter', '3/4'],
+    ['front', 'front'],
+    ['side', 'side'],
+  ] as const) {
+    const previewPath = path.join(previewDir, `preview_${file}.png`)
+    if (!fs.existsSync(previewPath)) continue
+    previews.push({ mimeType: 'image/png', data: fs.readFileSync(previewPath).toString('base64'), label: `Blender preview (${label})` })
+  }
+
   if (run.result.triangles > MAX_TRIANGLES) {
     pruneFailedJobs(projectPath)
     return { success: false, error: `Model terlalu berat (${run.result.triangles} segitiga, maks ${MAX_TRIANGLES}); kurangi subdivision, segments atau array` }
@@ -150,13 +163,21 @@ async function buildJob(projectPath: string, name: string, target: string | unde
   try {
     const imported = importAssetFile(projectPath, out, target ?? `assets/models/${slug(name)}.glb`)
     fs.rmSync(jobDir, { recursive: true, force: true })
+    const warnings = [...(run.result.warnings ?? [])]
+    if (run.result.triangles < 300) warnings.push('Geometri sangat rendah (<300 segitiga): tambahkan bevel/subdivision atau parts sebelum menerima hasil ini')
     return {
       success: true,
       data: {
         ...imported,
         blender: { version: status.version, ...run.result, axes: 'bounds dalam sumbu Blender (Z atas); GLB sudah Y-up' },
-        next: `linden_model_build {name, model:{src:"${imported.path}"}} lalu linden_render_preview`,
+        previewCount: previews.length,
+        warnings,
+        next:
+          'Lihat gambar preview di atas, bandingkan dengan referensi (linden_reference_view), lalu iterasi spec bila proporsi/detail/material belum tepat. ' +
+          `Setelah puas: linden_model_build {name, model:{src:"${imported.path}"}} lalu linden_render_preview. ` +
+          'Agar engine tampil sama dengan preview, salin grade Blender (blender.grade.colorGrade) ke settings.colorGrade lewat linden_scene_apply.',
       },
+      ...(previews.length > 0 ? { images: previews } : {}),
     }
   } catch (err: any) {
     pruneFailedJobs(projectPath)
@@ -329,9 +350,11 @@ export const BLENDER_TOOLS: Record<string, ToolDefinition> = {
   linden_blender_build: {
     name: 'linden_blender_build',
     description:
-      'Membuat model 3D di Blender milik user dari spec deklaratif (primitive + modifier bevel/subdivision/solidify/array/mirror/boolean + material PBR), ' +
-      'mengekspor .glb lalu mengimpornya ke assets/models/. Hanya aktif bila user mencentang "Blender 3D". Sumbu spec: Z atas, meter, rotasi derajat. ' +
-      'Setelahnya: linden_model_build {model:{src}} lalu linden_render_preview.',
+      'Membuat model 3D fotorealistis di Blender milik user dari spec deklaratif: primitive/lathe + modifier (bevel/subdivision/solidify/array/mirror/boolean/weightedNormal) ' +
+      '+ sculpt prosedural (preset clay/stone/wood/fabric/hammered/organic) + tekstur PBR prosedural (albedo/roughness/normal) yang dipanggang ke GLB + color grading (AgX + CDL). ' +
+      'Mengekspor .glb lalu mengimpornya ke assets/models/. Hasilnya menyertakan 3 gambar preview Cycles fotorealistis (3/4, depan, samping) supaya kamu bisa menilai dan mengiterasi ' +
+      'sebelum dipasang. Hanya aktif bila user mencentang "Blender 3D". Sumbu spec: Z atas, meter, rotasi derajat. ' +
+      'Setelah puas: linden_model_build {model:{src}} lalu linden_render_preview dan linden_scene_apply dengan settings.colorGrade.',
     parameters: {
       type: 'object',
       properties: {
@@ -339,10 +362,18 @@ export const BLENDER_TOOLS: Record<string, ToolDefinition> = {
         spec: {
           type: 'object',
           description:
-            '{objects:[{name, primitive:"cube"|"uv_sphere"|"cylinder"|"cone"|"torus"|"plane", params?:{size,radius,radius1,radius2,depth,segments,rings,vertices,majorRadius,minorRadius,majorSegments,minorSegments}, ' +
-            'location?:[x,y,z], rotation?:[x,y,z] derajat, scale?:[x,y,z], modifiers?:[{type:"bevel",width,segments?,limit?}|{type:"subdivision",levels≤3}|{type:"solidify",thickness}|' +
-            '{type:"array",count,offset:[x,y,z] relatif}|{type:"mirror",axes:["x"]}|{type:"boolean",operation:"difference"|"union"|"intersect",with:"<nama objek cutter>"}], ' +
-            'material?:{baseColor:"#rrggbb", metallic?, roughness?}, smooth?, uv?:"smart"|"none", cutter?:true}], ground?:true, join?:false}',
+            '{objects:[{name, primitive:"cube"|"uv_sphere"|"cylinder"|"cone"|"torus"|"plane"|"lathe", ' +
+            'params?:{size,radius,radius1,radius2,depth,segments,rings,vertices,majorRadius,minorRadius,majorSegments,minorSegments,profile?:[[r,z],…] untuk lathe,profileSubdivisions?}, ' +
+            'location?:[x,y,z], rotation?:[x,y,z] derajat, scale?:[x,y,z], ' +
+            'sculpt?:{preset:"clay"|"stone"|"wood"|"fabric"|"hammered"|"organic"|"custom", strength?:0..0.2 (fraksi diagonal), scale?, seed?, subdivide?:0..3, decimate?:0..1, ' +
+            'layers?:[{type:"noise"|"ridged"|"dents"|"wrinkles"|"grain"|"chips", strength?, scale?, detail?, seed?}]}, ' +
+            'modifiers?:[{type:"bevel",width,segments?,limit?}|{type:"subdivision",levels≤3}|{type:"solidify",thickness}|' +
+            '{type:"array",count,offset:[x,y,z] relatif}|{type:"mirror",axes:["x"]}|{type:"weightedNormal",weight?:0..100}|' +
+            '{type:"boolean",operation:"difference"|"union"|"intersect",with:"<nama objek cutter>"}], ' +
+            'material?:{baseColor:"#rrggbb", metallic?, roughness?, texture?:{pattern:"noise"|"wood"|"marble"|"concrete"|"fabric"|"stone"|"brushed"|"rust", scale?, contrast?, colorA?, colorB?, roughnessMin?, roughnessMax?, bump?, normalStrength?, resolution?:256|512|1024, seed?}}, ' +
+            'smooth?, smoothAngle?:0..180, uv?:"smart"|"none", cutter?:true}], ' +
+            'grade?:{viewTransform?:"AgX"|"Filmic"|"Standard"|"Khronos PBR Neutral", look?:"AgX - Medium High Contrast"|…, exposure? (stop), whiteBalance?:{temperature:2000..12000,tint:-100..100}, colorGrade?:{contrast?,saturation?,temperature?,tint?,lift?,gamma?,gain?,vignette?}}, ' +
+            'preview?:{engine?:"cycles"|"eevee", samples? (8..256, default 48), resolution?:256|512|768|1024, backdrop?}, ground?:true, join?:false}',
         },
         target: { type: 'string', description: 'Tujuan .glb di assets/ (default assets/models/<nama>.glb)' },
       },
@@ -548,6 +579,17 @@ export const BLENDER_TOOLS: Record<string, ToolDefinition> = {
             },
             skybox: 'room',
             toneMapping: 'agx',
+            colorGrade: {
+              enabled: true,
+              contrast: 1.08,
+              saturation: 1.04,
+              temperature: 0.04,
+              tint: 0,
+              lift: 0,
+              gamma: 1,
+              gain: 1,
+              vignette: 0.16,
+            },
           },
           entities: [
             {
